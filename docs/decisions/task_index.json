@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_07_PREFLIGHT",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_07_PREFLIGHT",
+      "domain": "tournament",
+      "title": "Preflight — regime injection · giveback metrics · architecture alignment",
+      "why": "Leadership spec 07 was blocked: BacktestEngine fixed regime=None (B5≡B4), giveback absent from tournament metrics, and architecture docs drifted from implemented B0–B5 and INV registry.",
+      "resolution": "Implemented FeatureBuilder.build_regime_series, BacktestEngine(regimes=), peak/terminal/giveback metrics, RollingResult.givebacks and ReturnDistribution giveback_median/q90, harness/CLI/replay wiring; aligned architecture 01/02/07/08/10/11 and specs 00/07/08; SCENARIO-07P-01..06 pass lean_check.",
+      "impact": "Phase-1 gate closed: regime reaches B5, rolling distributions report giveback, documentation matches code; unblocks /spec 07_leadership_engine."
+    },
+    {
       "task_id": "TASK_06_RESEARCH_HARNESS",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_06_RESEARCH_HARNESS",

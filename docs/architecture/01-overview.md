@@ -34,8 +34,16 @@ $$
 
 - $P(R > \theta)$ for $\theta \in \{10, 20, 30, 40, 50\}\%$
 - 분위수 $q_{05}, q_{25}, \ldots, q_{99}$
-- CVaR(5%), MDD 분포
+- CVaR(5%), MDD 분포, **giveback median·q90** (INV-25)
 - $n_{\text{effective}}$ (겹치는 rolling window 보정)
+
+### 2.1.1 데이터 역할 (INV-PRE-3)
+
+| 데이터 | 역할 | 금지 |
+| --- | --- | --- |
+| 제1회(2024, ~4개월) | Hypothesis generator | parameter calibration, 07 채택 근거 |
+| 제2회(2025, 35세션) | Case-study replay | 단독 accept/reject, 파라미터 최적화 |
+| Rolling 36D (다년) | 전략 채택의 유일한 정량 근거 | 2025 창을 표본에서 삭제하지는 않되 별도 라벨 |
 
 ### 2.2 의사결정 관련 구간
 
@@ -152,7 +160,7 @@ ML 의 위치도 고정입니다. LightGBM Ranker 는 `AlphaModel` Protocol 을 
 | --- | --- | --- |
 | 1 | 5/10/20일 중 어느 momentum horizon 이 좋은가? | Momentum |
 | 2 | 절대 모멘텀보다 상대 모멘텀이 강한가? | Ranking |
-| 3 | 주도섹터 전략이 ETF 개별 ranking 보다 좋은가? | Sector |
+| 3 | B4 실패 후 대표 ETF + lifecycle 로만 재시도 시 주도섹터가 유효한가? | Sector |
 | 4 | momentum acceleration 이 미래수익을 설명하는가? | Early leadership |
 | 5 | breadth 가 추세 지속 가능성을 설명하는가? | Breadth |
 | 6 | 거래대금/자금유입이 추가 alpha 인가? | Flow |
