@@ -36,6 +36,7 @@
 | `04_pit_universe` | 05, 09 |
 | `05_feature_engine` | 06 |
 | `06_research_harness` | 08 |
+| `07_preflight` (완료) | 01, 07, 08, 10, 11 |
 | `07_leadership_engine` | 07 |
 | `08_portfolio_tournament` | 07, 11 |
 | `09_ml_ranker` (예정) | 12 |

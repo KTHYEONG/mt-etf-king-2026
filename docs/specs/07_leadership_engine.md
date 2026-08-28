@@ -1,8 +1,8 @@
 # 07. Sector Leadership Engine — cluster dedup · theme score · 6-state machine
 
-**선행**: [06_research_harness](06_research_harness.md) **결과 확인 후 contract 확정**
+**선행**: [06_research_harness](06_research_harness.md) + **07_preflight PASS** + B5≠B4 재측정
 **상위**: [00_architecture.md](00_architecture.md)
-**상태**: **Blueprint only — contract 유예** (§6 참조)
+**상태**: **Blueprint only — contract 유예** (§6 참조, preflight 전 해제 금지)
 
 ---
 
@@ -20,7 +20,7 @@
 
 ### 1.2 중복제거는 상관계수 추정 문제가 아니다
 
-next.md §38 은 `underlying index / sector / holdings overlap / return correlation` 을 제안한다. 그러나 KRX 패널은 매일 `IDX_IND_NM` 을 **공식적으로, point-in-time 하게** 제공한다.
+일부 설계안은 `underlying index / sector / holdings overlap / return correlation` 을 제안한다. 그러나 KRX 패널은 매일 `IDX_IND_NM` 을 **공식적으로, point-in-time 하게** 제공한다.
 
 $$
 \texttt{index\_key}(i) = \texttt{index\_key}(j) \;\Longrightarrow\; i,j \text{ 는 동일 베팅}
@@ -46,34 +46,34 @@ $$
 
 알파 점수로 대표를 뽑으면 안 된다 — 그건 같은 베팅 안에서 **잡음 최댓값**을 고르는 것이고, 정의상 과적합이다.
 
-### 1.4 Theme Score — 가설이지 정답이 아니다
+### 1.4 Theme Score — 가설이지 정답이 아니다 (preflight: rs/accel/breadth only)
 
 $$
 \text{SectorScore}(g,t) = \sum_k w_k \cdot z_k(g,t)
 $$
 
-| 성분 $z_k$ | 정의 | 근거 |
-| --- | --- | --- |
-| `rs` | 테마 20세션 수익률의 테마 간 percentile | 상대강도 |
-| `accel` | $\texttt{rs}_5 - \texttt{rs}_{20}$ | leadership 부상 감지 |
-| `breakout` | 20/40세션 신고가 근접도 | 추세 확정 |
-| `breadth` | cluster breadth (테마 내 ETF 중 MA20 상회 비율) | 상승의 질 |
-| `volume` | $\text{ADV}_5/\text{ADV}_{20}$ | 관심 급증 |
-| `flow` | 5세션 누적 $\Delta L \cdot N$ / net_assets | **실제 자금 유입** |
+| 성분 $z_k$ | 정의 | 기본 가중 | 근거 |
+| --- | --- | --- | --- |
+| `rs` | 테마 20세션 수익률의 테마 간 percentile | **>0** | 상대강도 |
+| `accel` | $\texttt{rs}_5 - \texttt{rs}_{20}$ | **>0** | leadership 부상 감지 |
+| `breadth` | cluster breadth (테마 내 ETF 중 MA20 상회 비율) | **>0** | 상승의 질 |
+| `breakout` | 20/40세션 신고가 근접도 | **0 (B3 실패)** | 추세 확정 |
+| `flow` | 5세션 누적 $\Delta L \cdot N$ / net_assets | **0 (V5 신뢰도)** | 실제 자금 유입 |
 
-next.md §28 의 초기 가중치 `(0.30, 0.20, 0.15, 0.15, 0.10, 0.10)` 는 **hypothesis 이며 그대로 production 에 박지 않는다**(INV-11, AGENTS.md *Invariant Logic Over Magic Numbers*).
+초기 가중치 `(0.30, 0.20, 0.15, 0.15, 0.10, 0.10)` 는 **hypothesis 이며 그대로 production 에 박지 않는다**(INV-11). preflight 권고: **rs/accel/breadth만>0**.
 
-**검증 절차**: 각 성분을 **단독 알파 모델**로 06 harness 에 태워 $P(R>\theta)$ 곡선을 얻는다. 기여가 없는 성분은 가중치를 주는 게 아니라 **제거**한다. 이것이 "작동하지 않는 아이디어를 빠르게 제거한다"는 프로젝트 목적(next.md §68)의 실행이다.
+**검증 절차**: 각 성분을 **단독 알파 모델**로 06 harness 에 태워 $P(R>\theta)$ 곡선을 얻는다. 기여가 없는 성분은 가중치를 주는 게 아니라 **제거**한다.
 
-### 1.5 6-State Machine — 점수보다 상태가 유용한 이유
+### 1.5 6-State Machine — 점수보다 상태가 유용한 이유 (OVERHEATED = CROWDED+EXHAUSTING)
 
 ```
 DISCOVERY → EMERGING → LEADING → OVERHEATED → BREAKDOWN → RECOVERY ─┐
      ▲                                                                │
      └────────────────────────────────────────────────────────────────┘
 ```
+6-state 유지, `OVERHEATED`는 feedback CROWDED+EXHAUSTING 통합.
 
-스칼라 점수는 "지금 강하다"만 말하지만, 상태는 **"어떻게 강해졌고 다음에 무엇을 해야 하는가"** 를 말한다. 특히 next.md §50 이 강조한 **재진입 기준**은 점수로 표현할 수 없다 — 같은 점수 60점이라도 `EMERGING` 의 60점과 `BREAKDOWN` 의 60점은 정반대 행동을 요구한다.
+스칼라 점수는 "지금 강하다"만 말하지만, 상태는 **"어떻게 강해졌고 다음에 무엇을 해야 하는가"** 를 말한다. **재진입 기준**은 점수로 표현할 수 없다 — 같은 점수 60점이라도 `EMERGING` 의 60점과 `BREAKDOWN` 의 60점은 정반대 행동을 요구한다.
 
 **전이 술어** (임계값은 전부 `configs/strategies.yaml`):
 
@@ -139,7 +139,7 @@ $$
 
 | 게이트 | 기준 |
 | --- | --- |
-| A-1 | 동일 프로토콜에서 `P(R>30%)` 가 B2(Top3 momentum) 대비 개선 |
+| A-1 | 동일 프로토콜에서 `P(R>30%)` **>0.091** (B2, 06 결과) |
 | A-2 | 클러스터 중복제거를 껐을 때보다 worst-5% 가 개선 (분산 효과 실재 확인) |
 | A-3 | state machine 을 끄고 점수만 썼을 때 대비 턴오버 감소 **and** `P(R>30%)` 비열위 |
 | A-4 | 성분별 ablation 에서 기여 없는 성분이 제거된 뒤에도 A-1 유지 |
@@ -179,4 +179,4 @@ configs/strategies.yaml  weights · thresholds (히스테리시스 검증 포함
 
 지금 contract 로 고정하면 `/implement` 가 근거 없는 상수를 코드에 박고, 그것이 INV-11 과 AGENTS.md 의 *Invariant Logic Over Magic Numbers* 를 정면 위반한다.
 
-**해제 조건**: 06 의 W3 게이트 4항목이 모두 충족되고 B0~B5 분포표가 산출된 시점에 `/spec 07_leadership_engine` 재실행.
+**해제 조건**: 06 의 W3 게이트 4항목 충족 + B0~B5 분포표 + **preflight PASS 및 B5≠B4 재측정** 시에 `/spec 07_leadership_engine` 재실행.

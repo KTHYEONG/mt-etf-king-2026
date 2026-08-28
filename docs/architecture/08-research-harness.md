@@ -89,6 +89,7 @@ for i in range(len(sessions) - 35):
 | `quantiles` | q05, q25, q50, q75, q95, q99 |
 | `CVaR_05` | worst 5% 평균 |
 | `MDD_dist` | window별 MDD 분포 |
+| `giveback_median/q90` | peak_to_final_giveback median·q90 (INV-25) |
 | `n_effective` | overlap 보정 유효 샘플 수 |
 
 ### 3.3 Overlap 보정
@@ -213,7 +214,7 @@ rank 400 →     0        ← rank 3 과 동일한 보상
 | **G2a** | $P(R_{36d} < -25\%) \le 5\%$ | **파산 제약** (B0 상대가 아닌 절대 기준) |
 | **G2b** | $\mathbb{E}[\text{Prize}]$ ≥ B0 수준 | 보상 정합 |
 | G3 | robustness grid 전 조합 PASS | 강건성 |
-| G4 | 2025 replay R > median anchor | 참조 (단독 기각 아님) |
+| G4 | 2025 replay R > median anchor | **경고** (INV-23, 단독 기각 아님) |
 | G5 | structural + deployment 모두 양(+)의 median | 구조적 타당성 |
 
 CVaR(5%) 와 MDD 분포는 **하드 게이트가 아니라 리포트 필수 진단 지표**로 유지합니다. 기각 사유는 못 되지만 항상 함께 보여줍니다.

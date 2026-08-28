@@ -56,6 +56,10 @@
 | INV-17 | 동일 `leverage_family` 에서 동시 보유 종목은 최대 1개 | 실효 노출 중복 |
 | INV-18 | 제약은 비중이 아니라 **실효 노출**(`Σ\|w × mult\|`)에 적용 | 위험 과소평가 |
 | INV-19 | `leverage_multiple` Confidence = LOW 인 종목은 배수 선택에서 `+1` 강제 | 부호 오판 (`인버스2X` → `+2`) |
+| INV-22 | 제1회(2024) 데이터로 파라미터 적합 금지 | 과적합 |
+| INV-23 | 2025 replay는 기각 게이트가 아님 (경고) | 단일 사례 과적합 |
+| INV-24 | alpha ≠ vehicle — alpha는 theme/index_key, vehicle은 ExposureSelector | 계층 혼합 |
+| INV-25 | 모든 rolling 평가는 giveback median·q90 보고 | 리스크 미측정 |
 
 ---
 
@@ -69,8 +73,6 @@
 | ARCH-4 | 파라미터는 config only (코드 magic number 금지) |
 | ARCH-5 | Unknown 규칙 → scenario 양쪽 산출, 단일 값 가정 금지 |
 | ARCH-6 | alpha 는 `index_key` 를 고르고, overlay 가 배수를 고른다 |
-
-> **ARCH-3 변경 이력**: 초기 설계는 "ML 범위 외"였습니다. 근거로 든 24일 일정은 잘못된 기준이었고, 실제 제약은 **유효 표본 수**입니다. shallow GBDT 는 이 제약 안에 들어오므로 범위에 포함하되, 용량 상한과 누출 방지(INV-13/15/16)를 강제합니다. 상세는 [12-ml-layer.md](12-ml-layer.md).
 
 ---
 
@@ -102,9 +104,7 @@ CRITICAL → **Parquet 쓰기 중단** + exit code ≠ 0.
 | G5 | Structural + Deploy median R > 0 | 기각 |
 | G6~G8 | ML 전용 (purged fold IC·안정성·baseline 초과) | 기각 |
 
-> **G2 변경 이력**: 초기 `CVaR(5%) 악화 ≤ 3%p vs B0` 는 레버리지 허용과 충돌해 성능과 무관하게 `+2x` 전략을 자동 기각시켰습니다. 대회 보상이 순위의 계단 함수(3위와 400위 보상 동일)이므로 대칭 위험 척도는 목적함수와 정합하지 않습니다. 회복 불가 구간만 절대 기준(G2a)으로 막고 보상 정합은 G2b 로 봅니다. 근거는 [08 §8.1](08-research-harness.md).
-
-CVaR(5%)·MDD 분포는 **진단 지표로 항상 리포트**하되 기각 사유는 아닙니다.
+CVaR(5%)·MDD는 진단 지표로 항상 리포트하되 기각 사유는 아닙니다. G4는 경고.
 
 ---
 

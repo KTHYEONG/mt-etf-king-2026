@@ -25,46 +25,24 @@ class AlphaModel(Protocol):
 
 ## 2. Baseline 전략 (B0~B5)
 
-모든 신규 아이디어는 동일 프로토콜로 baseline 대비 검증합니다.
+모든 신규 아이디어는 동일 프로토콜로 baseline 대비 검증합니다. **코드(`src/alpha/baselines.py`)가 진실**입니다.
 
-| ID | 전략 | 핵심 로직 |
+| ID | 코드 | sizing |
 | --- | --- | --- |
-| B0 | Buy & Hold KODEX 200 | 단일 ETF 보유 |
-| B1 | Equal Weight Top-5 Momentum | `mom_20` 상위 5개 동일 비중 |
-| B2 | Risk Parity Top-5 | `rv_20` 역가중 |
-| B3 | Sector Rotation | theme breadth 상위 1 cluster |
-| B4 | Creation Flow | `creation_flow` z-score 상위 |
-| B5 | Regime Switch | RISK_ON → momentum, RISK_OFF → cash |
+| B0 | `BuyAndHoldBaseline(069500)` | Top1 |
+| B1 | `TopKMomentum(mom_20)` | Top1 |
+| B2 | 동일 스코어 | Equal-K k=3 |
+| B3 | `MomentumTrendFilter(MA20)` | Top1 |
+| B4 | `ThemeMomentum` (theme 평균 mom) | Top1 |
+| B5 | `RegimeGatedMomentum(B4, block=STRONG_RISK_OFF)` | Top1 |
 
-B0 은 **floor** — 어떤 전략도 B0 대비 $P(R>θ)$ 하위 꼬리를 악화시키면 기각.
+B0 은 **floor** — 어떤 전략도 B0 대비 $P(R>θ)$ 하위 꼬리를 악화시키면 기각. B4 평균 mom 기반은 실측 기각(06 결과 P(R>30%) 0.064 < B2 0.091).
 
 ---
 
-## 3. Sector Leadership Model (Stage 4)
+## 3. Sector Leadership Model (Stage 4 · INV-PRE-4)
 
-핵심 가설: **개별 ETF ranking 보다 주도 섹터 선정이 tournament 에 유리하다.**
-
-```
-Regime (market state)
-  → Cluster Selection (어떤 theme 이 강한가)
-    → Within-cluster Ranking (그 theme 내 최고 ETF)
-      → Concentrated Pick (Top 1~3)
-```
-
-### 3.1 Cluster Score
-
-```
-cluster_score(theme, t) =
-    w1 × cluster_breadth(theme, t)
-  + w2 × mean(rank_mom_20 | theme, t)
-  + w3 × mean(creation_flow_z | theme, t)
-```
-
-가중치 `w1, w2, w3` 는 `configs/leadership.yaml`.
-
-### 3.2 Within-cluster Pick
-
-선정된 theme 내에서 `rank_mom_20` + `rank_accel` 복합 순위.
+**INV-PRE-4** MVP 성분: `rs` + `accel` + `cluster_breadth` + L1 `index_key` dedup + 6-state hysteresis. `flow`는 V5 항등식 일치율 제재로 기본 가중 0, `breakout`/MA 게이트는 B3 실패로 기본 가중 0. 테마 수익률은 평균이 아니라 **대표 ETF 가격** (B4 기각 근거). `OVERHEATED` = feedback CROWDED+EXHAUSTING 통합.
 
 ---
 
@@ -103,19 +81,13 @@ max_single_weight()     — 단일 종목 상한 (config)
 min_cash()              — 최소 현금 비율
 ```
 
-### 4.4 Position State Machine (`state.py`)
+### 4.4 Position State Machine (`state.py` — 08)
 
 ```
-CASH ──(entry signal)──→ LONG
-LONG ──(exit signal)───→ CASH
-LONG ──(rebalance)─────→ LONG (adjusted weights)
+HOLD ──→ TRIM ──→ EXIT ──→ WATCH ──→ RE_ENTER ──→ HOLD
 ```
 
-- Entry: alpha score > threshold + regime 허용
-- Exit: score 하락 / drawdown limit / regime 전환
-- Re-entry: cooldown 기간 후 (연구 질문 #10)
-
-상태 전이는 **next-open 체결** (INV-3).
+5-state lifecycle (spec 08). vehicle 선택은 `ExposureSelector`만 담당 (alpha ≠ vehicle, INV-24).
 
 ---
 
