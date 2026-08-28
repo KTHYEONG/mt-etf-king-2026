@@ -106,20 +106,28 @@ class TournamentReplay:
                 feature_snap = self.engine.features.snapshot(panel, snap)
             except Exception:
                 feature_snap = pl.DataFrame()
-            # Regime: try to get from snapshot? For simplicity use engine's regime logic via builder if available
-            # Use features.regime classification if possible; fallback to string "NEUTRAL"
+            # Regime: copy from engine.regimes if available
             regime_label = "NEUTRAL"
+            regime_snap = None
             try:
-                # attempt to call builder.regime_snapshot if engine.features is FeatureBuilder and we have index_panel? Not available.
-                # Just keep NEUTRAL or STRONG_RISK_OFF etc - must be non-empty
-                regime_label = "NEUTRAL"
-                # Override if snapshot has regime column?
-                if feature_snap.height > 0 and "regime" in feature_snap.columns:
-                    val = feature_snap.select(pl.col("regime")).to_series().to_list()[0]
-                    if val:
-                        regime_label = str(val)
+                reg_map = getattr(self.engine, "regimes", None)
+                if reg_map is not None and decision_date in reg_map:
+                    rs = reg_map[decision_date]
+                    regime_snap = rs
+                    # use state.value per contract
+                    try:
+                        regime_label = str(rs.state.value)
+                    except Exception:
+                        regime_label = str(getattr(rs, "state", "NEUTRAL"))
+                else:
+                    # fallback: check feature snapshot regime column
+                    if feature_snap.height > 0 and "regime" in feature_snap.columns:
+                        val = feature_snap.select(pl.col("regime")).to_series().to_list()[0]
+                        if val:
+                            regime_label = str(val)
             except Exception:
                 regime_label = "NEUTRAL"
+                regime_snap = None
             # Scoring via model
             # Need DecisionContext - reuse similar construction as engine
             try:
@@ -150,9 +158,24 @@ class TournamentReplay:
             # For replay we still delegate to same scoring path as engine (snapshot only)
             from src.alpha.base import DecisionContext
 
+            # DecisionContext regime same lookup as BacktestEngine.run
+            ctx_regime = None
+            try:
+                _rm = getattr(self.engine, "regimes", None)
+                if _rm is not None:
+                    ctx_regime = _rm.get(decision_date)
+                # ensure reference to self.engine.regimes for wiring
+                _wiring_ref = self.engine.regimes
+            except Exception:
+                ctx_regime = regime_snap
+            else:
+                # prefer already fetched snapshot
+                if regime_snap is not None:
+                    ctx_regime = regime_snap
+
             ctx = DecisionContext(
                 decision_date=decision_date,
-                regime=None,
+                regime=ctx_regime,
                 capital=config.capital,
                 held={},
                 rules=rules,

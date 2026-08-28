@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -151,6 +152,27 @@ class FeatureBuilder:
         decision_date: date,
     ) -> RegimeSnapshot:
         return classify_regime(index_panel, breadth_panel, decision_date, self.config.regime)
+
+    def build_regime_series(
+        self,
+        index_panel: pl.DataFrame,
+        breadth_panel: pl.DataFrame,
+        sessions: Sequence[date],
+    ) -> dict[date, RegimeSnapshot]:
+        out: dict[date, RegimeSnapshot] = {}
+        for sess in sessions:
+            # Slice PIT: date <= session
+            try:
+                idx_slice = index_panel.filter(pl.col("date") <= sess) if "date" in index_panel.columns else index_panel  # noqa: SIM108
+                br_slice = breadth_panel.filter(pl.col("date") <= sess) if "date" in breadth_panel.columns else breadth_panel  # noqa: SIM108
+            except Exception:  # noqa: S112
+                continue
+            try:
+                snap = classify_regime(idx_slice, br_slice, sess, self.config.regime)
+            except Exception:  # noqa: S112
+                continue
+            out[sess] = snap
+        return out
 
     def snapshot(self, feature_panel: pl.DataFrame, universe: UniverseSnapshot) -> pl.DataFrame:
         # Use universe.as_of as decision_date for PIT

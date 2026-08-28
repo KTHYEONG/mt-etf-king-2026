@@ -56,6 +56,7 @@ def run_distribution_eval(
         horizon=horizon,
         thresholds=thresholds,
         tail_weights=tail_weights,
+        givebacks=list(getattr(rolling, "givebacks", ())),
     )
 
 

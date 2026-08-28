@@ -7,7 +7,7 @@ import polars as pl
 
 from src.alpha.base import AlphaModel
 from src.backtest.engine import BacktestConfig, BacktestEngine
-from src.backtest.metrics import compound_returns, max_drawdown, window_returns
+from src.backtest.metrics import compound_returns, max_drawdown, peak_to_final_giveback, window_returns
 from src.core.calendar import TradingCalendar
 
 
@@ -18,6 +18,7 @@ class RollingResult:
     starts: tuple[date, ...]
     returns: tuple[float, ...]
     drawdowns: tuple[float, ...]
+    givebacks: tuple[float, ...] = ()
 
 
 class TournamentSimulator:
@@ -35,7 +36,7 @@ class TournamentSimulator:
     ) -> RollingResult:
         sessions = self.calendar.sessions(config.start, config.end)
         if not sessions or horizon <= 0:
-            return RollingResult(name=getattr(model, "name", "model"), horizon=horizon, starts=(), returns=(), drawdowns=())
+            return RollingResult(name=getattr(model, "name", "model"), horizon=horizon, starts=(), returns=(), drawdowns=(), givebacks=())
         n_windows = len(sessions) - horizon + 1 if len(sessions) >= horizon else 0
         starts: list[date] = []
         if n_windows > 0:
@@ -72,6 +73,7 @@ class TournamentSimulator:
             # Use rolling equity based on cumulative product of (1+ret) within window?
             # For each window starting at i, compute equity series for horizon steps: equity_j = product_{t=i}^{i+j} (1+ret) scaled to starting capital, then max_drawdown.
             dds: list[float] = []
+            givebacks: list[float] = []
             # Build equity cumulative for fast small window so O(T*h) acceptable but spec expects O(T) fast. We'll compute via prefix product too.
             # For each window, compute window equity curve via cum product of 1+ret segment.
             for i in range(len(win_rets)):
@@ -86,17 +88,21 @@ class TournamentSimulator:
                 eq_with_start = [1.0, *eq_curve]
                 dd = max_drawdown(eq_with_start)
                 dds.append(float(dd))
+                gb = peak_to_final_giveback(eq_with_start)
+                givebacks.append(float(gb))
             return RollingResult(
                 name=getattr(model, "name", "model"),
                 horizon=horizon,
                 starts=tuple(starts),
                 returns=tuple(float(x) for x in win_rets),
                 drawdowns=tuple(float(x) for x in dds),
+                givebacks=tuple(float(x) for x in givebacks),
             )
         else:
             # Slow path: re-run engine per window, extracting compound return of that window's daily series
             returns: list[float] = []
             drawdowns: list[float] = []
+            givebacks_slow: list[float] = []
             for start_date in starts:
                 # End = horizon sessions from start inclusive -> need calendar
                 # Find end date as sessions[idx + horizon -1]
@@ -134,6 +140,16 @@ class TournamentSimulator:
                     eq_vals = [float(row.get(eq_col)) for row in daily.iter_rows(named=True) if row.get(eq_col) is not None]  # type: ignore[arg-type]
                     # Use equity series to compute mdd, but align to horizon? Use available
                     dd = max_drawdown(eq_vals) if eq_vals else 0.0
+                    # giveback from equity path normalized to start 1.0 for comparability with fast path
+                    if eq_vals:
+                        first_eq = float(eq_vals[0])
+                        if first_eq != 0:
+                            normed = [float(v) / first_eq for v in eq_vals]
+                        else:
+                            normed = [float(v) for v in eq_vals]
+                        gb = peak_to_final_giveback(normed)
+                    else:
+                        gb = 0.0
                 else:
                     # build from rets
                     cur = 1.0
@@ -142,11 +158,14 @@ class TournamentSimulator:
                         cur *= 1.0 + float(r)
                         eq_curve2.append(cur)
                     dd = max_drawdown(eq_curve2)
+                    gb = peak_to_final_giveback(eq_curve2)
                 drawdowns.append(float(dd))
+                givebacks_slow.append(float(gb))
             return RollingResult(
                 name=getattr(model, "name", "model"),
                 horizon=horizon,
                 starts=tuple(starts),
                 returns=tuple(returns),
                 drawdowns=tuple(drawdowns),
+                givebacks=tuple(givebacks_slow),
             )

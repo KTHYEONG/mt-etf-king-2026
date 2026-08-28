@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
@@ -12,6 +13,7 @@ from src.backtest.execution import Fill, NextOpenExecution
 from src.backtest.liquidity import cap_target_weights_by_adv
 from src.core.calendar import TradingCalendar
 from src.features.builder import FeatureBuilder
+from src.features.regime import RegimeSnapshot
 from src.portfolio.constraints import normalize_weights
 from src.portfolio.sizing import SizingScheme, weights_from_scores
 from src.universe.provider import PointInTimeUniverse, UniverseFilters
@@ -46,11 +48,13 @@ class BacktestEngine:
         universe: PointInTimeUniverse,
         features: FeatureBuilder,
         execution: NextOpenExecution,
+        regimes: Mapping[date, RegimeSnapshot] | None = None,
     ) -> None:
         self.calendar = calendar
         self.universe = universe
         self.features = features
         self.execution = execution
+        self.regimes: Mapping[date, RegimeSnapshot] | None = regimes
 
     def run(
         self,
@@ -156,9 +160,12 @@ class BacktestEngine:
                     max_order_to_adv=filt.max_order_to_adv,
                     stress_grid=(0.01, 0.02, 0.05, 0.10),
                 )
+            regime_snap = None
+            if self.regimes is not None:
+                regime_snap = self.regimes.get(decision_date)
             ctx = DecisionContext(
                 decision_date=decision_date,
-                regime=None,
+                regime=regime_snap,
                 capital=equity_start,
                 held=dict(current_weights),
                 rules=rules,

@@ -526,7 +526,29 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 pass
         universe = PointInTimeUniverse(panel, master, cal, adv_window=20, brand_map=brand_map)
         execution = NextOpenExecution(cal)
-        engine = BacktestEngine(cal, universe, builder, execution)
+        # Build regime series if index_daily parquet exists (PIT)
+        regimes = None
+        try:
+            index_path = paths.silver("index_daily")
+            if index_path.exists():
+                import polars as _pl2
+
+                index_panel_r = _pl2.read_parquet(index_path)
+                try:
+                    breadth_panel_r = _pl2.DataFrame({"date": [], "breadth_ma20": []})
+                except Exception:
+                    breadth_panel_r = _pl2.DataFrame()
+                sessions_for_regime = cal.sessions(start, end)
+                regimes = builder.build_regime_series(index_panel_r, breadth_panel_r, sessions_for_regime)
+            else:
+                logger.warning(f"[DATA] backtest regimes=None index_daily not found {index_path}")
+        except Exception as exc:
+            logger.warning(f"[DATA] backtest regime build failed {exc!r}")
+            regimes = None
+        if regimes is not None:
+            engine = BacktestEngine(cal, universe, builder, execution, regimes=regimes)
+        else:
+            engine = BacktestEngine(cal, universe, builder, execution)
         model = BASELINES[model_key]()
         # Determine sizing scheme and k based on model name (B2 is EQUAL_K etc) - simple defaults
         from src.portfolio.sizing import SizingScheme
@@ -593,6 +615,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 horizon=horizon,
                 thresholds=thresholds,
                 tail_weights=tail_weights,
+                givebacks=list(getattr(rolling, "givebacks", ())),
             )
             logger.info(
                 f"[EVAL] backtest model={model_key} start={start} end={end} horizon={horizon} "
@@ -601,7 +624,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 f"participation={_fmt(participation)} "
                 f"n_windows={dist.n_windows} n_effective={dist.n_effective} "
                 + " ".join(f"q{int(k * 100):02d}={_fmt(v)}" for k, v in sorted(dist.quantiles.items()))
-                + f" cvar_05={_fmt(dist.cvar_05)} rts={_fmt(dist.right_tail_score)}"
+                + f" cvar_05={_fmt(dist.cvar_05)} giveback_median={_fmt(dist.giveback_median)} giveback_q90={_fmt(dist.giveback_q90)} rts={_fmt(dist.right_tail_score)}"
                 + " ".join(f"p>{_fmt(t)}={_fmt(v)}" for t, v in sorted(dist.exceedance.items()))
             )
         return 0

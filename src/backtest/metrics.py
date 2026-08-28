@@ -31,6 +31,47 @@ def compound_returns(returns: Sequence[float]) -> float:
     return float(math.expm1(s))
 
 
+def peak_return(equity: Sequence[float]) -> float:
+    if not equity:
+        return 0.0
+    try:
+        first = float(equity[0])
+    except Exception:
+        return 0.0
+    if first == 0:
+        return 0.0
+    try:
+        peak = max(float(v) for v in equity)
+    except Exception:
+        return 0.0
+    return float(peak / first - 1.0)
+
+
+def terminal_return(equity: Sequence[float]) -> float:
+    if not equity:
+        return 0.0
+    try:
+        first = float(equity[0])
+        last = float(equity[-1])
+    except Exception:
+        return 0.0
+    if first == 0:
+        return 0.0
+    return float(last / first - 1.0)
+
+
+def peak_to_final_giveback(equity: Sequence[float]) -> float:
+    if not equity:
+        return 0.0
+    pr = peak_return(equity)
+    tr = terminal_return(equity)
+    g = float(pr - tr)
+    # Clamp tiny negative due to floating error
+    if g < 0 and g > -1e-12:
+        return 0.0
+    return g
+
+
 def window_returns(returns: Sequence[float], horizon: int) -> list[float]:
     n = len(returns)
     if horizon <= 0:
