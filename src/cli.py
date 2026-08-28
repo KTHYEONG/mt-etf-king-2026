@@ -13,6 +13,9 @@ from src.core.settings import Settings, get_settings
 from src.data.bronze import BronzeStore as _BronzeStoreForOrphan  # noqa: F401
 from src.data.providers.ratelimit import RateLimiter as _RateLimiterForOrphan  # noqa: F401
 from src.data.silver import SilverBuilder  # noqa: F401
+from src.features.breadth import cluster_breadth as _cluster_breadth_ref  # noqa: F401
+from src.features.builder import FeatureBuilder as _FeatureBuilderForWiring  # noqa: F401
+from src.features.regime import classify_regime as _classify_regime_ref  # noqa: F401
 from src.universe.provider import PointInTimeUniverse  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -21,6 +24,7 @@ logger = logging.getLogger(__name__)
 _read_ref = _BronzeStoreForOrphan.read  # noqa: F401
 _available_sessions_ref = _BronzeStoreForOrphan.available_sessions  # noqa: F401
 _rate_limiter_ref = _RateLimiterForOrphan  # noqa: F401
+_snapshot_ref = _FeatureBuilderForWiring.snapshot  # noqa: F401
 
 
 def cmd_config_check(args: argparse.Namespace) -> int:
@@ -262,18 +266,102 @@ def cmd_universe(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_features(args: argparse.Namespace) -> int:
+    import time
+
+    try:
+        start_s = getattr(args, "start", None)
+        end_s = getattr(args, "end", None)
+        if start_s is None or end_s is None:
+            logger.error("[SYS] features status=fail error=missing --start/--end")
+            return 1
+        try:
+            start = date.fromisoformat(str(start_s))
+            end = date.fromisoformat(str(end_s))
+        except Exception as exc:
+            logger.error(f"[SYS] features status=fail error={exc!r}")
+            return 1
+        if start > end:
+            logger.error(f"[SYS] features status=fail error=start {start} > end {end}")
+            return 1
+        settings = get_settings()
+        paths = DataPaths(root=settings.data_root)
+        cal = get_calendar()
+        from src.features.builder import FeatureBuilder, FeatureConfig
+
+        config_path = Path("configs/features.yaml")
+        try:
+            config = FeatureConfig.from_yaml(config_path)
+        except Exception as exc:
+            logger.error(f"[SYS] features status=fail error=load config {exc!r}")
+            return 1
+        builder = FeatureBuilder(cal, config)
+        # Load silver panel
+        silver_path = paths.silver("etf_daily")
+        if not silver_path.exists():
+            logger.error(f"[SYS] features status=fail error=silver not found {silver_path}")
+            logger.error("[DATA] features status=fail error=silver not found")
+            return 1
+        import polars as pl
+
+        try:
+            panel = pl.read_parquet(silver_path)
+        except Exception as exc:
+            logger.error(f"[SYS] features status=fail error=read silver {exc!r}")
+            return 1
+        t0 = time.time()
+        # Build feature panel with decision_date=end (inclusive)
+        # Ensure panel filtered to <= end for PIT but build_panel does PIT check internally
+        try:
+            feature_panel = builder.build_panel(panel, decision_date=end)
+        except Exception as exc:
+            logger.error(f"[SYS] features status=fail error=build_panel {exc!r}")
+            return 1
+        # Filter to requested range [start, end] for persistence
+        if "date" in feature_panel.columns:
+            feature_panel = feature_panel.filter((pl.col("date") >= start) & (pl.col("date") <= end))
+            feature_panel = feature_panel.sort(["date", "ticker"])
+        # Persist to gold
+        gold_path = paths.gold("etf_features")
+        gold_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            feature_panel.write_parquet(str(gold_path), compression="zstd", use_pyarrow=True)
+        except TypeError:
+            feature_panel.write_parquet(str(gold_path), compression="zstd")
+        elapsed = time.time() - t0
+        # Coverage: count rows and distinct tickers/dates
+        rows = feature_panel.height
+        # count distinct dates and tickers
+        try:
+            n_dates = int(feature_panel.select(pl.col("date").n_unique()).item()) if rows > 0 and "date" in feature_panel.columns else 0
+        except Exception:
+            n_dates = 0
+        try:
+            n_tickers = int(feature_panel.select(pl.col("ticker").n_unique()).item()) if rows > 0 and "ticker" in feature_panel.columns else 0
+        except Exception:
+            n_tickers = 0
+        logger.info(f"[SYS] features start={start} end={end} elapsed={elapsed:.3f}s rows={rows}")
+        logger.info(f"[DATA] features start={start} end={end} rows={rows} dates={n_dates} tickers={n_tickers} path={gold_path}")
+        return 0
+    except Exception as exc:
+        logger.error(f"[SYS] features status=fail error={exc!r}")
+        return 1
+
+
 SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "config-check": cmd_config_check,
     "calendar": cmd_calendar,
     "ingest": cmd_ingest,
     "normalize": cmd_normalize,
     "universe": cmd_universe,
+    "features": cmd_features,
 }
 
 # wiring requirement: SUBCOMMANDS["ingest"] = cmd_ingest
 SUBCOMMANDS["ingest"] = cmd_ingest
 SUBCOMMANDS["normalize"] = cmd_normalize
 SUBCOMMANDS["universe"] = cmd_universe
+SUBCOMMANDS["features"] = cmd_features
 
 # Import for wiring verification
 from src.data.backfill import run_backfill as _run_backfill_ref  # noqa: F401,E402
@@ -308,6 +396,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_uni.add_argument("--mode", choices=["structural", "deployment"], default="deployment", help="universe mode")
     p_uni.add_argument("--max-order-to-adv", type=float, default=0.05, dest="max_order_to_adv", help="max order to ADV ratio")
     p_uni.set_defaults(func=cmd_universe)
+    # features
+    p_feat = sub.add_parser("features", help="build feature panel")
+    p_feat.add_argument("--start", required=True, help="start date YYYY-MM-DD")
+    p_feat.add_argument("--end", required=True, help="end date YYYY-MM-DD")
+    p_feat.set_defaults(func=cmd_features)
     return parser
 
 

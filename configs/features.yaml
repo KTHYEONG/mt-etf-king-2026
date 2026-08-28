@@ -1,0 +1,16 @@
+features:
+  momentum_horizons: [3, 5, 10, 20, 40, 60]
+  ma_windows: [20, 60]
+  breakout_windows: [20, 60]
+  volatility_windows: [5, 20]
+  flow_windows: [5, 20]
+  regime:
+    weights:
+      kospi_trend: 0.25
+      kospi_ma_slope: 0.20
+      kosdaq_trend: 0.20
+      breadth: 0.20
+      volatility: 0.15
+    thresholds: [0.25, 0.45, 0.65, 0.85]
+    breadth_floor: 0.5
+    volatility_ceiling: 0.025
