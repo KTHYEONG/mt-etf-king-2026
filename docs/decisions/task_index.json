@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_05_FEATURE_ENGINE",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_05_FEATURE_ENGINE",
+      "domain": "features",
+      "title": "Feature Engine — PIT guard · momentum · flow · breadth · regime · gold panel",
+      "why": "Silver ETF panel needs session-aligned, PIT-safe feature columns (momentum, trend, volatility, flow decomposition, cross-sectional ranks) persisted to gold for downstream research and model input.",
+      "resolution": "Implemented src/features/{pit,momentum,trend,volatility,flow,crosssec,breadth,regime,builder}.py, configs/features.yaml, and mt-etf features CLI: assert_pit on every public function, align_session_grid, AUM flow identity, FeatureBuilder.build_panel/snapshot, gold Parquet write; 11 contract scenarios pass lean_check.",
+      "impact": "L3 feature layer operational: mt-etf features --start --end writes features/etf_features.parquet; INV-05-1/2/4 shift-invariance and cross-sectional universe masking tested; regime/breadth wired via FeatureBuilder helpers."
+    },
+    {
       "task_id": "TASK_04_PIT_UNIVERSE",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_04_PIT_UNIVERSE",
