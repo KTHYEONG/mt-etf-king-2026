@@ -116,3 +116,64 @@ def test_ingest_wires_rate_limiter(monkeypatch: pytest.MonkeyPatch, tmp_path) ->
     assert provider_kwargs
     assert isinstance(provider_kwargs[0].get("limiter"), SpyRateLimiter)
     clear_settings_caches()
+
+
+def test_scenario_03_09_normalize_cli(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """SCENARIO-03-09"""
+    from datetime import date, datetime, UTC
+
+    from src.core.paths import DataPaths
+    from src.data.bronze import BronzeRecord, BronzeStore
+
+    monkeypatch.setenv("KRX_OPENAPI_KEY", "TESTKEY123")
+    monkeypatch.setenv("DATA_ROOT", str(tmp_path))
+    clear_settings_caches()
+    assert "normalize" in SUBCOMMANDS
+    paths = DataPaths(root=tmp_path)
+    store = BronzeStore(paths)
+
+    def _row(ticker: str, price: int, dstr: str) -> dict[str, str]:
+        return {
+            "BAS_DD": dstr,
+            "ISU_CD": ticker,
+            "ISU_NM": "Test",
+            "TDD_CLSPRC": str(price),
+            "NAV": str(price),
+            "TDD_OPNPRC": str(price),
+            "TDD_HGPRC": str(price + 1),
+            "TDD_LWPRC": str(price - 1),
+            "ACC_TRDVOL": "1000",
+            "ACC_TRDVAL": "1000000",
+            "MKTCAP": str(price * 1000),
+            "INVSTASST_NETASST_TOTAMT": str(price * 1000),
+            "LIST_SHRS": "1000",
+            "IDX_IND_NM": "Index",
+            "OBJ_STKPRC_IDX": "1000",
+        }
+
+    for d in [date(2026, 8, 14), date(2026, 8, 18)]:
+        rows = [_row("451060", 35000, d.strftime("%Y%m%d")), _row("069500", 30000, d.strftime("%Y%m%d"))]
+        rec = BronzeRecord(endpoint="etp/etf_bydd_trd", bas_dd=d, fetched_at=datetime.now(UTC), http_status=200, row_count=2, rows=rows)
+        store.write(rec)
+    ret = main(["normalize", "--dataset", "etf_daily", "--mode", "full"])
+    assert ret == 0
+    # fatal case
+    from unittest import mock
+
+    from src.data.validation import Severity, ValidationIssue, ValidationReport
+
+    def fatal_validate(self, dataset: str, frame):  # type: ignore[no-untyped-def]
+        return ValidationReport(dataset=dataset, rows=frame.height, sessions=0, issues=(ValidationIssue(gate="V2", severity=Severity.CRITICAL, count=1, detail="fatal"),))
+
+    monkeypatch.setenv("DATA_ROOT", str(tmp_path / "fatal"))
+    clear_settings_caches()
+    paths2 = DataPaths(root=tmp_path / "fatal")
+    store2 = BronzeStore(paths2)
+    d = date(2026, 8, 14)
+    rows = [_row("451060", 35000, d.strftime("%Y%m%d"))]
+    rec = BronzeRecord(endpoint="etp/etf_bydd_trd", bas_dd=d, fetched_at=datetime.now(UTC), http_status=200, row_count=1, rows=rows)
+    store2.write(rec)
+    with mock.patch("src.data.validation.PanelValidator.validate", fatal_validate):
+        ret2 = main(["normalize", "--dataset", "etf_daily", "--mode", "full"])
+        assert ret2 != 0
+    clear_settings_caches()
