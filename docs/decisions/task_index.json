@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_04_PIT_UNIVERSE",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_04_PIT_UNIVERSE",
+      "domain": "universe",
+      "title": "Point-in-Time Universe — instrument master · taxonomy · eligibility",
+      "why": "Silver panel alone cannot answer which ETFs are tradable at as_of: survivorship-safe existence, sponsor whitelist, ADV liquidity, and leverage-family metadata must be enforced before alpha research.",
+      "resolution": "Implemented src/universe/{instruments,families,taxonomy,tournament,provider}.py, configs/taxonomy.yaml, and mt-etf universe CLI: ordered existence→price→history→sponsor→liquidity→eligibility filters, deployment fail-closed sponsor/manifest, PIT ADV and as-of name resolution, LeverageFamilyIndex; 20 contract+invariant scenarios pass.",
+      "impact": "L2 universe layer operational: mt-etf universe --date --mode structural|deployment; INV-4/6/20 partially enforced at universe gate; INV-17 deferred to portfolio (max_per_family)."
+    },
+    {
       "task_id": "TASK_03_SILVER_PANEL",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_03_SILVER_PANEL",
