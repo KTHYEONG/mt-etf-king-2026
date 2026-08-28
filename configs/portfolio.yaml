@@ -1,0 +1,16 @@
+portfolio:
+  sizing_mode: concentrated
+  max_positions: 3
+  max_single_weight: 0.80
+  max_gross_exposure: 1.60
+  max_per_family: 1
+  min_cash: 0.05
+  rebalance_threshold: 0.10
+  exit:
+    score_drop_pct: 0.30
+    max_drawdown: -0.15
+  reentry:
+    cooldown_days: 5
+
+  # decide / 실제 매매는 deployment + manifest(확정 시) 교집합
+  universe_mode: deployment

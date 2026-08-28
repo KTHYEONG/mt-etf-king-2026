@@ -1,0 +1,11 @@
+gates:
+  g1_prob_threshold: 0.30
+  g1_min_improvement: 0.02
+  g2a_ruin_threshold: -0.25
+  g2a_max_prob: 0.05
+  diagnostics:
+  - cvar_05
+  - mdd_distribution
+
+  # deployment 모드에서만 전략 채택 판정 (structural 단독 채택 금지)
+  require_universe_mode: deployment
