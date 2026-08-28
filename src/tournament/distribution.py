@@ -125,6 +125,8 @@ class ReturnDistribution:
     exceedance: Mapping[float, float]
     cvar_05: float
     right_tail_score: float
+    giveback_median: float = 0.0
+    giveback_q90: float = 0.0
 
     @classmethod
     def summarise(
@@ -134,6 +136,7 @@ class ReturnDistribution:
         horizon: int,
         thresholds: Sequence[float],
         tail_weights: Mapping[float, float],
+        givebacks: Sequence[float] = (),
     ) -> ReturnDistribution:
         n = len(returns)
         n_eff = effective_sample_size(n, horizon)
@@ -169,6 +172,24 @@ class ReturnDistribution:
                 tail = sorted_r[:k]
             cvar = sum(tail) / len(tail) if tail else 0.0
         rts = right_tail_score(returns, tail_weights)
+        # giveback quantiles using same linear interpolation
+        def _q(vals: Sequence[float], level: float) -> float:
+            if not vals:
+                return 0.0
+            s = sorted(float(x) for x in vals)
+            nn = len(s)
+            if nn == 1:
+                return float(s[0])
+            pos = level * (nn - 1)
+            lo = int(math.floor(pos))
+            hi = int(math.ceil(pos))
+            if lo == hi:
+                return float(s[lo])
+            frac = pos - lo
+            return float(s[lo]) * (1 - frac) + float(s[hi]) * frac
+
+        gb_median = _q(givebacks, 0.50) if givebacks else 0.0
+        gb_q90 = _q(givebacks, 0.90) if givebacks else 0.0
         return cls(
             name=name,
             horizon=horizon,
@@ -179,4 +200,6 @@ class ReturnDistribution:
             exceedance=exc,
             cvar_05=float(cvar),
             right_tail_score=float(rts),
+            giveback_median=float(gb_median),
+            giveback_q90=float(gb_q90),
         )
