@@ -1,0 +1,14 @@
+# HTS 부문별 허용 ETF 리스트 (대회 직전 공개 예정).
+# 확정 전까지는 null — deployment universe는 sponsor_brands.yaml 브랜드 매핑을 사용.
+#
+# manifest 가 채워지면 issuer_whitelist 보다 우선한다 (더 좁은 집합).
+#
+# autonomous:
+#   as_of: "2026-09-15"
+#   source: "coscom_hts"
+#   isu_cds:
+#     - "069500"   # KODEX 200
+#     - "122630"   # KODEX 레버리지
+#     ...
+
+manifest: null

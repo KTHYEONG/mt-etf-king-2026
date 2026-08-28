@@ -1,0 +1,36 @@
+# 제3회 ETF 투자왕 대회 후원사 목록 (2026).
+# KRX etf_bydd_trd API에는 운용사 필드가 없으므로 ISU_NM 브랜드 접두어로 매핑한다.
+# 최종 진실 공급원은 대회 직전 HTS 부문별 허용 ETF 리스트 (configs/universe_manifest.yaml).
+
+infra_sponsors:
+  - name: "금융투자협회"
+    role: organizer
+  - name: "한국거래소"
+    role: organizer
+  - name: "코스콤"
+    role: organizer
+
+asset_managers:
+  삼성자산운용:
+    brands: ["KODEX"]
+  미래에셋자산운용:
+    brands: ["TIGER", "KoAct"]
+  KB자산운용:
+    brands: ["RISE"]
+  한국투자신탁운용:
+    brands: ["ACE"]
+  신한자산운용:
+    brands: ["SOL"]
+  한화자산운용:
+    brands: ["PLUS"]
+  타임폴리오자산운용:
+    brands: ["TIME"]
+  NH아문디자산운용:
+    brands: ["HANARO"]
+  키움투자자산운용:
+    brands: ["KIWOOM"]
+  하나자산운용:
+    brands: ["1Q"]
+
+# resolve_issuer() 가 UNKNOWN 을 반환하면 issuer_whitelist 활성 시 fail-closed 제외.
+unknown_brand_policy: exclude
