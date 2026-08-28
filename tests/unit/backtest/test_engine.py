@@ -1,4 +1,4 @@
-"""Engine integration checks for execution timing and costs."""
+"""Engine integration checks for execution timing and costs. SCENARIO-07P-02"""
 from __future__ import annotations
 
 from dataclasses import replace
@@ -6,10 +6,11 @@ from datetime import date
 
 import polars as pl
 
-from src.alpha.baselines import BuyAndHoldBaseline
+from src.alpha.baselines import BASELINES, BuyAndHoldBaseline  # noqa: F401
 from src.backtest.costs import CostConfig, CostModel
-from src.backtest.engine import BacktestConfig
+from src.backtest.engine import BacktestConfig, BacktestEngine
 from src.core.calendar import TradingCalendar
+from src.features.regime import RegimeSnapshot, RegimeState
 from src.portfolio.sizing import SizingScheme
 from tests.unit.backtest.conftest import build_engine, panel_row
 
@@ -76,3 +77,28 @@ def test_engine_applies_participation_cap_before_fill() -> None:
     assert result.trades.height >= 1
     first_weight = float(result.trades.sort("execution_date").select("weight").item(0, 0))
     assert first_weight <= 0.01 + 1e-9
+
+
+def test_SCENARIO_07P_02_regime_gating() -> None:  # noqa: N802
+    """SCENARIO-07P-02"""
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 1, 13))
+    rows = [panel_row(day=d, ticker="069500", close=30000.0, mom_20=0.2) for d in sessions] + [
+        panel_row(day=d, ticker="451060", close=20000.0, mom_20=0.1) for d in sessions
+    ]
+    panel = pl.DataFrame(rows)
+    engine, cal2, filt = build_engine(panel, warmup_sessions=1, max_order_to_adv=1.0)
+    from dataclasses import replace
+
+    filt2 = replace(filt, max_order_to_adv=1.0)
+    config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1e9, scheme=SizingScheme.TOP1, k=1, filters=filt2, costs=CostConfig(0, 0, 0))
+    # regimes mapping every session to STRONG_RISK_OFF
+    regimes = {d: RegimeSnapshot(as_of=d, state=RegimeState.STRONG_RISK_OFF, score=0.0, components={}) for d in sessions}
+    engine_gated = BacktestEngine(cal2, engine.universe, engine.features, engine.execution, regimes=regimes)
+    # four-arg construction still works
+    _engine4 = BacktestEngine(cal2, engine.universe, engine.features, engine.execution)
+    assert _engine4.regimes is None
+    res_b5 = engine_gated.run(BASELINES["B5"](), panel, config)
+    assert res_b5.trades.height == 0
+    res_b4 = engine.run(BASELINES["B4"](), panel, config)
+    assert res_b4.trades.height >= 1
