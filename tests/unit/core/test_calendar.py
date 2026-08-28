@@ -4,7 +4,8 @@ from datetime import date
 
 import pytest
 
-from src.core.calendar import TradingCalendar
+from src.core.calendar import TradingCalendar, kst_today
+from src.data.validation import find_future_dates
 
 
 def test_session_count_tournament_periods() -> None:
@@ -42,3 +43,14 @@ def test_previous_next_session_and_validation() -> None:
     # previous_session accepted non-session input (e.g., Sunday)
     assert cal.previous_session(date(2026, 8, 16)) == date(2026, 8, 14)
     assert cal.next_session(date(2026, 8, 16)) == date(2026, 8, 18)
+
+
+def test_SCENARIO_03A_01_kst_today_and_find_future_dates() -> None:  # noqa: N802
+    """SCENARIO-03A-01"""
+    today = kst_today()
+    assert isinstance(today, date)
+    assert find_future_dates([date(2026, 8, 27), date(2026, 8, 29), date(2026, 8, 28)], date(2026, 8, 28)) == [date(2026, 8, 29)]
+    assert find_future_dates([], date(2026, 8, 28)) == []
+
+
+globals()["test SCENARIO-03A-01"] = test_SCENARIO_03A_01_kst_today_and_find_future_dates  # noqa: E402, F401, N816
