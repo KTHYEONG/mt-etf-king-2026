@@ -11,6 +11,7 @@ from src.core.paths import DataPaths
 from src.core.settings import Settings, get_settings
 from src.data.bronze import BronzeStore as _BronzeStoreForOrphan  # noqa: F401
 from src.data.providers.ratelimit import RateLimiter as _RateLimiterForOrphan  # noqa: F401
+from src.data.silver import SilverBuilder  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -138,14 +139,41 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_normalize(args: argparse.Namespace) -> int:
+    try:
+        dataset = getattr(args, "dataset", None) or "etf_daily"
+        mode = getattr(args, "mode", None) or "incremental"
+        if mode not in ("full", "incremental"):
+            logger.error(f"[SYS] normalize status=fail error=invalid mode {mode!r}")
+            return 1
+        settings = get_settings()
+        paths = DataPaths(root=settings.data_root)
+        cal = get_calendar()
+        from src.data.bronze import BronzeStore
+        from src.data.validation import PanelValidator
+
+        validator = PanelValidator(calendar=cal)
+        store = BronzeStore(paths)
+        builder = SilverBuilder(store, paths, validator)
+        result = builder.build(dataset, mode=mode)  # type: ignore[arg-type]
+        logger.info(f"[DATA] normalize dataset={dataset} mode={mode} rows={result.rows} sessions={result.sessions} path={result.path}")
+        return 0
+    except Exception as exc:
+        logger.error(f"[SYS] normalize status=fail error={exc!r}")
+        logger.error(f"[DATA] normalize status=fail dataset={getattr(args, 'dataset', 'unknown')} error={exc!r}")
+        return 1
+
+
 SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "config-check": cmd_config_check,
     "calendar": cmd_calendar,
     "ingest": cmd_ingest,
+    "normalize": cmd_normalize,
 }
 
 # wiring requirement: SUBCOMMANDS["ingest"] = cmd_ingest
 SUBCOMMANDS["ingest"] = cmd_ingest
+SUBCOMMANDS["normalize"] = cmd_normalize
 
 # Import for wiring verification
 from src.data.backfill import run_backfill as _run_backfill_ref  # noqa: F401,E402
@@ -169,6 +197,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest.add_argument("--end", required=True, help="end date YYYY-MM-DD")
     p_ingest.add_argument("--dry-run", action="store_true", dest="dry_run", help="print plan without fetching")
     p_ingest.set_defaults(func=cmd_ingest)
+    # normalize
+    p_norm = sub.add_parser("normalize", help="build silver panel")
+    p_norm.add_argument("--dataset", required=True, help="dataset alias")
+    p_norm.add_argument("--mode", choices=["full", "incremental"], default="incremental", help="build mode")
+    p_norm.set_defaults(func=cmd_normalize)
     return parser
 
 
