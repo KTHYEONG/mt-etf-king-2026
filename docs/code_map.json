@@ -17,5 +17,21 @@
   },
   "src/core/sops_env.py": {
     "testing": "tests/unit/core/test_sops_env.py"
+  },
+  "src/data/backfill.py": {
+    "testing": "tests/unit/data/test_backfill.py"
+  },
+  "src/data/bronze.py": {
+    "testing": "tests/unit/data/test_bronze.py"
+  },
+  "src/data/providers/base.py": {
+    "testing": "tests/unit/data/providers/test_base.py"
+  },
+  "src/data/providers/krx.py": {
+    "architecture": "docs/architecture/04-data-pipeline.md",
+    "testing": "tests/unit/data/providers/test_krx.py"
+  },
+  "src/data/providers/ratelimit.py": {
+    "testing": "tests/unit/data/providers/test_ratelimit.py"
   }
 }

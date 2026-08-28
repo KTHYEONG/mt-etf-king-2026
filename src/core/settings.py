@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     log_root: Path = Path("logs")
     request_timeout_s: float = 30.0
     max_concurrency: int = 6
+    requests_per_second: float = 5.0
     daily_call_quota: int = 8000
     calendar_name: str = "XKRX"
 
