@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_03_SILVER_PANEL",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_03_SILVER_PANEL",
+      "domain": "data",
+      "title": "Silver Panel — schema decode · validation gates · normalize CLI",
+      "why": "Bronze JSON must become typed, fail-closed silver Parquet: empty-string→None decoding, valid_price_ratio session classification, accounting-identity checks, robust tradability flags, and architecture-mandated no_future_dates gate before disk write.",
+      "resolution": "Implemented src/data/{schema,silver,validation}.py, kst_today in src/core/calendar.py, and normalize CLI: DatasetSchema per-endpoint decode, classify_session (ρ≥0.5), PanelValidator V2–V10 (duplicate key, identity, no_future_dates CRITICAL), SilverBuilder incremental/full idempotent build with zstd Parquet; 12 contract scenarios pass.",
+      "impact": "L1 silver layer operational: mt-etf normalize produces validated etf_daily Parquet under data/normalized/; CRITICAL validation blocks contaminated panels; INV-1/2 and integrity gates (duplicate key, future date) enforced at Bronze→Silver conversion."
+    },
+    {
       "task_id": "TASK_02_KRX_INGESTION",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_02_KRX_INGESTION",
