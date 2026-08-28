@@ -26,14 +26,27 @@ configs/
 
 ## 2. 로드 우선순위
 
+### 2.1 Secrets (API 키)
+
+```
+프로세스 환경변수 (KRX_OPENAPI_KEY 등)   ← 최우선 (CI·테스트·임시 override)
+  → .env.enc (sops 복호화, 메모리만)     ← 로컬 기본
+```
+
+- **평문 `.env` 는 사용하지 않음.** `.env.enc` 만 저장소에 커밋.
+- sops+age: `.sops.yaml` 에 age public key, private key 는 `~/.config/sops/age/keys.txt`.
+- 경로 변경: `MT_ETF_ENV_ENC`.
+- `config-check` / 로그는 credential **존재 여부(boolean)** 만 출력.
+
+### 2.2 비시크릿 파라미터 (YAML)
+
 ```
 base.yaml
   → {env}.yaml (dev/prod)
   → CLI --config override (선택)
-  → 환경변수 (secrets only: KRX_AUTH_KEY)
 ```
 
-`Settings` 객체가 모든 config 를 merge 한 단일 진실 공급원.
+`Settings` 객체가 secrets + 비시크릿 config 를 merge 한 단일 진실 공급원 (YAML merge 는 단계별 연결 예정).
 
 ---
 
@@ -269,5 +282,5 @@ overrides:
 
 1. **코드에 magic number 금지** — window, threshold, weight 는 전부 config
 2. **Config 변경 = 실험** — git 으로 추적, 결과와 함께 기록
-3. **Secret 은 config 파일에 넣지 않음** — `KRX_AUTH_KEY` 는 환경변수만
+3. **Secret 은 YAML·평문 파일에 넣지 않음** — `.env.enc`(sops) 또는 프로세스 환경변수만. 평문 `.env` 생성 금지.
 4. **대회 규칙 확정 시** — `Unknown` → `true/false` 로 업데이트 + scenario 결과 재산출

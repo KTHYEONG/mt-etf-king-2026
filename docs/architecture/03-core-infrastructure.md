@@ -8,8 +8,9 @@
 
 | 모듈 | 책임 |
 | --- | --- |
-| `settings.py` | 환경변수·YAML 로드, `Settings` 싱글톤 |
-| `calendar.py` | XKRX 거래일, `next_session` / `prev_session` |
+| `settings.py` | 환경변수·`.env.enc`(sops) 로드, `Settings` 싱글톤 |
+| `sops_env.py` | sops 복호화, `SopsDotEnvSettingsSource` |
+| `calendar.py` | XKRX 거래일, `next_session` / `previous_session` |
 | `paths.py` | `DataPaths` — bronze/silver/gold/state 루트 |
 | `logging_setup.py` | 구조화 로그, `[SYS][DATA][ALGO][EVAL]` 태그 |
 
@@ -17,31 +18,58 @@
 
 ## 2. Settings
 
-### 2.1 로드 순서
+### 2.1 비밀(Secrets) 로드 — `.env.enc` + sops
+
+API 키 등 비밀은 **평문 `.env` 파일을 만들지 않습니다.** 저장소에 커밋된 `.env.enc` 를 런타임에 sops 로 메모리 복호화합니다.
 
 ```
-환경변수 (KRX_AUTH_KEY 등)
-  → configs/base.yaml
+프로세스 환경변수 (KRX_OPENAPI_KEY 등)     ← 최우선
+  → .env.enc (sops -d, stdout → 메모리)   ← 기본
+```
+
+| 항목 | 값 |
+| --- | --- |
+| 암호화 파일 | `.env.enc` (dotenv 형식, sops+age) |
+| 복호화 도구 | `sops` CLI (PATH 필수) |
+| age 키 | `~/.config/sops/age/keys.txt` (로컬, git 제외) |
+| 경로 오버라이드 | `MT_ETF_ENV_ENC=/path/to/.env.enc` |
+| 평문 `.env` | **생성·사용 안 함** (`.gitignore` 대상) |
+
+구현 (`src/core/sops_env.py`):
+
+1. `decrypt_env_enc()` — `sops -d --input-type dotenv --output-type dotenv` 를 subprocess 로 호출, **stdout 만** 사용 (디스크 미기록)
+2. `SopsDotEnvSettingsSource` — 복호화 결과를 pydantic-settings dotenv 소스로 주입
+3. `decrypt_env_enc` 는 `@lru_cache` — 프로세스당 1회 복호화
+
+복호화 실패(sops 미설치, age 키 없음, 파일 없음) 시 빈 dict → `krx_openapi_key` 누락 → `ValidationError` (fail-closed).
+
+### 2.2 비시크릿 설정 로드 (향후)
+
+```
+configs/base.yaml
   → configs/{env}.yaml (선택)
   → CLI override (선택)
 ```
 
-### 2.2 핵심 필드
+현재 spec 01 구현 범위에서는 YAML merge 는 미연결. `Settings` 는 secrets + 경로/쿼터 등 pydantic 필드만 담당.
+
+### 2.3 핵심 필드
 
 | 필드 | 용도 |
 | --- | --- |
-| `krx.auth_key` | `SecretStr` — 로그·repr 에 노출 금지 |
-| `krx.base_url` | `https://data-dbg.krx.co.kr/svc/apis` |
-| `krx.rate_limit_rps` | API 호출 속도 제한 |
-| `data.root` | `data/` 루트 (repo 내 상대 경로) |
-| `calendar.exchange` | `"XKRX"` 고정 |
-| `tournament.capital` | 10억 (1,000,000,000 KRW) |
-| `tournament.start_date` / `end_date` | 2026 대회 기간 |
+| `krx_openapi_key` | `SecretStr` — 로그·repr 에 노출 금지 |
+| `fred_api` / `ecos_api` / `opendart_api_key` | `SecretStr \| None` |
+| `krx_base_url` | `https://data-dbg.krx.co.kr/svc/apis` |
+| `data_root` | `data/` 루트 |
+| `log_root` | `logs/` 루트 |
+| `daily_call_quota` | KRX 일일 호출 상한 (기본 8,000) |
+| `calendar_name` | `"XKRX"` 고정 |
 
-### 2.3 `get_settings()`
+### 2.4 `get_settings()`
 
 - `@lru_cache` 싱글톤
-- 테스트에서는 `get_settings.cache_clear()` + env override 로 격리
+- 테스트에서는 `clear_settings_caches()` + env override 로 격리
+- `get_secret_value()` 는 API 클라이언트 **생성 시 1회**만 호출; 로그·repr·예외에 원문 금지
 
 ---
 
@@ -111,10 +139,10 @@ SUBCOMMANDS: dict[str, Callable] = {
 
 시작 전 필수 검증:
 
-- `KRX_AUTH_KEY` 존재
-- `data/` 쓰기 가능
+- `Settings` 로드 성공 (`.env.enc` sops 복호화 또는 환경변수)
+- credential 존재 여부 **boolean 만** 출력 (`krx_openapi_key=True` 등)
+- `DataPaths` probe 성공
 - XKRX calendar 로드 성공
-- 대회 기간 36 sessions 확인
 
 ### 6.2 구현 순서 (spec 01)
 
@@ -132,10 +160,11 @@ SUBCOMMANDS: dict[str, Callable] = {
 ```
 src/
 ├── __init__.py
-├── cli.py          # (구현 예정)
+├── cli.py
 └── core/
     ├── __init__.py
     ├── settings.py
+    ├── sops_env.py       # sops 복호화 + Settings dotenv 소스
     ├── calendar.py
     ├── paths.py
     └── logging_setup.py
