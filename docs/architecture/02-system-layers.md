@@ -59,6 +59,7 @@ src/
 │
 ├── core/
 │   ├── settings.py           # Settings, get_settings (SecretStr)
+│   ├── sops_env.py           # .env.enc sops 복호화 (메모리 전용)
 │   ├── calendar.py           # TradingCalendar (XKRX)
 │   ├── paths.py              # DataPaths (bronze/silver/gold/state)
 │   └── logging_setup.py      # [SYS][DATA][ALGO][EVAL] 태그

@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "task_id": "TASK_01_CORE_SPINE",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_01_CORE_SPINE",
+      "domain": "core",
+      "title": "Core Spine — settings, calendar, paths, logging, CLI",
+      "why": "Stage-1 foundation: typed Settings, XKRX calendar, DataPaths traversal guard, structured logging, and mt-etf CLI spine required by all downstream specs.",
+      "resolution": "Implemented src/core/{settings,sops_env,calendar,paths,logging_setup}.py and src/cli.py with SUBCOMMANDS registry; secrets load from .env.enc via sops (no plain .env); 12 unit tests pass; architecture docs updated.",
+      "impact": "L0 core layer operational: config-check and calendar subcommands verified; KRX API auth works via in-memory sops decrypt; code_map and task_index registered."
+    }
+  ]
+}
