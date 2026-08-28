@@ -177,3 +177,47 @@ def test_scenario_03_09_normalize_cli(monkeypatch: pytest.MonkeyPatch, tmp_path)
         ret2 = main(["normalize", "--dataset", "etf_daily", "--mode", "full"])
         assert ret2 != 0
     clear_settings_caches()
+
+
+def test_scenario_04_11_universe_cli(monkeypatch: pytest.MonkeyPatch, tmp_path, caplog: pytest.LogCaptureFixture) -> None:
+    """SCENARIO-04-11"""
+    from datetime import date
+
+    import polars as pl
+
+    from src.core.paths import DataPaths
+    from src.core.settings import clear_settings_caches
+
+    assert "universe" in SUBCOMMANDS
+    monkeypatch.setenv("KRX_OPENAPI_KEY", "TESTKEY123")
+    monkeypatch.setenv("DATA_ROOT", str(tmp_path))
+    clear_settings_caches()
+
+    paths = DataPaths(root=tmp_path)
+    silver_path = paths.silver("etf_daily")
+    silver_path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(
+        {
+            "date": [date(2026, 8, 27)],
+            "ticker": ["069500"],
+            "name": ["KODEX 200"],
+            "underlying_index_name": ["코스피 200"],
+            "is_tradable": [True],
+            "close": [30000.0],
+            "trading_value": [2e12],
+        }
+    ).write_parquet(silver_path)
+
+    caplog.set_level(logging.INFO)
+    ret = main(["universe", "--date", "2026-08-27", "--mode", "deployment", "--max-order-to-adv", "0.05"])
+    assert ret == 0
+    combined = "\n".join(caplog.messages)
+    assert "[DATA]" in combined
+    assert "mode=deployment" in combined
+    assert "existence=" in combined
+    assert "price=" in combined
+    assert "history=" in combined
+    assert "sponsor=" in combined
+    assert "liquidity=" in combined
+    assert "eligibility=" in combined
+    clear_settings_caches()
