@@ -5,7 +5,7 @@ import logging
 import pytest
 
 from src.cli import SUBCOMMANDS, main
-from src.core.settings import get_settings
+from src.core.settings import clear_settings_caches
 
 
 def test_cli_calendar_and_unknown(caplog: pytest.LogCaptureFixture) -> None:
@@ -27,7 +27,7 @@ def test_cli_calendar_and_unknown(caplog: pytest.LogCaptureFixture) -> None:
 def test_cli_config_check_hides_secret(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     """SCENARIO-01-08: config-check 비밀값 비노출."""
     monkeypatch.setenv("KRX_OPENAPI_KEY", "SECRET123")
-    get_settings.cache_clear()
+    clear_settings_caches()
     caplog.set_level(logging.INFO)
     caplog.clear()
     ret = main(["config-check"])
@@ -35,4 +35,4 @@ def test_cli_config_check_hides_secret(monkeypatch: pytest.MonkeyPatch, caplog: 
     combined = "\n".join(caplog.messages)
     assert "krx_openapi_key=True" in combined
     assert "SECRET123" not in combined
-    get_settings.cache_clear()
+    clear_settings_caches()
