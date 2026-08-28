@@ -269,6 +269,9 @@ class PointInTimeUniverse:
                     pass
             self._adv_map[tstr] = mp
 
+    def adv(self, ticker: str, day: date) -> float | None:
+        return self._get_adv(ticker, day)
+
     def _get_adv(self, ticker: str, day: date) -> float | None:
         # Return ADV for ticker as of day (trailing window including day)
         # If ticker not in map or day not tradable, compute via nearest prior tradable?

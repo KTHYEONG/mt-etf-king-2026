@@ -206,7 +206,7 @@ def _clean_logs_dir() -> int:
 
 def _clean_specs(remove_specs: list[str] | None = None) -> int:
     specs_dir = "docs/specs"
-    if not _path_exists(specs_dir):
+    if not _path_exists(specs_dir) or not remove_specs:
         return 0
 
     target_prefixes: set[str] = set()

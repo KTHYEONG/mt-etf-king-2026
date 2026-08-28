@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_06_RESEARCH_HARNESS",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_06_RESEARCH_HARNESS",
+      "domain": "backtest",
+      "title": "Research Harness — backtest engine · rolling distribution · KRX baseline B0–B5",
+      "why": "Spec 06 requires a reproducible tournament research harness (next-open execution, cost/participation grids, 36D rolling ReturnDistribution) and real KRX gold-panel baseline distributions before spec 07/08 contract finalization.",
+      "resolution": "Implemented src/backtest/{engine,execution,costs,metrics,liquidity}.py, src/alpha/{base,baselines}.py, src/portfolio/{constraints,sizing}.py, src/tournament/{distribution,simulator,replay,harness}.py, and mt-etf backtest/replay CLI; fixed execution-day cost timing and ADV cap; 12 contract scenarios pass lean_check; KRX gold E2E B0–B5 distributions documented in docs/results/06_research_harness_krx_baseline.md.",
+      "impact": "L4 research layer operational: rolling 36-session distributions with P(R>θ), CVaR, RTS, n_effective; cost×participation stress grid wired; KRX 2024–2026 baseline anchors for spec 07/08 /spec (B2 P>30%=0.091, B1 vs B2 concentration trade-off); regime wiring for B5 remains follow-up."
+    },
+    {
       "task_id": "TASK_05_FEATURE_ENGINE",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_05_FEATURE_ENGINE",

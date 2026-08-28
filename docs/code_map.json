@@ -83,5 +83,9 @@
   },
   "src/universe/tournament.py": {
     "testing": "tests/unit/universe/test_tournament.py"
+  },
+  "src/backtest/engine.py": {
+    "architecture": "docs/results/06_research_harness_krx_baseline.md",
+    "testing": "tests/unit/backtest/test_engine.py"
   }
 }
