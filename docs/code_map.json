@@ -40,5 +40,21 @@
   },
   "src/data/validation.py": {
     "testing": "tests/unit/data/test_validation.py"
+  },
+  "src/universe/families.py": {
+    "testing": "tests/unit/universe/test_families.py"
+  },
+  "src/universe/instruments.py": {
+    "testing": "tests/unit/universe/test_instruments.py"
+  },
+  "src/universe/provider.py": {
+    "architecture": "docs/architecture/05-universe-and-instruments.md",
+    "testing": "tests/unit/universe/test_provider.py"
+  },
+  "src/universe/taxonomy.py": {
+    "testing": "tests/unit/universe/test_taxonomy.py"
+  },
+  "src/universe/tournament.py": {
+    "testing": "tests/unit/universe/test_tournament.py"
   }
 }
