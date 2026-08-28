@@ -5,7 +5,9 @@ from datetime import date
 import polars as pl
 import pytest
 
+from src.features.builder import FeatureBuilder, FeatureConfig
 from src.features.regime import RegimeConfig, RegimeState, classify_regime
+from src.core.calendar import get_calendar
 from tests.unit.features.conftest import session_dates
 
 
@@ -78,3 +80,26 @@ def test_scenario_05_07_classify_regime_monotone() -> None:
         flipped = classify_regime(index_panel, breadth_panel, decision, config)
         assert flipped.score >= base.score - 1e-12
         assert _risk_rank(flipped.state) >= _risk_rank(base.state)
+
+
+def test_SCENARIO_07P_03_build_regime_series() -> None:  # noqa: N802
+    """SCENARIO-07P-03"""
+    sessions = session_dates(date(2026, 1, 2), 30)
+    config = _config()
+    cal = get_calendar()
+    rising = [80.0 + i * 2.0 for i in range(len(sessions))]
+    index_panel = _index_panel(sessions, rising, rising)
+    breadth_panel = pl.DataFrame({"date": sessions, "breadth_ma20": [0.9] * len(sessions)})
+    fconfig = FeatureConfig(momentum_horizons=(20,), ma_windows=(20,), breakout_windows=(20,), volatility_windows=(5,), flow_windows=(5,), regime=config)
+    builder = FeatureBuilder(cal, fconfig)
+    result = builder.build_regime_series(index_panel, breadth_panel, sessions)
+    assert set(result.keys()) == set(sessions)
+    assert result[sessions[-1]].state == RegimeState.STRONG_RISK_ON
+    # future row ignored
+    import datetime as _dt
+
+    extra = pl.DataFrame({"date": [sessions[-1] + _dt.timedelta(days=1)], "index_name": ["KOSPI"], "close": [9999.0]})
+    index_plus = pl.concat([index_panel, extra])
+    result2 = builder.build_regime_series(index_plus, breadth_panel, sessions)
+    assert set(result2.keys()) == set(sessions)
+    assert result[sessions[0]].state != RegimeState.STRONG_RISK_ON

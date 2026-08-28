@@ -1,4 +1,4 @@
-"""SCENARIO-06-07 SCENARIO-06-08"""
+"""SCENARIO-06-07 SCENARIO-06-08 SCENARIO-07P-05"""
 from __future__ import annotations
 
 import random
@@ -22,7 +22,7 @@ def _iid_bootstrap_ci(
     alpha: float = 0.05,
     seed: int = 0,
 ) -> tuple[float, float]:
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # noqa: S311
     base = list(returns)
     n = len(base)
     stats: list[float] = []
@@ -35,7 +35,7 @@ def _iid_bootstrap_ci(
     return float(stats[lower_idx]), float(stats[upper_idx])
 
 
-def test_SCENARIO_06_07_distribution_summary() -> None:
+def test_SCENARIO_06_07_distribution_summary() -> None:  # noqa: N802
     """SCENARIO-06-07"""
     assert effective_sample_size(2090, 36) == 58
 
@@ -70,7 +70,7 @@ def test_SCENARIO_06_07_distribution_summary() -> None:
     assert not hasattr(dist, "sharpe")
 
 
-def test_SCENARIO_06_08_stationary_bootstrap_ci() -> None:
+def test_SCENARIO_06_08_stationary_bootstrap_ci() -> None:  # noqa: N802
     """SCENARIO-06-08"""
     returns = [0.02] * 40 + [-0.02] * 40
     stat = statistics.mean
@@ -84,3 +84,14 @@ def test_SCENARIO_06_08_stationary_bootstrap_ci() -> None:
     stationary_width = ci_a[1] - ci_a[0]
     iid_width = iid_ci[1] - iid_ci[0]
     assert stationary_width > iid_width
+
+
+def test_SCENARIO_07P_05_giveback_quantiles() -> None:  # noqa: N802
+    """SCENARIO-07P-05"""
+    dist = ReturnDistribution.summarise(name="x", returns=[0.0] * 5, horizon=5, thresholds=[0.1], tail_weights={}, givebacks=[0.0, 0.10, 0.20, 0.30, 0.40])
+    assert abs(dist.giveback_median - 0.20) < 1e-12
+    assert abs(dist.giveback_q90 - 0.36) < 1e-12
+    dist2 = ReturnDistribution.summarise(name="x", returns=[0.0] * 5, horizon=5, thresholds=[0.1], tail_weights={})
+    assert dist2.giveback_median == 0.0
+    assert dist2.giveback_q90 == 0.0
+    assert not hasattr(dist, "sharpe")
