@@ -41,6 +41,34 @@
   "src/data/validation.py": {
     "testing": "tests/unit/data/test_validation.py"
   },
+  "src/features/breadth.py": {
+    "testing": "tests/unit/features/test_breadth.py"
+  },
+  "src/features/builder.py": {
+    "architecture": "docs/architecture/06-feature-engine.md",
+    "testing": "tests/unit/features/test_builder.py"
+  },
+  "src/features/crosssec.py": {
+    "testing": "tests/unit/features/test_crosssec.py"
+  },
+  "src/features/flow.py": {
+    "testing": "tests/unit/features/test_flow.py"
+  },
+  "src/features/momentum.py": {
+    "testing": "tests/unit/features/test_momentum.py"
+  },
+  "src/features/pit.py": {
+    "testing": "tests/unit/features/test_pit.py"
+  },
+  "src/features/regime.py": {
+    "testing": "tests/unit/features/test_regime.py"
+  },
+  "src/features/trend.py": {
+    "testing": "tests/unit/features/test_trend.py"
+  },
+  "src/features/volatility.py": {
+    "testing": "tests/unit/features/test_volatility.py"
+  },
   "src/universe/families.py": {
     "testing": "tests/unit/universe/test_families.py"
   },
@@ -48,7 +76,6 @@
     "testing": "tests/unit/universe/test_instruments.py"
   },
   "src/universe/provider.py": {
-    "architecture": "docs/architecture/05-universe-and-instruments.md",
     "testing": "tests/unit/universe/test_provider.py"
   },
   "src/universe/taxonomy.py": {
