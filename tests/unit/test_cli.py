@@ -221,3 +221,49 @@ def test_scenario_04_11_universe_cli(monkeypatch: pytest.MonkeyPatch, tmp_path, 
     assert "liquidity=" in combined
     assert "eligibility=" in combined
     clear_settings_caches()
+
+
+def test_scenario_05_11_features_cli(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """SCENARIO-05-11"""
+    from datetime import date
+
+    import polars as pl
+
+    from src.core.paths import DataPaths
+    from src.core.settings import clear_settings_caches
+
+    assert "features" in SUBCOMMANDS
+    monkeypatch.setenv("KRX_OPENAPI_KEY", "TESTKEY123")
+    monkeypatch.setenv("DATA_ROOT", str(tmp_path))
+    clear_settings_caches()
+
+    paths = DataPaths(root=tmp_path)
+    silver_path = paths.silver("etf_daily")
+    silver_path.parent.mkdir(parents=True, exist_ok=True)
+    sessions = [date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)]
+    rows = [
+        {
+            "date": d,
+            "ticker": ticker,
+            "name": "Test ETF",
+            "close": 30_000.0,
+            "open": 29_900.0,
+            "high": 30_100.0,
+            "low": 29_800.0,
+            "nav": 29_950.0,
+            "shares_outstanding": 1_000_000,
+            "net_assets": 30_000_000_000,
+            "trading_value": 2_000_000_000,
+            "underlying_index_name": "코스피 200",
+            "is_tradable": True,
+        }
+        for d in sessions
+        for ticker in ["069500", "451060"]
+    ]
+    pl.DataFrame(rows).write_parquet(silver_path)
+
+    ret = main(["features", "--start", "2026-01-02", "--end", "2026-08-27"])
+    assert ret == 0
+    gold_path = paths.gold("etf_features")
+    assert gold_path.exists()
+    clear_settings_caches()
