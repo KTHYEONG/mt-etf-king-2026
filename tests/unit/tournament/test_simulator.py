@@ -55,7 +55,7 @@ def _flat_panel(sessions: list[date]) -> pl.DataFrame:
     )
 
 
-def test_SCENARIO_06_09_rolling_fast_vs_slow_path() -> None:
+def test_SCENARIO_06_09_rolling_fast_vs_slow_path() -> None:  # noqa: N802
     """SCENARIO-06-09"""
     cal = TradingCalendar()
     panel = _flat_panel(cal.sessions(date(2026, 1, 2), date(2026, 2, 28)))
@@ -87,7 +87,7 @@ def test_SCENARIO_06_09_rolling_fast_vs_slow_path() -> None:
         assert abs(a - b) < 1e-10
 
 
-def test_SCENARIO_06_10_baselines_registry_and_engine_path() -> None:
+def test_SCENARIO_06_10_baselines_registry_and_engine_path() -> None:  # noqa: N802
     """SCENARIO-06-10"""
     cal = TradingCalendar()
     panel = _synthetic_panel(cal.sessions(date(2026, 1, 2), date(2026, 1, 20)))
@@ -142,3 +142,19 @@ def test_SCENARIO_06_10_baselines_registry_and_engine_path() -> None:
         rules=rules,
     )
     assert gated.score(snap, open_ctx)
+
+
+def test_SCENARIO_07P_04_givebacks() -> None:  # noqa: N802
+    """SCENARIO-07P-04"""
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 2, 28))
+    panel = pl.DataFrame([panel_row(day=d, ticker="069500", close=30000.0, mom_20=0.2, name="KODEX 200") for d in sessions])
+    engine, cal2, filt = build_engine(panel)
+    config = __import__("src.backtest.engine", fromlist=["BacktestConfig"]).BacktestConfig(start=date(2026, 1, 2), end=date(2026, 2, 28), capital=1e9, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0, 0, 0))
+    sim = TournamentSimulator(engine, cal2)
+    fast = sim.run_rolling(BASELINES["B0"](), panel, config, horizon=5, path_dependent=False)
+    slow = sim.run_rolling(BASELINES["B0"](), panel, config, horizon=5, path_dependent=True)
+    assert len(fast.givebacks) == len(fast.returns)
+    assert len(slow.givebacks) == len(slow.returns)
+    assert max(abs(g) for g in fast.givebacks) < 1e-9
+    assert max(abs(g) for g in slow.givebacks) < 1e-9
