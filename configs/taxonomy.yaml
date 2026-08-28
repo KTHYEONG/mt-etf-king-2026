@@ -1,0 +1,29 @@
+fallback: OTHER
+rules:
+  - theme: SEMICONDUCTOR
+    include: ["반도체", "필라델피아"]
+    exclude: []
+  - theme: KOSPI200
+    include: ["코스피 200", "KOSPI 200"]
+    exclude: []
+  - theme: KOSDAQ
+    include: ["코스닥", "KOSDAQ"]
+    exclude: []
+  - theme: BOND
+    include: ["채권", "국고채", "회사채"]
+    exclude: []
+  - theme: COMMODITY
+    include: ["금", "은", "원유", "구리"]
+    exclude: []
+  - theme: CURRENCY
+    include: ["달러", "선물", "인버스"]
+    exclude: []
+  - theme: LEVERAGE
+    include: ["레버리지"]
+    exclude: []
+  - theme: INVERSE
+    include: ["인버스"]
+    exclude: []
+  - theme: EQUITY_BROAD
+    include: ["200", "TOP", "액티브"]
+    exclude: []
