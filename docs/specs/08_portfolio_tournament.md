@@ -1,8 +1,8 @@
 # 08. Portfolio Policy & Tournament Overlay — concentration · exit/re-entry · aggression · live decision
 
-**선행**: [06_research_harness](06_research_harness.md), [07_leadership_engine](07_leadership_engine.md)
+**선행**: [06_research_harness](06_research_harness.md), [07_leadership_engine](07_leadership_engine.md) + **preflight giveback 보고**
 **상위**: [00_architecture.md](00_architecture.md)
-**상태**: **Blueprint only — contract 유예** (§7 참조)
+**상태**: **Blueprint only — contract 유예** (§7 참조, 07 기각 시 B1/B2 위에 sizing만 얹는 축소판 유지)
 
 ---
 
@@ -40,7 +40,7 @@ $$
 
 ### 1.4 Exit / Re-entry — 대회의 승부처
 
-2025 우승자가 손절보다 **재진입 기준**을 강조했다는 점(next.md §50)은 구조적으로 타당하다. 36세션은 짧고, 한 번 이탈한 뒤 돌아오지 못하면 남은 기간에 만회가 불가능하다.
+2025 우승자가 손절보다 **재진입 기준**을 강조했다는 점은 구조적으로 타당하다. 36세션은 짧고, 한 번 이탈한 뒤 돌아오지 못하면 남은 기간에 만회가 불가능하다.
 
 07 의 테마 state machine 이 이미 재진입 경로(`BREAKDOWN → RECOVERY → LEADING`)를 정의한다. 08 은 이를 **포지션 레벨**로 옮긴다.
 
@@ -56,9 +56,9 @@ $$
 
 **INV-08-4 (경로 의존성 선언)**: 이 정책은 경로 의존적이다. 따라서 06 의 $O(T)$ 창 수익률 단축이 성립하지 않는다 → `run_rolling(path_dependent=True)` 로만 평가한다. 이 사실을 코드가 아니라 **모델 메타데이터로 선언**하고, 시뮬레이터가 잘못된 모드를 쓰면 예외를 던진다.
 
-### 1.5 Tournament Aggression Overlay — 알파와 분리
+### 1.5 Tournament Aggression Overlay — 알파와 분리 (입력에 giveback 포함, INV-25)
 
-**전략과 대회 정책은 다른 계층이다**(next.md §52). 이유는 명확하다 — 알파는 "무엇이 오를 것인가"를 답하고, aggression 은 "지금 내 순위에서 얼마나 위험을 져야 상금 기대값이 최대인가"를 답한다.
+**전략과 대회 정책은 다른 계층이다**(ARCH-1, INV-24: alpha ≠ vehicle). 이유는 명확하다 — 알파는 "무엇이 오를 것인가"를 답하고, aggression 은 "지금 내 순위에서 얼마나 위험을 져야 상금 기대값이 최대인가"를 답한다. 입력에 `giveback` 포함.
 
 $n$ 세션 남았고 선두와의 격차가 $\Delta$ 일 때, 따라잡으려면 필요한 초과수익:
 
@@ -160,7 +160,7 @@ TOURNAMENT        rank n/a   aggression NORMAL (overlay off)
  cli:  mt-etf decide --date 2026-10-07
 ```
 
-### 2.1 레버리지 게이트
+### 2.1 레버리지 게이트 (INV-24: alpha가 고르고 vehicle이 배수 선택)
 
 레버리지 ETF 편입은 **세 조건이 모두 참**일 때만 허용한다.
 
@@ -168,7 +168,7 @@ TOURNAMENT        rank n/a   aggression NORMAL (overlay off)
 2. `regime in {STRONG_RISK_ON, RISK_ON}`
 3. 해당 종목의 `Confidence` 가 `LOW` 가 아니다 (INV-04-6)
 
-세 조건 모두 fail-closed 다. 그리고 `UNKNOWN` 상태에서는 연구 단계에서 레버리지 허용/비허용 **양쪽 분포를 모두 산출**한다.
+세 조건 모두 fail-closed 다. alpha는 `index_key`/theme를 고르고 배수 선택은 `ExposureSelector`만 담당 (INV-24). `UNKNOWN` 상태에서는 **양쪽 분포 모두 산출**.
 
 ---
 
@@ -233,6 +233,6 @@ configs/strategies.yaml      sizing · state · aggression 파라미터
 - 상태 전이 임계와 쿨다운 길이는 07 의 테마 상태 통계에 의존한다.
 - aggression 곡선은 06 의 36세션 수익률 분포 $\sigma$ 추정치가 있어야 정규 근사를 쓸 수 있다.
 
-**해제 조건**: 06 W3 게이트 통과 **and** 07 acceptance gate A-1~A-5 판정 완료. 그 시점에 `/spec 08_portfolio_tournament` 재실행.
+**해제 조건**: 06 W3 게이트 통과 **and** preflight giveback 보고 필수 **and** 07 acceptance gate A-1~A-5 판정 완료. 그 시점에 `/spec 08_portfolio_tournament` 재실행.
 
 07 이 기각되면 08 은 baseline(B1~B3) 위에 sizing·state·overlay 만 얹는 축소 버전으로 재작성한다 — 이 경우에도 §1.2~1.5 의 불변식은 그대로 유효하다.

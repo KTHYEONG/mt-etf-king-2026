@@ -143,6 +143,7 @@ data/
 │   └── stock_daily.parquet
 ├── features/                   # gold — feature Parquet
 │   └── etf_features.parquet
+├── competition_history/          # 제1·2회 대회 공개 데이터 (문서/Parquet)
 └── state/                      # quota ledger 등
     └── krx_quota.json
 ```

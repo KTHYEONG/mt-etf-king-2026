@@ -104,27 +104,24 @@ uv run python tools/agent_skills/lean_check.py --pre-impl docs/specs/01_core_spi
 
 | 항목 | 상태 |
 | --- | --- |
-| Spec 00~08 | ✅ 작성 완료 |
-| Contract 01~03, 05~06 | ✅ pre-impl PASS |
-| Contract 04 | ✅ **갱신 완료** (LeverageFamily + sponsor + deployment) — pre-impl PASS 는 01 구현 후 |
-| Contract 07~08 | ⏳ 유예 (06 결과 의존) |
-| `src/` skeleton | ✅ 패키지 구조만 |
-| `src/cli.py` | ❌ 미구현 |
-| KRX 실측 검증 | ✅ scratch/probe_*.py |
-| Silver 데이터 | ❌ 미수집 |
-| Architecture docs | ✅ 본 디렉터리 |
-| Configs (후원사·universe) | ✅ `configs/sponsor_brands.yaml` 등 |
+| Spec 00~06 | ✅ **구현 완료** |
+| Spec 07_preflight | ✅ 구현 완료 (본 contract) |
+| Contract 07·08 | ⏳ blueprint-only (preflight 후 `/spec 07` 재실행) |
+| `src/` | ✅ 엔진·시뮬레이터·리플레이·지표 구현 |
+| KRX 실측 검증 | ✅ probe_*.py + 06 실데이터 baseline |
+| Silver 데이터 | 2024~ panel 확보 (06 결과) |
 
 ---
 
 ## 5. 다음 즉시 작업
 
 ```
-1. /implement docs/specs/01_core_spine_contract.json
-2. /implement docs/specs/02_krx_ingestion_contract.json
-3. bronze backfill 시작 (2018-01-01 ~)
-4. /implement docs/specs/04_pit_universe_contract.json  (contract 갱신 완료)
+1. preflight PASS 후 B5 재측정 + giveback 열 추가
+2. /spec 07_leadership_engine (파라미터 분위수·ablation)
+3. /implement 07 (A-1 P(R>30%)>0.091)
+4. /spec 08_portfolio_tournament (giveback 보고 필수)
 ```
+ML은 W3+preflight+07 A-1 이전 착수 금지.
 
 ---
 

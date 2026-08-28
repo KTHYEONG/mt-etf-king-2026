@@ -101,7 +101,7 @@ INVSTASST_NETASST_TOTAMT, LIST_SHRS, IDX_IND_NM, OBJ_STKPRC_IDX, CMPPREVDD_IDX, 
 
 ### 2.4 이 필드 조합이 열어주는 3개의 고유 신호
 
-**(a) 진짜 자금유입 (creation/redemption flow)** — next.md §25의 `AUM change ≠ capital inflow` 문제를 정확히 해결한다.
+**(a) 진짜 자금유입 (creation/redemption flow)** — `AUM change ≠ capital inflow` 문제를 정확히 해결한다.
 
 $$
 \Delta \text{AUM}_t = \underbrace{\Delta L_t \cdot \text{NAV}_t}_{\text{순수 자금흐름}} + \underbrace{L_{t-1} \cdot \Delta \text{NAV}_t}_{\text{성과효과}}, \qquad L_t = \texttt{LIST\_SHRS}_t
@@ -115,7 +115,7 @@ $$
 → robust 통계(median/MAD)만 사용하고, `ACC_TRDVAL == 0` 또는 |disparity| 임계 초과 종목은 **fail-closed 배제**.
 
 **(c) 추종지수 링크** `IDX_IND_NM` + `OBJ_STKPRC_IDX`
-공식·point-in-time 한 ETF→기초지수 매핑이 매일 제공된다. tracking difference($R_{ETF} - R_{IDX}$)를 직접 계산 가능하고, **동일 지수 = 동일 베팅**이라는 결정론적 중복제거 키를 얻는다(next.md §38의 상관계수 추정 불필요).
+공식·point-in-time 한 ETF→기초지수 매핑이 매일 제공된다. tracking difference($R_{ETF} - R_{IDX}$)를 직접 계산 가능하고, **동일 지수 = 동일 베팅**이라는 결정론적 중복제거 키를 얻는다(상관계수 클러스터링 불필요).
 
 ### 2.5 universe 구조 실측 (2026-08-27)
 
@@ -154,7 +154,7 @@ $$
 
 ETF 패널 종목 수 추이: 2010-01-04 **50** → 2015 **172** → 2020 **450** → 2023 **666** → 2025-09 **1,019** → 2026-08 **1,163**.
 
-→ 현재 존재하는 ETF만으로 2015년을 백테스트하면 **survivorship bias가 지배적**이다. next.md §18의 Deployment/Structural backtest 분리는 선택이 아니라 필수.
+→ 현재 존재하는 ETF만으로 2015년을 백테스트하면 **survivorship bias가 지배적**이다. Deployment/Structural backtest 분리는 선택이 아니라 필수.
 
 | 구간 | XKRX sessions |
 | --- | --- |
@@ -189,7 +189,7 @@ ETF용 base_info API가 존재하지 않으므로 `listing_date` 를 조회할 �
 이 방식은 오히려 **정의상 point-in-time 이 보장**된다 — 마스터 테이블의 사후 수정 위험이 없다.
 
 **DEC-B — 구성종목 breadth 는 primary source 로 불가능하다.**
-PDF API가 없으므로 next.md §26(ETF 내부 구성종목 breadth)은 KRX Open API만으로 구현 불가. 세 가지 선택지 중:
+PDF API가 없으므로 ETF 내부 구성종목 breadth는 KRX Open API만으로 구현 불가. 세 가지 선택지 중:
 1. **market-level breadth** (KOSPI 944 + KOSDAQ 1,823 = 2,767종목) → **완전 가능. 즉시 채택** (regime 판정용).
 2. **cluster-level breadth** (같은 테마에 속한 ETF 집합 내부의 % above MA20 등) → **완전 가능. 채택** (sector leadership 품질 판정용).
 3. constituent-level breadth (PDF 필요) → pykrx(웹 스크래핑) 의존. **Stage 3 이후 optional adapter 로 유예.**
@@ -268,8 +268,8 @@ src/
 │   └── builder.py               # FeatureBuilder (조립)
 ├── alpha/
 │   ├── base.py                  # AlphaModel Protocol
-│   ├── baselines.py             # B0~B5
-│   └── leadership.py            # SectorLeadershipModel   (spec 07)
+│   ├── baselines.py             # B0 BuyAndHold(069500)/B1 TopK(mom20)/B2 EqualK3/B3 TrendFilter/B4 ThemeMom/B5 RegimeGated
+│   └── leadership.py            # SectorLeadershipModel   (spec 07, blueprint)
 ├── portfolio/
 │   ├── selection.py sizing.py constraints.py
 │   └── state.py                 # 6-state machine          (spec 08)
@@ -304,6 +304,19 @@ src/
 | **INV-10** | 모든 신규 전략은 baseline B0~B5 대비 동일 프로토콜로 비교된 결과 없이는 채택 불가. | `tournament/simulator.py` |
 | **INV-11** | 가중치·임계값은 코드 상수가 아니라 `configs/*.yaml` 파라미터. | 전 계층 |
 | **INV-12** | robust 통계(median/MAD)만 이상치 판정에 사용. 평균 기반 임계값 금지. | `data/validation.py` |
+| INV-13 | ML 검증은 purge ≥ horizon, embargo ≥ horizon | `features/splits.py` |
+| INV-14 | 레버리지 수익률은 실제 ETF 가격만 | `backtest/*` |
+| INV-15 | 하이퍼파라미터는 fold 내부에서 선택 | `alpha/ml/*` |
+| INV-16 | ML은 rule과 동일 feature 집합 | `alpha/ml/*` |
+| INV-17 | 동일 leverage_family 최대 1개 | `universe/*` |
+| INV-18 | 제약은 실효 노출에 적용 | `portfolio/constraints.py` |
+| INV-19 | LOW confidence 배수는 +1 강제 | `universe/instruments.py` |
+| INV-20 | deployment에서 UNKNOWN/비후원 제외 | `universe/provider.py` |
+| INV-21 | 채택은 deployment universe만 | `tournament/*` |
+| INV-22 | 제1회 데이터로 파라미터 적합 금지 | 문서 |
+| INV-23 | 2025 replay는 기각 게이트 아님(경고) | `tournament/replay.py` |
+| INV-24 | alpha ≠ vehicle | `portfolio/*` |
+| INV-25 | rolling 평가는 giveback 보고 | `tournament/distribution.py` |
 
 ---
 
@@ -351,10 +364,11 @@ HTS(코스콤 모의투자) 배포 전까지 **알 수 없는 것**. 전부 conf
 | **W1** | 08/28–09/03 | 01, 02, 03 | core spine · KRX 수집 · silver 패널 | 2018-01-01~현재 ETF/지수/주식 패널 Parquet 생성, validation 전부 PASS |
 | **W2** | 09/04–09/10 | 04, 05 | PIT universe · feature engine | 임의 날짜 t 에 대해 universe + 전체 feature 프레임이 look-ahead 없이 생성 |
 | **W3** | 09/11–09/16 | 06 | backtest · rolling-36D · baseline B0~B5 · **2025 replay** | B0~B5 의 36일 수익률 분포와 `P(R>θ)` 곡선 산출. 2025 대회 replay 리포트 완성 |
+| **Preflight** | 08/28–09/01 | 07_preflight | regime 주입·giveback·문서 정렬 | B5 재측정 + giveback median/q90 + INV-22~25 |
 | **W4** | 09/17–09/20 | 07, 08 | leadership engine · portfolio policy · daily decision CLI | 매일 `mt-etf decide --date` 로 포트폴리오 + 근거 출력. 전략 **freeze** |
 | **대회중** | 09/21–11/13 | 08(overlay) | tournament aggression overlay | 실 순위 입력 기반 risk_multiplier 조정 |
 
-**우선순위 원칙**: W3까지 끝나면 최소한 "검증된 baseline"으로 참가할 수 있다. W4가 지연되면 baseline으로 출전하고 대회 중 개선한다. **ML(Stage 5)은 이번 대회 범위에서 제외**한다 — 24일 안에 walk-forward 검증까지 끝낼 수 없고, next.md §34의 기준(rule baseline 초과 입증)을 만족시킬 시간이 없다.
+**우선순위 원칙**: W3까지 끝나면 최소한 "검증된 baseline"으로 참가할 수 있다. W4가 지연되면 baseline으로 출전하고 대회 중 개선한다. **ML(Stage 5)** 은 rule baseline 초과 입증 전까지 후순위 ([12-ml-layer.md](../architecture/12-ml-layer.md)).
 
 ### 7.1 backfill 우선순위 (쿼터 제약 대응)
 
@@ -367,18 +381,18 @@ HTS(코스콤 모의투자) 배포 전까지 **알 수 없는 것**. 전부 conf
 
 ## 8. 채택/기각 결정 게이트
 
-next.md §68의 검증 순서를 실행 가능한 게이트로 고정한다.
+검증 파이프라인을 실행 가능한 게이트로 고정한다 ([10-invariants-and-gates.md](../architecture/10-invariants-and-gates.md)).
 
 ```
 Hypothesis → Feature → Simple Strategy → Structural BT → Deployment BT
           → Rolling-36D 분포 → Robustness grid → 2025 Replay → Accept/Reject
 ```
 
-**기각 기준 (하나라도 해당하면 폐기)**
+**기각 기준 (하나라도 해당하면 폐기; G-4는 경고)**
 - G-1: Structural backtest 에서 `P(R>30%)` 가 B1(Top1 20D momentum) 대비 개선 없음
 - G-2: 파라미터 ±30% 섭동에서 `P(R>30%)` 가 50% 이상 붕괴 (과적합)
 - G-3: 유동성 `max_order_to_adv` 를 1%→5% 로 바꿀 때 성과 순위가 뒤집힘 (허상 유동성)
-- G-4: 2025 replay 에서 대회 시작 전 데이터만으로 주도 섹터를 포착하지 못함
+- G-4: 2025 replay 미달은 경고/진단만, 단독 기각 아님 (INV-23)
 - G-5: worst 5% 시나리오에서 -40% 이하
 
 **INV-10 재확인**: "in-sample 성능이 좋아졌다"는 채택 사유가 될 수 없다.
