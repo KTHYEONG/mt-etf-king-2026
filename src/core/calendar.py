@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import bisect
 import functools
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import exchange_calendars as xcals
+
+
+def kst_today() -> date:
+    return datetime.now(ZoneInfo("Asia/Seoul")).date()
 
 
 class TradingCalendar:
