@@ -1,0 +1,326 @@
+{
+  "feature": "pit_universe",
+  "domain": "universe",
+  "stage": 1,
+  "target_file": "src/universe/provider.py",
+  "context_files": [
+    "src/core/calendar.py",
+    "src/core/paths.py",
+    "src/data/silver.py",
+    "src/data/schema.py",
+    "src/cli.py",
+    "configs/sponsor_brands.yaml",
+    "configs/universe.yaml",
+    "configs/universe_manifest.yaml",
+    "configs/tournament.yaml",
+    "docs/specs/00_architecture.md",
+    "docs/specs/04_pit_universe.md"
+  ],
+  "symbols": [
+    {
+      "name": "Confidence",
+      "kind": "class",
+      "target_file": "src/universe/instruments.py",
+      "signature": "class Confidence(StrEnum): HIGH = 'HIGH'; MEDIUM = 'MEDIUM'; LOW = 'LOW'"
+    },
+    {
+      "name": "UniverseMode",
+      "kind": "class",
+      "target_file": "src/universe/provider.py",
+      "signature": "class UniverseMode(StrEnum): STRUCTURAL = 'structural'; DEPLOYMENT = 'deployment'"
+    },
+    {
+      "name": "resolve_leverage",
+      "kind": "function",
+      "target_file": "src/universe/instruments.py",
+      "signature": "def resolve_leverage(name: str) -> tuple[int, Confidence]"
+    },
+    {
+      "name": "resolve_issuer",
+      "kind": "function",
+      "target_file": "src/universe/instruments.py",
+      "signature": "def resolve_issuer(name: str, brand_map: Mapping[str, str]) -> str"
+    },
+    {
+      "name": "load_sponsor_brand_map",
+      "kind": "function",
+      "target_file": "src/universe/instruments.py",
+      "signature": "def load_sponsor_brand_map(path: Path) -> dict[str, str]"
+    },
+    {
+      "name": "resolve_family_key",
+      "kind": "function",
+      "target_file": "src/universe/families.py",
+      "signature": "def resolve_family_key(index_key: str, overrides: Mapping[str, str] | None = None) -> str"
+    },
+    {
+      "name": "InstrumentAttributes",
+      "kind": "class",
+      "target_file": "src/universe/instruments.py",
+      "signature": "@dataclass(frozen=True) class InstrumentAttributes: ticker: str; name: str; issuer: str; leverage_multiple: int; leverage_family_key: str; is_synthetic: bool; is_hedged: bool; is_active: bool; index_key: str; theme: str; first_seen: date; last_seen: date; left_censored: bool; confidence: Confidence"
+    },
+    {
+      "name": "InstrumentMaster",
+      "kind": "class",
+      "target_file": "src/universe/instruments.py",
+      "signature": "class InstrumentMaster: def __init__(self, attributes: Mapping[str, InstrumentAttributes], panel_start: date) -> None"
+    },
+    {
+      "name": "InstrumentMaster.build",
+      "kind": "method",
+      "target_file": "src/universe/instruments.py",
+      "signature": "@classmethod def build(cls, panel: pl.DataFrame, taxonomy: Taxonomy, brand_map: Mapping[str, str], family_overrides: Mapping[str, str] | None = None, overrides: Mapping[str, Mapping[str, object]] | None = None) -> InstrumentMaster"
+    },
+    {
+      "name": "InstrumentMaster.as_of",
+      "kind": "method",
+      "target_file": "src/universe/instruments.py",
+      "signature": "def as_of(self, day: date) -> dict[str, InstrumentAttributes]"
+    },
+    {
+      "name": "LeverageFamilyMember",
+      "kind": "class",
+      "target_file": "src/universe/families.py",
+      "signature": "@dataclass(frozen=True) class LeverageFamilyMember: ticker: str; name: str; leverage_multiple: int; index_key: str"
+    },
+    {
+      "name": "LeverageFamily",
+      "kind": "class",
+      "target_file": "src/universe/families.py",
+      "signature": "@dataclass(frozen=True) class LeverageFamily: family_key: str; members: tuple[LeverageFamilyMember, ...]"
+    },
+    {
+      "name": "LeverageFamilyIndex",
+      "kind": "class",
+      "target_file": "src/universe/families.py",
+      "signature": "class LeverageFamilyIndex: def __init__(self, families: Mapping[str, LeverageFamily]) -> None"
+    },
+    {
+      "name": "LeverageFamilyIndex.build",
+      "kind": "method",
+      "target_file": "src/universe/families.py",
+      "signature": "@classmethod def build(cls, attributes: Mapping[str, InstrumentAttributes]) -> LeverageFamilyIndex"
+    },
+    {
+      "name": "LeverageFamilyIndex.get",
+      "kind": "method",
+      "target_file": "src/universe/families.py",
+      "signature": "def get(self, family_key: str) -> LeverageFamily | None"
+    },
+    {
+      "name": "normalize_index_key",
+      "kind": "function",
+      "target_file": "src/universe/taxonomy.py",
+      "signature": "def normalize_index_key(raw: str | None) -> str"
+    },
+    {
+      "name": "ThemeRule",
+      "kind": "class",
+      "target_file": "src/universe/taxonomy.py",
+      "signature": "@dataclass(frozen=True) class ThemeRule: theme: str; include: tuple[str, ...]; exclude: tuple[str, ...] = ()"
+    },
+    {
+      "name": "Taxonomy",
+      "kind": "class",
+      "target_file": "src/universe/taxonomy.py",
+      "signature": "class Taxonomy: def __init__(self, rules: Sequence[ThemeRule], fallback: str = 'OTHER') -> None"
+    },
+    {
+      "name": "Taxonomy.from_yaml",
+      "kind": "method",
+      "target_file": "src/universe/taxonomy.py",
+      "signature": "@classmethod def from_yaml(cls, path: Path) -> Taxonomy"
+    },
+    {
+      "name": "Taxonomy.classify",
+      "kind": "method",
+      "target_file": "src/universe/taxonomy.py",
+      "signature": "def classify(self, name: str, index_name: str | None) -> str"
+    },
+    {
+      "name": "Taxonomy.coverage",
+      "kind": "method",
+      "target_file": "src/universe/taxonomy.py",
+      "signature": "def coverage(self, names: Sequence[tuple[str, str | None]]) -> float"
+    },
+    {
+      "name": "UNKNOWN",
+      "kind": "constant",
+      "target_file": "src/universe/tournament.py",
+      "signature": "UNKNOWN: Final[_UnknownRule]"
+    },
+    {
+      "name": "TournamentRules",
+      "kind": "class",
+      "target_file": "src/universe/tournament.py",
+      "signature": "@dataclass(frozen=True) class TournamentRules: name: str; start_date: date; end_date: date; initial_capital: int; category: str; leverage_allowed: bool | _UnknownRule; inverse_allowed: bool | _UnknownRule; max_weight: float | _UnknownRule; cash_allowed: bool | _UnknownRule; sponsor_etf_only: bool; manifest_path: Path | None; issuer_whitelist: tuple[str, ...] | None; commission_bps: float | _UnknownRule; slippage_bps: float | _UnknownRule; max_order_to_adv: float; stress_grid: tuple[float, ...]"
+    },
+    {
+      "name": "TournamentRules.from_yaml",
+      "kind": "method",
+      "target_file": "src/universe/tournament.py",
+      "signature": "@classmethod def from_yaml(cls, path: Path) -> TournamentRules"
+    },
+    {
+      "name": "TournamentRules.horizon_sessions",
+      "kind": "method",
+      "target_file": "src/universe/tournament.py",
+      "signature": "def horizon_sessions(self, calendar: TradingCalendar) -> int"
+    },
+    {
+      "name": "TournamentRules.scenarios_for",
+      "kind": "method",
+      "target_file": "src/universe/tournament.py",
+      "signature": "def scenarios_for(self, field: str) -> tuple[object, ...]"
+    },
+    {
+      "name": "UniverseFilters",
+      "kind": "class",
+      "target_file": "src/universe/provider.py",
+      "signature": "@dataclass(frozen=True) class UniverseFilters: mode: UniverseMode = UniverseMode.DEPLOYMENT; warmup_sessions: int = 80; adv_window: int = 20; capital: int = 1_000_000_000; max_position_weight: float = 1.0; max_order_to_adv: float = 0.05; allow_leverage: bool = True; allow_inverse: bool = True; issuer_whitelist: tuple[str, ...] | None = None; manifest: frozenset[str] | None = None"
+    },
+    {
+      "name": "UniverseFilters.required_adv",
+      "kind": "method",
+      "target_file": "src/universe/provider.py",
+      "signature": "def required_adv(self) -> float"
+    },
+    {
+      "name": "UniverseFilters.for_mode",
+      "kind": "method",
+      "target_file": "src/universe/provider.py",
+      "signature": "@classmethod def for_mode(cls, mode: UniverseMode, universe_config: Mapping[str, object], sponsor_issuers: tuple[str, ...], manifest: frozenset[str] | None = None, **kwargs: object) -> UniverseFilters"
+    },
+    {
+      "name": "UniverseSnapshot",
+      "kind": "class",
+      "target_file": "src/universe/provider.py",
+      "signature": "@dataclass(frozen=True) class UniverseSnapshot: as_of: date; mode: UniverseMode; tickers: tuple[str, ...]; dropped: Mapping[str, int]; filters: UniverseFilters"
+    },
+    {
+      "name": "PointInTimeUniverse",
+      "kind": "class",
+      "target_file": "src/universe/provider.py",
+      "signature": "class PointInTimeUniverse: def __init__(self, panel: pl.DataFrame, master: InstrumentMaster, calendar: TradingCalendar, adv_window: int = 20) -> None"
+    },
+    {
+      "name": "PointInTimeUniverse.get",
+      "kind": "method",
+      "target_file": "src/universe/provider.py",
+      "signature": "def get(self, day: date, filters: UniverseFilters) -> UniverseSnapshot"
+    },
+    {
+      "name": "cmd_universe",
+      "kind": "function",
+      "target_file": "src/cli.py",
+      "signature": "def cmd_universe(args: argparse.Namespace) -> int"
+    }
+  ],
+  "wiring": [
+    {
+      "caller_file": "src/cli.py",
+      "anchor": "SUBCOMMANDS",
+      "import_symbol": "PointInTimeUniverse",
+      "invocation_expression": "SUBCOMMANDS[\"universe\"] = cmd_universe"
+    }
+  ],
+  "requirements": [
+    "resolve_leverage MUST apply ordered first-match rules so that inverse-with-multiplier is tested before plain inverse and before leverage: '인버스2X'/'-2X'/'곱버스' yield -2, '인버스'/'-1X' yield -1, '레버리지'/'2X'/'2배' yield +2, otherwise +1.",
+    "resolve_leverage MUST return Confidence.LOW when mutually contradictory tokens are present in one name, and callers MUST exclude LOW-confidence instruments from any leverage-conditional policy (fail-closed).",
+    "load_sponsor_brand_map MUST read configs/sponsor_brands.yaml and return a flat mapping from ETF brand prefix (first token of ISU_NM) to asset-manager issuer name; every brand listed under asset_managers MUST be present.",
+    "resolve_issuer MUST return the issuer for a mapped brand and the literal string 'UNKNOWN' for any unmapped brand; it MUST NOT guess or default to a sponsor.",
+    "InstrumentMaster.build MUST derive first_seen and last_seen from actual presence in the price panel, because the KRX Open API exposes no ETF base-info endpoint.",
+    "InstrumentMaster.build MUST set left_censored True when first_seen equals the panel start date, and the history filter MUST treat left-censored instruments as satisfying warmup.",
+    "InstrumentMaster.build MUST set index_key from normalize_index_key(IDX_IND_NM) and leverage_family_key from resolve_family_key(index_key, family_overrides); leverage_family_key MUST NOT be derived by stripping tokens from ISU_NM.",
+    "Explicit entries in the overrides mapping MUST take precedence over every name-derived attribute and MUST set Confidence.HIGH.",
+    "resolve_family_key MUST return index_key unchanged when no override maps it; when an override maps index_key to family_id, resolve_family_key MUST return family_id.",
+    "LeverageFamilyIndex.build MUST group instruments sharing the same leverage_family_key into one LeverageFamily with one LeverageFamilyMember per ticker; members MUST be sorted by leverage_multiple then ticker for determinism.",
+    "normalize_index_key MUST apply NFKC normalisation, case folding and whitespace collapsing; null or empty index names MUST map to a distinct sentinel key.",
+    "Taxonomy.classify MUST be ordered first-match-wins and MUST be a pure function of (name, index_name).",
+    "Taxonomy rules MUST live in configs/taxonomy.yaml, never in Python literals.",
+    "TournamentRules MUST distinguish null (no constraint) from unknown (undetermined). Parsing the YAML token 'unknown' MUST produce the UNKNOWN sentinel.",
+    "TournamentRules.scenarios_for MUST return both candidate values for an UNKNOWN boolean field and the configured grid for an UNKNOWN numeric field.",
+    "TournamentRules.horizon_sessions MUST compute the tournament length from TradingCalendar.session_count(start_date, end_date); the literal 40 MUST NOT appear anywhere.",
+    "UniverseFilters.for_mode MUST set issuer_whitelist to None for STRUCTURAL and to the sponsor asset-manager tuple for DEPLOYMENT when universe_config requests sponsor_asset_managers.",
+    "UniverseFilters.for_mode MUST attach manifest from configs/universe_manifest.yaml when present; a non-null manifest MUST restrict eligibility to those isu_cd values in addition to any issuer whitelist.",
+    "UniverseFilters.required_adv MUST equal capital * max_position_weight / max_order_to_adv.",
+    "PointInTimeUniverse.get MUST apply filters strictly in the order existence, price, history, sponsor, liquidity, eligibility and MUST record a per-stage drop count in UniverseSnapshot.dropped.",
+    "The sponsor filter MUST be skipped entirely when filters.mode is STRUCTURAL; dropped['sponsor'] MUST be 0 in that case.",
+    "The existence filter MUST require a panel row on that exact date; the price filter MUST require is_tradable True with a positive close; the history filter MUST require calendar.session_count(first_seen, day) >= warmup_sessions unless left_censored.",
+    "When issuer_whitelist is not None, instruments whose issuer resolved to UNKNOWN MUST be excluded at the sponsor stage (fail-closed).",
+    "When manifest is not None, instruments whose ticker is absent from manifest MUST be excluded at the sponsor stage before liquidity.",
+    "ADV MUST be a trailing mean over adv_window sessions from trading_value using only sessions with is_tradable True, ignoring non-tradable sessions rather than treating them as zero.",
+    "The rolling ADV panel MUST be computed once at construction time; recomputing ADV inside get() is forbidden.",
+    "PointInTimeUniverse.get MUST use only panel rows with date <= day.",
+    "UniverseSnapshot MUST include the UniverseMode used for the query.",
+    "cmd_universe MUST accept --date, --mode {structural,deployment} defaulting to deployment, and --max-order-to-adv, and MUST log admitted count, mode, and per-stage drop counts with the [DATA] tag."
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "SCENARIO-04-01",
+      "target_test_file": "tests/unit/universe/test_instruments.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_instruments.py -q --tb=short",
+      "expected_behavior": "resolve_leverage returns -2 for 'KODEX 200선물인버스2X' and 'KIWOOM 미국달러선물인버스2X'; -1 for 'ACE 인버스' and 'HANARO 200선물인버스'; +2 for 'ACE 레버리지', 'TIGER 미국필라델피아반도체레버리지(합성)' and 'ACE 삼성전자단일종목레버리지'; +1 for 'KODEX 200' and '1Q 200액티브'. The inverse-2X cases MUST NOT resolve to +2."
+    },
+    {
+      "scenario_id": "SCENARIO-04-02",
+      "target_test_file": "tests/unit/universe/test_instruments.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_instruments.py -q --tb=short",
+      "expected_behavior": "InstrumentMaster.build over a panel where ticker A appears on all sessions, B appears only from the second session, and C disappears after the second session yields first_seen/last_seen matching those observations; A is left_censored True while B is False. load_sponsor_brand_map maps 'KODEX' to '삼성자산운용' and resolve_issuer('KODEX 200', brand_map) returns '삼성자산운용' while resolve_issuer('WON 200', brand_map) returns 'UNKNOWN'. leverage_family_key for an instrument with IDX_IND_NM '코스피 200' equals normalize_index_key('코스피 200') and is not derived from ISU_NM."
+    },
+    {
+      "scenario_id": "SCENARIO-04-03",
+      "target_test_file": "tests/unit/universe/test_taxonomy.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_taxonomy.py -q --tb=short",
+      "expected_behavior": "normalize_index_key('코스피 200') == normalize_index_key(' 코스피  200 ') and both differ from normalize_index_key('코스피 200 TR'); normalize_index_key(None) returns a sentinel not equal to any real index key."
+    },
+    {
+      "scenario_id": "SCENARIO-04-04",
+      "target_test_file": "tests/unit/universe/test_taxonomy.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_taxonomy.py -q --tb=short",
+      "expected_behavior": "Taxonomy classify is ordered first-match-wins; coverage() over 9 matched and 1 unmatched returns 0.9."
+    },
+    {
+      "scenario_id": "SCENARIO-04-05",
+      "target_test_file": "tests/unit/universe/test_tournament.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_tournament.py -q --tb=short",
+      "expected_behavior": "TournamentRules.from_yaml on configs/tournament.yaml yields start_date 2026-09-21, end_date 2026-11-13, initial_capital 1_000_000_000, sponsor_etf_only True, leverage_allowed is UNKNOWN; horizon_sessions(TradingCalendar()) == 36; scenarios_for('leverage_allowed') == (True, False)."
+    },
+    {
+      "scenario_id": "SCENARIO-04-06",
+      "target_test_file": "tests/unit/universe/test_provider.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_provider.py -q --tb=short",
+      "expected_behavior": "UniverseFilters(capital=1_000_000_000, max_position_weight=1.0, max_order_to_adv=0.01).required_adv() == 1e11. On a synthetic panel, get() with max_order_to_adv 0.01 admits exactly instruments whose ADV >= 1e11."
+    },
+    {
+      "scenario_id": "SCENARIO-04-07",
+      "target_test_file": "tests/unit/universe/test_provider.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_provider.py -q --tb=short",
+      "expected_behavior": "get() drop counts attribute each exclusion to exactly one stage in order existence, price, history, sponsor, liquidity, eligibility; sums with len(tickers) equal instruments present on that date. issuer UNKNOWN drops at sponsor when issuer_whitelist is set. mode STRUCTURAL leaves dropped['sponsor'] == 0."
+    },
+    {
+      "scenario_id": "SCENARIO-04-08",
+      "target_test_file": "tests/unit/universe/test_provider.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_provider.py -q --tb=short",
+      "expected_behavior": "PointInTimeUniverse truncated to dates <= d yields the same get(d) tickers as the full panel; is_tradable False rows are excluded from ADV mean."
+    },
+    {
+      "scenario_id": "SCENARIO-04-09",
+      "target_test_file": "tests/unit/universe/test_families.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_families.py -q --tb=short",
+      "expected_behavior": "LeverageFamilyIndex.build groups two instruments sharing leverage_family_key 'kospi200' with leverage multiples +1 and +2 into one LeverageFamily with two members; an instrument with a different leverage_family_key forms a separate family. resolve_family_key with override mapping 'kospi200_futures' -> 'kospi200' merges keys."
+    },
+    {
+      "scenario_id": "SCENARIO-04-10",
+      "target_test_file": "tests/unit/universe/test_provider.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_provider.py -q --tb=short",
+      "expected_behavior": "On a panel containing one KODEX instrument (issuer 삼성자산운용) and one WON instrument (issuer UNKNOWN), deployment get() admits only KODEX while structural get() admits both (assuming other filters pass). UniverseFilters.for_mode(DEPLOYMENT, ...) sets issuer_whitelist to the ten sponsor asset managers."
+    },
+    {
+      "scenario_id": "SCENARIO-04-11",
+      "target_test_file": "tests/unit/test_cli.py",
+      "execution_command": "uv run pytest tests/unit/test_cli.py -q --tb=short",
+      "expected_behavior": "'universe' is a key of SUBCOMMANDS; main(['universe', '--date', '2026-08-27', '--mode', 'deployment', '--max-order-to-adv', '0.05']) returns 0 and logs [DATA] with mode and per-stage drop counts."
+    }
+  ]
+}

@@ -1,0 +1,374 @@
+{
+  "feature": "research_harness",
+  "domain": "backtest",
+  "stage": 2,
+  "target_file": "src/backtest/engine.py",
+  "context_files": [
+    "src/core/calendar.py",
+    "src/universe/provider.py",
+    "src/universe/tournament.py",
+    "src/features/builder.py",
+    "src/features/regime.py",
+    "src/cli.py",
+    "docs/specs/00_architecture.md",
+    "docs/specs/06_research_harness.md"
+  ],
+  "symbols": [
+    {
+      "name": "DecisionContext",
+      "kind": "class",
+      "target_file": "src/alpha/base.py",
+      "signature": "@dataclass(frozen=True) class DecisionContext: decision_date: date; regime: RegimeSnapshot | None; capital: float; held: Mapping[str, float]; rules: TournamentRules"
+    },
+    {
+      "name": "AlphaModel",
+      "kind": "class",
+      "target_file": "src/alpha/base.py",
+      "signature": "class AlphaModel(Protocol): name: str; def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float]"
+    },
+    {
+      "name": "SizingScheme",
+      "kind": "class",
+      "target_file": "src/portfolio/sizing.py",
+      "signature": "class SizingScheme(StrEnum): TOP1 = 'TOP1'; TOP2_70_30 = 'TOP2_70_30'; TOP3_50_30_20 = 'TOP3_50_30_20'; EQUAL_K = 'EQUAL_K'"
+    },
+    {
+      "name": "weights_from_scores",
+      "kind": "function",
+      "target_file": "src/portfolio/sizing.py",
+      "signature": "def weights_from_scores(scores: Mapping[str, float], scheme: SizingScheme, k: int = 3) -> dict[str, float]"
+    },
+    {
+      "name": "WeightViolationError",
+      "kind": "class",
+      "target_file": "src/portfolio/constraints.py",
+      "signature": "class WeightViolationError(ValueError)"
+    },
+    {
+      "name": "normalize_weights",
+      "kind": "function",
+      "target_file": "src/portfolio/constraints.py",
+      "signature": "def normalize_weights(weights: Mapping[str, float], max_weight: float = 1.0, tolerance: float = 1e-6) -> dict[str, float]"
+    },
+    {
+      "name": "CostConfig",
+      "kind": "class",
+      "target_file": "src/backtest/costs.py",
+      "signature": "@dataclass(frozen=True) class CostConfig: commission_bps: float | None = None; slippage_bps: float | None = None; spread_bps: float | None = None"
+    },
+    {
+      "name": "CostConfig.grid",
+      "kind": "method",
+      "target_file": "src/backtest/costs.py",
+      "signature": "def grid(self) -> tuple[CostConfig, ...]"
+    },
+    {
+      "name": "CostModel",
+      "kind": "class",
+      "target_file": "src/backtest/costs.py",
+      "signature": "class CostModel: def __init__(self, config: CostConfig) -> None"
+    },
+    {
+      "name": "CostModel.charge",
+      "kind": "method",
+      "target_file": "src/backtest/costs.py",
+      "signature": "def charge(self, traded_notional: float) -> float"
+    },
+    {
+      "name": "Fill",
+      "kind": "class",
+      "target_file": "src/backtest/execution.py",
+      "signature": "@dataclass(frozen=True) class Fill: ticker: str; execution_date: date; price: float; target_weight: float"
+    },
+    {
+      "name": "NextOpenExecution",
+      "kind": "class",
+      "target_file": "src/backtest/execution.py",
+      "signature": "class NextOpenExecution: def __init__(self, calendar: TradingCalendar) -> None"
+    },
+    {
+      "name": "NextOpenExecution.resolve",
+      "kind": "method",
+      "target_file": "src/backtest/execution.py",
+      "signature": "def resolve(self, target: Mapping[str, float], panel: pl.DataFrame, decision_date: date) -> tuple[list[Fill], tuple[str, ...]]"
+    },
+    {
+      "name": "max_drawdown",
+      "kind": "function",
+      "target_file": "src/backtest/metrics.py",
+      "signature": "def max_drawdown(equity: Sequence[float]) -> float"
+    },
+    {
+      "name": "compound_returns",
+      "kind": "function",
+      "target_file": "src/backtest/metrics.py",
+      "signature": "def compound_returns(returns: Sequence[float]) -> float"
+    },
+    {
+      "name": "window_returns",
+      "kind": "function",
+      "target_file": "src/backtest/metrics.py",
+      "signature": "def window_returns(returns: Sequence[float], horizon: int) -> list[float]"
+    },
+    {
+      "name": "BacktestConfig",
+      "kind": "class",
+      "target_file": "src/backtest/engine.py",
+      "signature": "@dataclass(frozen=True) class BacktestConfig: start: date; end: date; capital: float; scheme: SizingScheme; k: int; filters: UniverseFilters; costs: CostConfig"
+    },
+    {
+      "name": "BacktestResult",
+      "kind": "class",
+      "target_file": "src/backtest/engine.py",
+      "signature": "@dataclass(frozen=True) class BacktestResult: name: str; daily: pl.DataFrame; trades: pl.DataFrame; unfilled: tuple[tuple[date, str], ...]; config: BacktestConfig"
+    },
+    {
+      "name": "BacktestEngine",
+      "kind": "class",
+      "target_file": "src/backtest/engine.py",
+      "signature": "class BacktestEngine: def __init__(self, calendar: TradingCalendar, universe: PointInTimeUniverse, features: FeatureBuilder, execution: NextOpenExecution) -> None"
+    },
+    {
+      "name": "BacktestEngine.run",
+      "kind": "method",
+      "target_file": "src/backtest/engine.py",
+      "signature": "def run(self, model: AlphaModel, panel: pl.DataFrame, config: BacktestConfig) -> BacktestResult"
+    },
+    {
+      "name": "BuyAndHoldBaseline",
+      "kind": "class",
+      "target_file": "src/alpha/baselines.py",
+      "signature": "class BuyAndHoldBaseline: def __init__(self, ticker: str, name: str = 'B0') -> None"
+    },
+    {
+      "name": "TopKMomentum",
+      "kind": "class",
+      "target_file": "src/alpha/baselines.py",
+      "signature": "class TopKMomentum: def __init__(self, horizon: int = 20, name: str = 'B1') -> None"
+    },
+    {
+      "name": "MomentumTrendFilter",
+      "kind": "class",
+      "target_file": "src/alpha/baselines.py",
+      "signature": "class MomentumTrendFilter: def __init__(self, horizon: int = 20, ma_window: int = 20, name: str = 'B3') -> None"
+    },
+    {
+      "name": "ThemeMomentum",
+      "kind": "class",
+      "target_file": "src/alpha/baselines.py",
+      "signature": "class ThemeMomentum: def __init__(self, horizon: int = 20, name: str = 'B4') -> None"
+    },
+    {
+      "name": "RegimeGatedMomentum",
+      "kind": "class",
+      "target_file": "src/alpha/baselines.py",
+      "signature": "class RegimeGatedMomentum: def __init__(self, inner: AlphaModel, blocked: frozenset[RegimeState], name: str = 'B5') -> None"
+    },
+    {
+      "name": "BASELINES",
+      "kind": "constant",
+      "target_file": "src/alpha/baselines.py",
+      "signature": "BASELINES: Final[Mapping[str, Callable[[], AlphaModel]]]"
+    },
+    {
+      "name": "effective_sample_size",
+      "kind": "function",
+      "target_file": "src/tournament/distribution.py",
+      "signature": "def effective_sample_size(n_windows: int, horizon: int) -> int"
+    },
+    {
+      "name": "exceedance_curve",
+      "kind": "function",
+      "target_file": "src/tournament/distribution.py",
+      "signature": "def exceedance_curve(returns: Sequence[float], thresholds: Sequence[float]) -> dict[float, float]"
+    },
+    {
+      "name": "right_tail_score",
+      "kind": "function",
+      "target_file": "src/tournament/distribution.py",
+      "signature": "def right_tail_score(returns: Sequence[float], weights: Mapping[float, float]) -> float"
+    },
+    {
+      "name": "stationary_bootstrap_ci",
+      "kind": "function",
+      "target_file": "src/tournament/distribution.py",
+      "signature": "def stationary_bootstrap_ci(returns: Sequence[float], statistic: Callable[[Sequence[float]], float], expected_block: int, n_resamples: int = 2000, alpha: float = 0.05, seed: int = 0) -> tuple[float, float]"
+    },
+    {
+      "name": "ReturnDistribution",
+      "kind": "class",
+      "target_file": "src/tournament/distribution.py",
+      "signature": "@dataclass(frozen=True) class ReturnDistribution: name: str; horizon: int; returns: tuple[float, ...]; n_windows: int; n_effective: int; quantiles: Mapping[float, float]; exceedance: Mapping[float, float]; cvar_05: float; right_tail_score: float"
+    },
+    {
+      "name": "ReturnDistribution.summarise",
+      "kind": "method",
+      "target_file": "src/tournament/distribution.py",
+      "signature": "@classmethod def summarise(cls, name: str, returns: Sequence[float], horizon: int, thresholds: Sequence[float], tail_weights: Mapping[float, float]) -> ReturnDistribution"
+    },
+    {
+      "name": "RollingResult",
+      "kind": "class",
+      "target_file": "src/tournament/simulator.py",
+      "signature": "@dataclass(frozen=True) class RollingResult: name: str; horizon: int; starts: tuple[date, ...]; returns: tuple[float, ...]; drawdowns: tuple[float, ...]"
+    },
+    {
+      "name": "TournamentSimulator",
+      "kind": "class",
+      "target_file": "src/tournament/simulator.py",
+      "signature": "class TournamentSimulator: def __init__(self, engine: BacktestEngine, calendar: TradingCalendar) -> None"
+    },
+    {
+      "name": "TournamentSimulator.run_rolling",
+      "kind": "method",
+      "target_file": "src/tournament/simulator.py",
+      "signature": "def run_rolling(self, model: AlphaModel, panel: pl.DataFrame, config: BacktestConfig, horizon: int, path_dependent: bool = False) -> RollingResult"
+    },
+    {
+      "name": "ReplayDay",
+      "kind": "class",
+      "target_file": "src/tournament/replay.py",
+      "signature": "@dataclass(frozen=True) class ReplayDay: decision_date: date; execution_date: date | None; regime: str; universe_size: int; dropped: Mapping[str, int]; top_scores: tuple[tuple[str, str, str, float], ...]; weights: Mapping[str, float]; daily_return: float; cumulative_return: float"
+    },
+    {
+      "name": "ReplayReport",
+      "kind": "class",
+      "target_file": "src/tournament/replay.py",
+      "signature": "@dataclass(frozen=True) class ReplayReport: model: str; start: date; end: date; sessions: int; days: tuple[ReplayDay, ...]; final_return: float"
+    },
+    {
+      "name": "TournamentReplay",
+      "kind": "class",
+      "target_file": "src/tournament/replay.py",
+      "signature": "class TournamentReplay: def __init__(self, engine: BacktestEngine, calendar: TradingCalendar) -> None"
+    },
+    {
+      "name": "TournamentReplay.run",
+      "kind": "method",
+      "target_file": "src/tournament/replay.py",
+      "signature": "def run(self, model: AlphaModel, panel: pl.DataFrame, config: BacktestConfig) -> ReplayReport"
+    },
+    {
+      "name": "cmd_backtest",
+      "kind": "function",
+      "target_file": "src/cli.py",
+      "signature": "def cmd_backtest(args: argparse.Namespace) -> int"
+    },
+    {
+      "name": "cmd_replay",
+      "kind": "function",
+      "target_file": "src/cli.py",
+      "signature": "def cmd_replay(args: argparse.Namespace) -> int"
+    }
+  ],
+  "wiring": [
+    {
+      "caller_file": "src/cli.py",
+      "anchor": "SUBCOMMANDS",
+      "import_symbol": "TournamentSimulator",
+      "invocation_expression": "SUBCOMMANDS[\"backtest\"] = cmd_backtest"
+    },
+    {
+      "caller_file": "src/cli.py",
+      "anchor": "SUBCOMMANDS",
+      "import_symbol": "TournamentReplay",
+      "invocation_expression": "SUBCOMMANDS[\"replay\"] = cmd_replay"
+    }
+  ],
+  "requirements": [
+    "NextOpenExecution.resolve MUST compute execution_date as calendar.next_session(decision_date) and MUST read the fill price from the open column of that execution date only. Reading any price dated on or before decision_date for the fill is forbidden.",
+    "When decision_date is the final session of the panel or the range, resolve MUST return no fills; fabricating a same-day close fill is forbidden.",
+    "When the open price on the execution date is null or the instrument is not tradable that day, the order MUST go unfilled and be recorded, not substituted with a close price.",
+    "BacktestEngine.run MUST pass to the alpha model only the single-date snapshot produced by FeatureBuilder.snapshot, so the model has no structural access to future rows.",
+    "normalize_weights MUST enforce that the sum of instrument weights plus cash equals 1.0 within tolerance and MUST raise WeightViolationError otherwise; it MUST also reject any single weight above max_weight and any negative weight.",
+    "weights_from_scores MUST select the highest-scoring instruments deterministically, breaking ties by ticker so that results are reproducible, and MUST return the exact scheme proportions (1.0 for TOP1, 0.7/0.3, 0.5/0.3/0.2, 1/k).",
+    "When fewer instruments are available than the scheme requires, the shortfall MUST be held as cash rather than reweighted onto the remaining names.",
+    "CostConfig.grid MUST expand every None field into the configured stress grid and return one CostConfig per combination; a fully specified config MUST return a single-element tuple.",
+    "window_returns MUST compute overlapping horizon returns from a daily return series by differencing cumulative log returns in O(T) and MUST NOT re-run the backtest per window.",
+    "TournamentSimulator.run_rolling MUST use the O(T) path by default and MUST re-run the engine per window only when path_dependent is True; the two modes MUST agree for a path-independent model.",
+    "effective_sample_size MUST return floor(n_windows / horizon) and every reported distribution MUST carry it, because adjacent 36-session windows share 35 sessions and are not independent.",
+    "Confidence intervals MUST come from a stationary bootstrap with expected block length equal to the horizon, seeded for reproducibility; i.i.d. resampling is forbidden for overlapping-window statistics.",
+    "ReturnDistribution.summarise MUST report quantiles at 0.05, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99, exceedance probabilities at the supplied thresholds, CVaR at 5 percent, right_tail_score and n_effective. CAGR, annualised Sharpe and annualised volatility MUST NOT be reported as headline metrics for a fixed 36-session horizon.",
+    "right_tail_score weights MUST be supplied from configuration; they MUST NOT be literals in the function body.",
+    "BASELINES MUST register B0 through B5 and every baseline MUST be executable through the identical BacktestEngine.run path with the same UniverseFilters and CostConfig, so comparisons are protocol-identical.",
+    "RegimeGatedMomentum MUST delegate scoring to its inner model and MUST return an empty mapping (full cash) when the context regime is in the blocked set.",
+    "TournamentReplay.run MUST iterate sessions one at a time and MUST invoke exactly the same engine code path as a live decision, recording per-day regime, universe size, per-stage drop counts, the top-5 scored instruments with ticker, name and theme, the resulting weights and the realised return.",
+    "ReplayReport MUST expose the instrument names actually selected so that the leading-sector capture gate can be judged by a human; the gate MUST NOT be auto-asserted as a pass/fail number.",
+    "cmd_backtest MUST accept --model, --start, --end and a horizon derived from TournamentRules rather than a literal, and cmd_replay MUST accept --year and --model.",
+    "Backtest and distribution results MUST be logged with the [EVAL] tag using key=value payloads with floats at 3 decimals."
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "SCENARIO-06-01",
+      "target_test_file": "tests/unit/backtest/test_execution.py",
+      "execution_command": "uv run pytest tests/unit/backtest/test_execution.py -q --tb=short",
+      "expected_behavior": "On a panel where ticker A has close 100 and open 100 on 2026-08-14 and close 130 and open 120 on 2026-08-18, resolve({'A': 1.0}, panel, decision_date=2026-08-14) returns a single Fill with execution_date 2026-08-18 and price 120.0. The fill price is never 100.0 or 130.0, proving the signal date's own prices are not used."
+    },
+    {
+      "scenario_id": "SCENARIO-06-02",
+      "target_test_file": "tests/unit/backtest/test_execution.py",
+      "execution_command": "uv run pytest tests/unit/backtest/test_execution.py -q --tb=short",
+      "expected_behavior": "resolve on the last session of the panel returns an empty fill list. resolve for an instrument whose next-session open is null, or whose is_tradable is False on the execution date, returns no fill for it and reports its ticker in the unfilled tuple."
+    },
+    {
+      "scenario_id": "SCENARIO-06-03",
+      "target_test_file": "tests/unit/backtest/test_sizing.py",
+      "execution_command": "uv run pytest tests/unit/backtest/test_sizing.py -q --tb=short",
+      "expected_behavior": "weights_from_scores({'A':0.9,'B':0.5,'C':0.1}, TOP3_50_30_20) == {'A':0.5,'B':0.3,'C':0.2} and with TOP1 == {'A':1.0}; ties between equal scores resolve by ticker order; with only two candidates and TOP3_50_30_20 the result keeps A at 0.5 and B at 0.3 and leaves 0.2 in cash rather than rescaling."
+    },
+    {
+      "scenario_id": "SCENARIO-06-04",
+      "target_test_file": "tests/unit/backtest/test_sizing.py",
+      "execution_command": "uv run pytest tests/unit/backtest/test_sizing.py -q --tb=short",
+      "expected_behavior": "normalize_weights({'A':0.6,'B':0.3}) returns weights whose instrument sum plus implied cash equals 1.0 within 1e-6; normalize_weights({'A':0.7,'B':0.5}) raises WeightViolationError; a negative weight raises WeightViolationError; a weight of 0.8 with max_weight 0.5 raises WeightViolationError."
+    },
+    {
+      "scenario_id": "SCENARIO-06-05",
+      "target_test_file": "tests/unit/backtest/test_costs.py",
+      "execution_command": "uv run pytest tests/unit/backtest/test_costs.py -q --tb=short",
+      "expected_behavior": "CostConfig(commission_bps=None, slippage_bps=None, spread_bps=0.0).grid() returns one config per combination of the configured commission and slippage grids and every element has no None field; CostConfig(0.0, 0.0, 0.0).grid() has length 1. CostModel(CostConfig(3.0, 5.0, 0.0)).charge(1_000_000_000) == 800_000.0."
+    },
+    {
+      "scenario_id": "SCENARIO-06-06",
+      "target_test_file": "tests/unit/backtest/test_metrics.py",
+      "execution_command": "uv run pytest tests/unit/backtest/test_metrics.py -q --tb=short",
+      "expected_behavior": "compound_returns([0.01]*36) equals 1.01**36 - 1 within 1e-12 and is computed through log1p/expm1. window_returns([0.01]*100, 36) has length 65 and every element equals 1.01**36 - 1 within 1e-12. max_drawdown([100, 120, 90, 150]) == -0.25."
+    },
+    {
+      "scenario_id": "SCENARIO-06-07",
+      "target_test_file": "tests/unit/tournament/test_distribution.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_distribution.py -q --tb=short",
+      "expected_behavior": "effective_sample_size(2090, 36) == 58. exceedance_curve([0.05,0.15,0.25,0.35,0.45], [0.10,0.30,0.50]) == {0.10:0.8, 0.30:0.4, 0.50:0.0}. right_tail_score with weights {0.75:0.2,0.90:0.3,0.95:0.3,0.99:0.2} equals the weighted sum of the corresponding empirical quantiles. ReturnDistribution.summarise reports n_effective and exposes no CAGR or annualised Sharpe attribute."
+    },
+    {
+      "scenario_id": "SCENARIO-06-08",
+      "target_test_file": "tests/unit/tournament/test_distribution.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_distribution.py -q --tb=short",
+      "expected_behavior": "stationary_bootstrap_ci is reproducible for a fixed seed and returns a lower bound below the upper bound. For a strongly autocorrelated series its interval is strictly wider than the interval produced by i.i.d. resampling of the same series, demonstrating that block structure is preserved."
+    },
+    {
+      "scenario_id": "SCENARIO-06-09",
+      "target_test_file": "tests/unit/tournament/test_simulator.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_simulator.py -q --tb=short",
+      "expected_behavior": "For a deterministic path-independent model, run_rolling(path_dependent=False) and run_rolling(path_dependent=True) produce identical returns tuples within 1e-10, and the fast path issues exactly one BacktestEngine.run call while the slow path issues one per window."
+    },
+    {
+      "scenario_id": "SCENARIO-06-10",
+      "target_test_file": "tests/unit/tournament/test_simulator.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_simulator.py -q --tb=short",
+      "expected_behavior": "Every baseline key B0 through B5 is present in BASELINES, each constructs an object satisfying the AlphaModel protocol, and each runs to completion through BacktestEngine.run on the same synthetic panel with the same UniverseFilters, producing a daily frame of equal length. RegimeGatedMomentum returns an empty mapping when the context regime is STRONG_RISK_OFF and delegates otherwise."
+    },
+    {
+      "scenario_id": "SCENARIO-06-11",
+      "target_test_file": "tests/unit/tournament/test_replay.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_replay.py -q --tb=short",
+      "expected_behavior": "TournamentReplay.run over a synthetic 2025-09-22..2025-11-14 panel returns a ReplayReport whose sessions count equals calendar.session_count(start, end) == 35, whose days tuple has one entry per session, whose final entry has execution_date None, and whose cumulative_return on the last day equals compound_returns of the daily series within 1e-10. Each ReplayDay carries a non-empty regime label, the per-stage drop counts and the selected instrument names."
+    },
+    {
+      "scenario_id": "SCENARIO-06-12",
+      "target_test_file": "tests/unit/test_cli.py",
+      "execution_command": "uv run pytest tests/unit/test_cli.py -q --tb=short",
+      "expected_behavior": "'backtest' and 'replay' are keys of SUBCOMMANDS; main(['backtest','--model','B1','--start','2026-01-02','--end','2026-08-27']) returns 0 on a temporary gold panel and logs an [EVAL] line containing n_effective; main(['backtest','--model','B9',...]) returns non-zero for an unknown model."
+    }
+  ]
+}
