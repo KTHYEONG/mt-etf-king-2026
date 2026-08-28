@@ -4,6 +4,7 @@ import argparse
 import logging
 from collections.abc import Callable, Sequence
 from datetime import date
+from pathlib import Path
 
 from src.core.calendar import get_calendar
 from src.core.logging_setup import configure_logging
@@ -12,6 +13,7 @@ from src.core.settings import Settings, get_settings
 from src.data.bronze import BronzeStore as _BronzeStoreForOrphan  # noqa: F401
 from src.data.providers.ratelimit import RateLimiter as _RateLimiterForOrphan  # noqa: F401
 from src.data.silver import SilverBuilder  # noqa: F401
+from src.universe.provider import PointInTimeUniverse  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -164,16 +166,114 @@ def cmd_normalize(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_universe(args: argparse.Namespace) -> int:
+    try:
+        date_str = getattr(args, "date", None)
+        mode_str = getattr(args, "mode", "deployment")
+        max_adv_raw = getattr(args, "max_order_to_adv", None)
+        if date_str is None:
+            logger.error("[SYS] universe status=fail error=missing --date")
+            return 1
+        try:
+            as_of = date.fromisoformat(str(date_str))
+        except Exception as exc:
+            logger.error(f"[SYS] universe status=fail error={exc!r}")
+            return 1
+        mode_val = str(mode_str).lower()
+        if mode_val not in ("structural", "deployment"):
+            logger.error(f"[SYS] universe status=fail error=invalid mode {mode_val!r}")
+            return 1
+        try:
+            max_order_to_adv = float(max_adv_raw) if max_adv_raw is not None else 0.05
+        except Exception:
+            max_order_to_adv = 0.05
+        from src.core.calendar import get_calendar
+        from src.core.paths import DataPaths
+        from src.core.settings import get_settings
+        from src.universe.instruments import load_sponsor_brand_map
+        from src.universe.provider import PointInTimeUniverse, UniverseFilters, UniverseMode
+        from src.universe.taxonomy import Taxonomy
+
+        settings = get_settings()
+        paths = DataPaths(root=settings.data_root)
+        cal = get_calendar()
+        # Load panel if exists
+        panel = None
+        silver_path = paths.silver("etf_daily")
+        if silver_path.exists():
+            try:
+                import polars as pl
+
+                panel = pl.read_parquet(silver_path)
+            except Exception:
+                panel = None
+        if panel is None or panel.height == 0:
+            # No data: log empty universe but still succeed
+            logger.info(f"[DATA] universe as_of={as_of} mode={mode_val} admitted=0 dropped={{}}")
+            logger.info(f"[SYS] universe as_of={as_of} mode={mode_val} admitted=0")
+            return 0
+        # Ensure required columns exist
+        # Build master
+        try:
+            brand_map = load_sponsor_brand_map(Path("configs/sponsor_brands.yaml"))
+        except Exception:
+            brand_map = {}
+        try:
+            taxonomy = Taxonomy.from_yaml(Path("configs/taxonomy.yaml"))
+        except Exception:
+            taxonomy = Taxonomy(rules=[])
+        # Load universe config
+        universe_config: dict[str, object] = {}
+        try:
+            import yaml
+
+            with open("configs/universe.yaml", encoding="utf-8") as f:
+                uc_raw = yaml.safe_load(f) or {}
+            universe_config = uc_raw["universe"] if isinstance(uc_raw, dict) and "universe" in uc_raw else uc_raw
+        except Exception:
+            universe_config = {}
+        # sponsor issuers tuple
+        sponsor_issuers = tuple(sorted(set(brand_map.values()))) if brand_map else ()
+        # Load manifest if present (handled inside for_mode)
+        from src.universe.instruments import InstrumentMaster
+
+        master = InstrumentMaster.build(panel, taxonomy, brand_map)
+        umode = UniverseMode.STRUCTURAL if mode_val == "structural" else UniverseMode.DEPLOYMENT
+        filt = UniverseFilters.for_mode(
+            umode,
+            universe_config,
+            sponsor_issuers,
+            max_order_to_adv=max_order_to_adv,
+        )
+        # Use adv_window from config if present
+        adv_w = 20
+        try:
+            adv_w = int(universe_config.get("adv_window", 20))  # type: ignore[call-overload]
+        except Exception:
+            adv_w = 20
+        universe = PointInTimeUniverse(panel, master, cal, adv_window=adv_w, brand_map=brand_map)
+        snap = universe.get(as_of, filt)
+        dropped_str = ", ".join(f"{k}={v}" for k, v in snap.dropped.items())
+        logger.info(f"[DATA] universe as_of={as_of} mode={mode_val} admitted={len(snap.tickers)} dropped={dict(snap.dropped)} {dropped_str}")
+        logger.info(f"[SYS] universe as_of={as_of} mode={mode_val} admitted={len(snap.tickers)}")
+        return 0
+    except Exception as exc:
+        logger.error(f"[SYS] universe status=fail error={exc!r}")
+        return 1
+
+
 SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "config-check": cmd_config_check,
     "calendar": cmd_calendar,
     "ingest": cmd_ingest,
     "normalize": cmd_normalize,
+    "universe": cmd_universe,
 }
 
 # wiring requirement: SUBCOMMANDS["ingest"] = cmd_ingest
 SUBCOMMANDS["ingest"] = cmd_ingest
 SUBCOMMANDS["normalize"] = cmd_normalize
+SUBCOMMANDS["universe"] = cmd_universe
 
 # Import for wiring verification
 from src.data.backfill import run_backfill as _run_backfill_ref  # noqa: F401,E402
@@ -202,6 +302,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_norm.add_argument("--dataset", required=True, help="dataset alias")
     p_norm.add_argument("--mode", choices=["full", "incremental"], default="incremental", help="build mode")
     p_norm.set_defaults(func=cmd_normalize)
+    # universe
+    p_uni = sub.add_parser("universe", help="query PIT universe")
+    p_uni.add_argument("--date", required=True, help="as_of date YYYY-MM-DD")
+    p_uni.add_argument("--mode", choices=["structural", "deployment"], default="deployment", help="universe mode")
+    p_uni.add_argument("--max-order-to-adv", type=float, default=0.05, dest="max_order_to_adv", help="max order to ADV ratio")
+    p_uni.set_defaults(func=cmd_universe)
     return parser
 
 
