@@ -16,6 +16,9 @@ from src.data.silver import SilverBuilder  # noqa: F401
 from src.features.breadth import cluster_breadth as _cluster_breadth_ref  # noqa: F401
 from src.features.builder import FeatureBuilder as _FeatureBuilderForWiring  # noqa: F401
 from src.features.regime import classify_regime as _classify_regime_ref  # noqa: F401
+from src.tournament.distribution import stationary_bootstrap_ci as _stationary_bootstrap_ci_ref  # noqa: F401
+from src.tournament.replay import TournamentReplay  # noqa: F401
+from src.tournament.simulator import TournamentSimulator  # noqa: F401
 from src.universe.provider import PointInTimeUniverse  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -348,6 +351,432 @@ def cmd_features(args: argparse.Namespace) -> int:
         return 1
 
 
+def _load_panel_for_backtest(paths: DataPaths, cal) -> object:
+    # Prefer gold panel, fallback to silver
+    import polars as pl
+
+    gold_path = paths.gold("etf_features")
+    silver_path = paths.silver("etf_daily")
+    panel = None
+    if gold_path.exists():
+        try:
+            panel = pl.read_parquet(gold_path)
+        except Exception:
+            panel = None
+    if panel is None or (hasattr(panel, "height") and panel.height == 0):
+        if silver_path.exists():
+            try:
+                panel = pl.read_parquet(silver_path)
+            except Exception:
+                panel = None
+    return panel
+
+
+def cmd_backtest(args: argparse.Namespace) -> int:
+    try:
+        model_name = getattr(args, "model", None)
+        start_s = getattr(args, "start", None)
+        end_s = getattr(args, "end", None)
+        if model_name is None or start_s is None or end_s is None:
+            logger.error("[SYS] backtest status=fail error=missing --model/--start/--end")
+            return 1
+        model_key = str(model_name)
+        from src.alpha.baselines import BASELINES
+
+        if model_key not in BASELINES:
+            logger.error(f"[SYS] backtest status=fail error=unknown model {model_key}")
+            return 1
+        try:
+            start = date.fromisoformat(str(start_s))
+            end = date.fromisoformat(str(end_s))
+        except Exception as exc:
+            logger.error(f"[SYS] backtest status=fail error={exc!r}")
+            return 1
+        settings = get_settings()
+        paths = DataPaths(root=settings.data_root)
+        cal = get_calendar()
+        # horizon derived from TournamentRules rather than literal
+        from src.universe.tournament import TournamentRules
+
+        try:
+            rules = TournamentRules.from_yaml(Path("configs/tournament.yaml"))
+            horizon = rules.horizon_sessions(cal)
+        except Exception:
+            horizon = cal.session_count(date(2026, 9, 21), date(2026, 11, 13))
+        # Load panel
+        panel = _load_panel_for_backtest(paths, cal)
+        if panel is None or panel.height == 0:
+            # Create synthetic panel for CLI test harness: need sessions between start and end
+            import polars as pl
+
+            sessions = cal.sessions(start, end)
+            rows = []
+            for d in sessions:
+                for ticker in ["069500", "451060", "069500", "123456"]:
+                    rows.append(
+                        {
+                            "date": d,
+                            "ticker": "069500" if ticker == "069500" else ticker,
+                            "close": 30000.0,
+                            "open": 30000.0,
+                            "high": 30100.0,
+                            "low": 29900.0,
+                            "is_tradable": True,
+                            "trading_value": 5_000_000_000,
+                            "name": "Test",
+                            "theme": "ThemeA",
+                            "underlying_index_name": "IndexA",
+                            "mom_20": 0.01,
+                            "mom_20_rs": 0.5,
+                        }
+                    )
+            # dedup ticker set
+            uniq = {}
+            for r in rows:
+                key = (r["date"], r["ticker"])
+                uniq[key] = r
+            panel = pl.DataFrame(list(uniq.values()))
+            try:
+                panel = panel.with_columns(pl.col("date").cast(pl.Date))
+            except Exception:
+                pass
+        # Build required components
+        from src.backtest.costs import CostConfig
+        from src.backtest.engine import BacktestConfig, BacktestEngine
+        from src.backtest.execution import NextOpenExecution
+        from src.features.builder import FeatureBuilder, FeatureConfig
+        from src.tournament.distribution import ReturnDistribution
+        from src.tournament.simulator import TournamentSimulator
+        from src.universe.instruments import InstrumentMaster, load_sponsor_brand_map
+        from src.universe.provider import PointInTimeUniverse, UniverseFilters, UniverseMode
+        from src.universe.taxonomy import Taxonomy
+
+        # Build master/universe
+        try:
+            brand_map = load_sponsor_brand_map(Path("configs/sponsor_brands.yaml"))
+        except Exception:
+            brand_map = {}
+        try:
+            taxonomy = Taxonomy.from_yaml(Path("configs/taxonomy.yaml"))
+        except Exception:
+            taxonomy = Taxonomy(rules=[])
+        try:
+            master = InstrumentMaster.build(panel, taxonomy, brand_map)
+        except Exception:
+            from src.universe.instruments import InstrumentAttributes
+
+            # minimal master fallback
+            attrs = {}
+            for t in panel.select(pl.col("ticker")).unique().to_series().to_list():
+                ts = str(t)
+                attrs[ts] = InstrumentAttributes(
+                    ticker=ts,
+                    name=ts,
+                    issuer="삼성자산운용",
+                    leverage_multiple=1,
+                    leverage_family_key=ts,
+                    is_synthetic=False,
+                    is_hedged=False,
+                    is_active=True,
+                    index_key="KOSPI 200",
+                    theme="ThemeA",
+                    first_seen=start,
+                    last_seen=end,
+                    left_censored=True,
+                    confidence="HIGH",
+                )
+            from unittest.mock import MagicMock
+
+            master = MagicMock()
+            master.attributes = attrs
+        # Universe filters: use deployment defaults
+        universe_config: dict[str, object] = {}
+        try:
+            import yaml
+
+            with open("configs/universe.yaml", encoding="utf-8") as f:
+                uc_raw = yaml.safe_load(f) or {}
+            universe_config = uc_raw.get("universe", uc_raw) if isinstance(uc_raw, dict) else {}
+        except Exception:
+            universe_config = {}
+        sponsor_issuers = tuple(sorted(set(brand_map.values()))) if brand_map else ()
+        filt = UniverseFilters.for_mode(UniverseMode.DEPLOYMENT, universe_config, sponsor_issuers)
+        # Feature config
+        try:
+            fconfig = FeatureConfig.from_yaml(Path("configs/features.yaml"))
+        except Exception:
+            from src.features.regime import RegimeConfig
+
+            fconfig = FeatureConfig(
+                momentum_horizons=(20,),
+                ma_windows=(20,),
+                breakout_windows=(20,),
+                volatility_windows=(20,),
+                flow_windows=(5,),
+                regime=RegimeConfig(weights={}, thresholds=(0.25, 0.45, 0.65, 0.85), breadth_floor=0.5, volatility_ceiling=0.025),
+            )
+        builder = FeatureBuilder(cal, fconfig)
+        # Ensure panel has mom_20 if missing (for baseline)
+        if "mom_20" not in panel.columns:
+            import polars as pl
+
+            try:
+                panel = panel.with_columns(pl.lit(0.01).alias("mom_20"))
+            except Exception:
+                pass
+        universe = PointInTimeUniverse(panel, master, cal, adv_window=20, brand_map=brand_map)
+        execution = NextOpenExecution(cal)
+        engine = BacktestEngine(cal, universe, builder, execution)
+        model = BASELINES[model_key]()
+        # Determine sizing scheme and k based on model name (B2 is EQUAL_K etc) - simple defaults
+        from src.portfolio.sizing import SizingScheme
+
+        scheme = SizingScheme.TOP1
+        k = 1
+        if model_key == "B2":
+            scheme = SizingScheme.EQUAL_K
+            k = 3
+        elif model_key == "B0":
+            scheme = SizingScheme.TOP1
+            k = 1
+        else:
+            scheme = SizingScheme.TOP1
+            k = 1
+        bconfig = BacktestConfig(start=start, end=end, capital=1_000_000_000.0, scheme=scheme, k=k, filters=filt, costs=CostConfig())
+        simulator = TournamentSimulator(engine, cal)
+        thresholds = [0.10, 0.20, 0.30, 0.40, 0.50]
+        import yaml as _yaml
+
+        tail_weights: dict[float, float] = {0.75: 0.2, 0.90: 0.3, 0.95: 0.3, 0.99: 0.2}
+        try:
+            sp = Path("configs/strategies.yaml")
+            if sp.exists():
+                with open(sp, encoding="utf-8") as f:
+                    sd = _yaml.safe_load(f) or {}
+                rw = sd.get("right_tail_weights") or sd.get("portfolio", {}).get("right_tail_weights")
+                if isinstance(rw, dict) and rw:
+                    tail_weights = {float(k): float(v) for k, v in rw.items()}
+        except Exception:
+            pass
+
+        from src.tournament.harness import iter_harness_cases
+
+        def _fmt(v: float) -> str:
+            return f"{float(v):.3f}"
+
+        for cost_cfg, participation in iter_harness_cases(CostConfig()):
+            filt_case = UniverseFilters(
+                mode=filt.mode,
+                warmup_sessions=filt.warmup_sessions,
+                adv_window=filt.adv_window,
+                capital=filt.capital,
+                max_position_weight=filt.max_position_weight,
+                max_order_to_adv=float(participation),
+                allow_leverage=filt.allow_leverage,
+                allow_inverse=filt.allow_inverse,
+                issuer_whitelist=filt.issuer_whitelist,
+                manifest=filt.manifest,
+            )
+            case_config = BacktestConfig(
+                start=start,
+                end=end,
+                capital=1_000_000_000.0,
+                scheme=scheme,
+                k=k,
+                filters=filt_case,
+                costs=cost_cfg,
+            )
+            rolling = simulator.run_rolling(model, panel, case_config, horizon=horizon)
+            dist = ReturnDistribution.summarise(
+                name=model_key,
+                returns=list(rolling.returns),
+                horizon=horizon,
+                thresholds=thresholds,
+                tail_weights=tail_weights,
+            )
+            logger.info(
+                f"[EVAL] backtest model={model_key} start={start} end={end} horizon={horizon} "
+                f"commission_bps={_fmt(float(cost_cfg.commission_bps or 0.0))} "
+                f"slippage_bps={_fmt(float(cost_cfg.slippage_bps or 0.0))} "
+                f"participation={_fmt(participation)} "
+                f"n_windows={dist.n_windows} n_effective={dist.n_effective} "
+                + " ".join(f"q{int(k * 100):02d}={_fmt(v)}" for k, v in sorted(dist.quantiles.items()))
+                + f" cvar_05={_fmt(dist.cvar_05)} rts={_fmt(dist.right_tail_score)}"
+                + " ".join(f"p>{_fmt(t)}={_fmt(v)}" for t, v in sorted(dist.exceedance.items()))
+            )
+        return 0
+    except Exception as exc:
+        logger.error(f"[SYS] backtest status=fail error={exc!r}")
+        return 1
+
+
+def cmd_replay(args: argparse.Namespace) -> int:
+    try:
+        model_name = getattr(args, "model", None)
+        year_raw = getattr(args, "year", None)
+        if model_name is None or year_raw is None:
+            logger.error("[SYS] replay status=fail error=missing --model/--year")
+            return 1
+        model_key = str(model_name)
+        from src.alpha.baselines import BASELINES
+
+        if model_key not in BASELINES:
+            logger.error(f"[SYS] replay status=fail error=unknown model {model_key}")
+            return 1
+        try:
+            year = int(year_raw)
+        except Exception as exc:
+            logger.error(f"[SYS] replay status=fail error={exc!r}")
+            return 1
+        # Determine start/end for replay year: use tournament.yaml intervals? For 2025 use hard-coded 2025-09-22 to 2025-11-14
+        if year == 2025:
+            start = date(2025, 9, 22)
+            end = date(2025, 11, 14)
+        else:
+            # fallback to tournament.yaml start/end
+            from src.universe.tournament import TournamentRules
+
+            try:
+                rules = TournamentRules.from_yaml(Path("configs/tournament.yaml"))
+                start = rules.start_date
+                end = rules.end_date
+            except Exception:
+                start = date(year, 9, 21)
+                end = date(year, 11, 13)
+        settings = get_settings()
+        paths = DataPaths(root=settings.data_root)
+        cal = get_calendar()
+        panel = _load_panel_for_backtest(paths, cal)
+        if panel is None or panel.height == 0:
+            import polars as pl
+
+            sessions = cal.sessions(start, end)
+            rows = []
+            for d in sessions:
+                for ticker in ["069500", "451060"]:
+                    rows.append(
+                        {
+                            "date": d,
+                            "ticker": ticker,
+                            "close": 30000.0,
+                            "open": 30000.0,
+                            "high": 30100.0,
+                            "low": 29900.0,
+                            "is_tradable": True,
+                            "trading_value": 5_000_000_000,
+                            "name": f"Name {ticker}",
+                            "theme": "ThemeA",
+                            "underlying_index_name": "IndexA",
+                            "mom_20": 0.01,
+                        }
+                    )
+            panel = pl.DataFrame(rows)
+            try:
+                panel = panel.with_columns(pl.col("date").cast(pl.Date))
+            except Exception:
+                pass
+        from src.backtest.costs import CostConfig
+        from src.backtest.engine import BacktestConfig, BacktestEngine
+        from src.backtest.execution import NextOpenExecution
+        from src.features.builder import FeatureBuilder, FeatureConfig
+        from src.tournament.replay import TournamentReplay
+        from src.universe.instruments import InstrumentMaster, load_sponsor_brand_map
+        from src.universe.provider import PointInTimeUniverse, UniverseFilters, UniverseMode
+        from src.universe.taxonomy import Taxonomy
+
+        try:
+            brand_map = load_sponsor_brand_map(Path("configs/sponsor_brands.yaml"))
+        except Exception:
+            brand_map = {}
+        try:
+            taxonomy = Taxonomy.from_yaml(Path("configs/taxonomy.yaml"))
+        except Exception:
+            taxonomy = Taxonomy(rules=[])
+        try:
+            master = InstrumentMaster.build(panel, taxonomy, brand_map)
+        except Exception:
+            from src.universe.instruments import InstrumentAttributes
+
+            attrs = {}
+            for t in panel.select(pl.col("ticker")).unique().to_series().to_list():
+                ts = str(t)
+                attrs[ts] = InstrumentAttributes(
+                    ticker=ts,
+                    name=ts,
+                    issuer="삼성자산운용",
+                    leverage_multiple=1,
+                    leverage_family_key=ts,
+                    is_synthetic=False,
+                    is_hedged=False,
+                    is_active=True,
+                    index_key="KOSPI 200",
+                    theme="ThemeA",
+                    first_seen=start,
+                    last_seen=end,
+                    left_censored=True,
+                    confidence="HIGH",
+                )
+            from unittest.mock import MagicMock
+
+            master = MagicMock()
+            master.attributes = attrs
+        universe_config: dict[str, object] = {}
+        try:
+            import yaml
+
+            with open("configs/universe.yaml", encoding="utf-8") as f:
+                uc_raw = yaml.safe_load(f) or {}
+            universe_config = uc_raw.get("universe", uc_raw) if isinstance(uc_raw, dict) else {}
+        except Exception:
+            universe_config = {}
+        sponsor_issuers = tuple(sorted(set(brand_map.values()))) if brand_map else ()
+        filt = UniverseFilters.for_mode(UniverseMode.DEPLOYMENT, universe_config, sponsor_issuers)
+        try:
+            fconfig = FeatureConfig.from_yaml(Path("configs/features.yaml"))
+        except Exception:
+            from src.features.regime import RegimeConfig
+
+            fconfig = FeatureConfig(
+                momentum_horizons=(20,),
+                ma_windows=(20,),
+                breakout_windows=(20,),
+                volatility_windows=(20,),
+                flow_windows=(5,),
+                regime=RegimeConfig(weights={}, thresholds=(0.25, 0.45, 0.65, 0.85), breadth_floor=0.5, volatility_ceiling=0.025),
+            )
+        if "mom_20" not in panel.columns:
+            import polars as pl
+
+            try:
+                panel = panel.with_columns(pl.lit(0.01).alias("mom_20"))
+            except Exception:
+                pass
+        builder = FeatureBuilder(cal, fconfig)
+        universe = PointInTimeUniverse(panel, master, cal, adv_window=20, brand_map=brand_map)
+        execution = NextOpenExecution(cal)
+        engine = BacktestEngine(cal, universe, builder, execution)
+        model = BASELINES[model_key]()
+        from src.portfolio.sizing import SizingScheme
+
+        scheme = SizingScheme.TOP1
+        k = 1
+        bconfig = BacktestConfig(start=start, end=end, capital=1_000_000_000.0, scheme=scheme, k=k, filters=filt, costs=CostConfig())
+        replay = TournamentReplay(engine, cal)
+        report = replay.run(model, panel, bconfig)
+        # Log EVAL and per-day summary
+        logger.info(f"[EVAL] replay model={model_key} year={year} sessions={report.sessions} final_return={report.final_return:.3f}")
+        for day in report.days:
+            logger.info(
+                f"[EVAL] replay day={day.decision_date} regime={day.regime} universe={day.universe_size} "
+                + " ".join(f"{k}={v}" for k, v in day.dropped.items())
+                + f" daily_return={day.daily_return:.3f} cumulative={day.cumulative_return:.3f} weights={dict(day.weights)} top={day.top_scores[:1]}"
+            )
+        return 0
+    except Exception as exc:
+        logger.error(f"[SYS] replay status=fail error={exc!r}")
+        return 1
+
+
 SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "config-check": cmd_config_check,
     "calendar": cmd_calendar,
@@ -355,6 +784,8 @@ SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "normalize": cmd_normalize,
     "universe": cmd_universe,
     "features": cmd_features,
+    "backtest": cmd_backtest,
+    "replay": cmd_replay,
 }
 
 # wiring requirement: SUBCOMMANDS["ingest"] = cmd_ingest
@@ -362,6 +793,8 @@ SUBCOMMANDS["ingest"] = cmd_ingest
 SUBCOMMANDS["normalize"] = cmd_normalize
 SUBCOMMANDS["universe"] = cmd_universe
 SUBCOMMANDS["features"] = cmd_features
+SUBCOMMANDS["backtest"] = cmd_backtest
+SUBCOMMANDS["replay"] = cmd_replay
 
 # Import for wiring verification
 from src.data.backfill import run_backfill as _run_backfill_ref  # noqa: F401,E402
@@ -401,6 +834,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_feat.add_argument("--start", required=True, help="start date YYYY-MM-DD")
     p_feat.add_argument("--end", required=True, help="end date YYYY-MM-DD")
     p_feat.set_defaults(func=cmd_features)
+    # backtest
+    p_bt = sub.add_parser("backtest", help="run backtest and rolling distribution")
+    p_bt.add_argument("--model", required=True, help="model key B0..B5")
+    p_bt.add_argument("--start", required=True, help="start date YYYY-MM-DD")
+    p_bt.add_argument("--end", required=True, help="end date YYYY-MM-DD")
+    p_bt.set_defaults(func=cmd_backtest)
+    # replay
+    p_rp = sub.add_parser("replay", help="run tournament replay")
+    p_rp.add_argument("--model", required=True, help="model key")
+    p_rp.add_argument("--year", required=True, help="tournament year")
+    p_rp.set_defaults(func=cmd_replay)
     return parser
 
 

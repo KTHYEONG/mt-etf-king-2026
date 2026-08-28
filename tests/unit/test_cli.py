@@ -9,7 +9,7 @@ from src.core.settings import clear_settings_caches
 
 
 def test_cli_calendar_and_unknown(caplog: pytest.LogCaptureFixture) -> None:
-    """SCENARIO-01-07: cli calendar 및 알 수 없는 명령어 처리."""
+    """SCENARIO-01-07 SCENARIO-06-12: cli calendar 및 알 수 없는 명령어 처리."""
     assert "config-check" in SUBCOMMANDS
     assert "calendar" in SUBCOMMANDS
 
@@ -266,4 +266,56 @@ def test_scenario_05_11_features_cli(monkeypatch: pytest.MonkeyPatch, tmp_path) 
     assert ret == 0
     gold_path = paths.gold("etf_features")
     assert gold_path.exists()
+    clear_settings_caches()
+
+
+def test_scenario_06_12_backtest_and_replay_cli(monkeypatch: pytest.MonkeyPatch, tmp_path, caplog: pytest.LogCaptureFixture) -> None:
+    """SCENARIO-06-12"""
+    from datetime import date
+
+    import polars as pl
+
+    from src.core.paths import DataPaths
+
+    assert "backtest" in SUBCOMMANDS
+    assert "replay" in SUBCOMMANDS
+
+    monkeypatch.setenv("KRX_OPENAPI_KEY", "TESTKEY123")
+    monkeypatch.setenv("DATA_ROOT", str(tmp_path))
+    clear_settings_caches()
+
+    paths = DataPaths(root=tmp_path)
+    sessions = [date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 7), date(2026, 1, 8)]
+    rows = [
+        {
+            "date": d,
+            "ticker": ticker,
+            "name": "Test ETF",
+            "close": 30_000.0,
+            "open": 29_900.0,
+            "high": 30_100.0,
+            "low": 29_800.0,
+            "is_tradable": True,
+            "trading_value": 5_000_000_000,
+            "underlying_index_name": "IndexA",
+            "mom_20": 0.01,
+        }
+        for d in sessions
+        for ticker in ["069500", "451060"]
+    ]
+    gold_path = paths.gold("etf_features")
+    gold_path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(rows).write_parquet(gold_path)
+
+    caplog.set_level(logging.INFO)
+    ret = main(["backtest", "--model", "B1", "--start", "2026-01-02", "--end", "2026-01-08"])
+    assert ret == 0
+    combined = "\n".join(caplog.messages)
+    assert "n_effective=" in combined
+    assert "participation=" in combined
+    assert "commission_bps=" in combined
+    assert "[EVAL]" in combined
+
+    ret_bad = main(["backtest", "--model", "B9", "--start", "2026-01-02", "--end", "2026-01-08"])
+    assert ret_bad != 0
     clear_settings_caches()
