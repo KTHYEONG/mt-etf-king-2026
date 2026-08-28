@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_02_KRX_INGESTION",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_02_KRX_INGESTION",
+      "domain": "data",
+      "title": "KRX Ingestion — provider · rate limit · bronze · resumable backfill",
+      "why": "KRX Open API returns HTTP 200 for semantic failures; ingestion must preserve raw payloads write-once, enforce per-second rate limits and daily quota, and resume without re-fetching completed sessions.",
+      "resolution": "Implemented src/data/providers/{base,krx,ratelimit}.py, src/data/{bronze,backfill}.py, and ingest CLI wiring: KRXOpenAPIProvider (basDd-only, verbatim rows, permanent/transient retry), BronzeStore write-once, QuotaLedger + RateLimiter, BackfillPlanner/run_backfill with bounded concurrency; Settings.requests_per_second=5.0; 10 contract scenarios pass.",
+      "impact": "L1 data layer operational: mt-etf ingest supports dry-run and resumable backfill; bronze JSON preserved under data/raw/krx/**; daily quota tracked in data/state/krx_quota.json."
+    },
+    {
       "task_id": "TASK_01_CORE_SPINE",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_01_CORE_SPINE",
