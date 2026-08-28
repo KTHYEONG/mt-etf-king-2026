@@ -1,0 +1,40 @@
+tournament:
+  year: 2026
+  start_date: "2026-09-21"
+  end_date: "2026-11-13"
+  capital: 1_000_000_000
+  sessions: 36
+
+  category:
+    name: autonomous
+    leverage_allowed: unknown
+    inverse_allowed: unknown
+
+  rules:
+    min_trade_unit: 1
+    sponsor_etf_only: true
+
+  scenarios:
+    primary: aggressive
+    fallback: conservative
+
+  sponsors:
+  # infra: ETF 발행 주체 아님 (주최·인프라)
+    infra:
+    - "금융투자협회"
+    - "한국거래소"
+    - "코스콤"
+    asset_managers:
+    - "삼성자산운용"
+    - "미래에셋자산운용"
+    - "KB자산운용"
+    - "한국투자신탁운용"
+    - "신한자산운용"
+    - "한화자산운용"
+    - "타임폴리오자산운용"
+    - "NH아문디자산운용"
+    - "키움투자자산운용"
+    - "하나자산운용"
+
+  brand_map: "configs/sponsor_brands.yaml"
+  manifest: null  # HTS 확정 시 configs/universe_manifest.yaml 경로

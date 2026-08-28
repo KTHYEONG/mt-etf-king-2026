@@ -1,0 +1,12 @@
+data:
+  root: "data"
+
+calendar:
+  exchange: "XKRX"
+
+krx:
+  base_url: "https://data-dbg.krx.co.kr/svc/apis"
+  rate_limit_rps: 2
+
+logging:
+  level: "INFO"

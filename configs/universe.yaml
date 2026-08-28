@@ -1,0 +1,26 @@
+universe:
+  min_history_days: 60
+  adv_window: 20
+  min_adv_krw: 100_000_000
+  participation_rate: 0.01
+  max_position_adv_ratio: 0.10
+  participation_grid: [0.01, 0.02, 0.05]
+
+  # Structural: 아이디어 존재 여부 (넓은 패널)
+  # Deployment: 대회·ML·전략 확정 (후원사 + 유동성 + 규칙)
+  modes:
+    structural:
+      issuer_whitelist: null
+      description: "각 시점 실제 존재 ETF — survivorship 없이 구조 검증"
+    deployment:
+      issuer_whitelist: "sponsor_asset_managers"  # sponsor_brands.yaml asset_managers 키
+      manifest: null  # HTS 리스트 확정 시 isu_cd 집합으로 override
+      description: "후원 운용사 ETF + 유동성 + 대회 규칙 — 전략 확정·ML·decide"
+
+  eligibility_order:
+  - existence
+  - price
+  - history
+  - sponsor
+  - liquidity
+  - tournament_rules
