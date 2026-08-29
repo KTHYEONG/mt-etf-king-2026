@@ -1,0 +1,29 @@
+# Strategy parameters — leadership (spec 07) and portfolio (spec 08, future)
+leadership:
+  sector_score_weights:
+    rs: 0.45
+    accel: 0.30
+    breadth: 0.25
+    breakout: 0.0
+    flow: 0.0
+  max_per_theme: 2
+  min_cluster_members: 3
+  transition:
+    rs_in: 0.55
+    rs_out: 0.35
+    rs_hi: 0.75
+    accel_in: -0.08
+    accel_out: -0.20
+    breadth_in: 0.65
+    breadth_out: 0.45
+    ext_in: 2.5
+    ext_out: 1.5
+    dd_in: 0.08
+    dd_out: 0.05
+    patience: 3
+
+right_tail_weights:
+  0.75: 0.2
+  0.90: 0.3
+  0.95: 0.3
+  0.99: 0.2
