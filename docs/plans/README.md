@@ -6,4 +6,4 @@
 | --- | --- |
 | [feedback-architecture-adoption.md](feedback-architecture-adoption.md) | 피드백 반영 계획 — architecture 차이, 수용/보류/기각, 작업 순서 |
 
-**현재 다음 단계**: `/spec 07_leadership_engine` (preflight 완료: `ADR_20260828_07_PREFLIGHT`)
+**현재 다음 단계**: `/spec 08_portfolio_tournament` (07 leadership + M07 perf 구현·sync 완료)
