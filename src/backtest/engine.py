@@ -195,8 +195,51 @@ class BacktestEngine:
             raw_weights: dict[str, float] = {}
             if hasattr(model, "allocate") and callable(model.allocate):
                 try:
-                    # PortfolioPolicy path: model.allocate(scores)
-                    alloc = model.allocate(scores)
+                    # derive regime string and leverage_allowed for wiring
+                    regime_str = None
+                    try:
+                        if regime_snap is not None:
+                            rs = getattr(regime_snap, "state", None)
+                            if rs is not None:
+                                regime_str = str(getattr(rs, "value", str(rs)))
+                    except Exception:
+                        regime_str = None
+                    lev_allowed = None
+                    inv_allowed = None
+                    try:
+                        from src.universe.tournament import UNKNOWN as _UNK
+
+                        la = getattr(rules, "leverage_allowed", None)
+                        if la is _UNK or (isinstance(la, str) and la.lower() == "unknown"):
+                            lev_allowed = None
+                        elif isinstance(la, bool):
+                            lev_allowed = bool(la)
+                        elif la is None:
+                            lev_allowed = None
+                        else:
+                            # treat unknown-like objects via string check
+                            try:
+                                lev_allowed = None if str(la) == "UNKNOWN" else bool(la)
+                            except Exception:
+                                lev_allowed = None
+                        ia = getattr(rules, "inverse_allowed", None)
+                        if ia is _UNK or (isinstance(ia, str) and ia.lower() == "unknown"):
+                            inv_allowed = None
+                        elif isinstance(ia, bool):
+                            inv_allowed = bool(ia)
+                        elif ia is None:
+                            inv_allowed = None
+                        else:
+                            inv_allowed = None if str(ia) == "UNKNOWN" else bool(ia)
+                    except Exception:
+                        lev_allowed = None
+                        inv_allowed = None
+                    # PortfolioPolicy path: model.allocate with regime and leverage_allowed
+                    try:
+                        alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)
+                        _ = "leverage_allowed"
+                    except TypeError:
+                        alloc = model.allocate(scores)
                     if hasattr(alloc, "weights"):
                         raw_weights = dict(alloc.weights)
                     elif isinstance(alloc, dict):

@@ -88,6 +88,42 @@ def rebalance_band(
     return filtered
 
 
+def gross_exposure(
+    weights: Mapping[str, float],
+    multiples: Mapping[str, int],
+) -> float:
+    total = 0.0
+    for ticker, w in weights.items():
+        try:
+            wf = float(w)
+        except Exception:
+            continue
+        m = multiples.get(ticker, 1)
+        try:
+            mf = int(m)  # type: ignore[arg-type]
+        except Exception:
+            mf = 1
+        total += abs(wf * float(mf))
+    return float(total)
+
+
+def apply_gross_exposure_cap(
+    weights: Mapping[str, float],
+    multiples: Mapping[str, int],
+    max_gross: float,
+) -> dict[str, float]:
+    g = gross_exposure(weights, multiples)
+    mg = float(max_gross)
+    if mg <= 0:
+        return {k: float(v) for k, v in weights.items()}
+    if g <= mg + 1e-9:
+        return {k: float(v) for k, v in weights.items()}
+    if g == 0:
+        return {k: float(v) for k, v in weights.items()}
+    factor = mg / g
+    return {k: float(v) * float(factor) for k, v in weights.items()}
+
+
 def leverage_gate(
     ticker: str,
     regime: str | None,

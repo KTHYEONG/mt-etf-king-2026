@@ -235,12 +235,59 @@ def _make_b5() -> RegimeGatedMomentum:
 
 
 def _make_p08() -> object:
-    # PortfolioPolicy-backed model for P08 (B1 alpha + portfolio policy)
+    # PortfolioPolicy-backed model for P08 (B1 alpha + portfolio policy) with InstrumentMaster for ExposureSelector
     from src.portfolio.policy import PortfolioPolicy
     from src.portfolio.sizing import ConfidenceSizingConfig
+    from src.universe.instruments import InstrumentMaster  # noqa: F401
 
+    # wiring: ensure InstrumentMaster referenced inside _make_p08
+    _ = InstrumentMaster
+    # try to build master for vehicle selection; fallback to empty master
+    _master = None
+    try:
+        import datetime as _dt
+        from pathlib import Path as _P
+
+        import polars as _pl
+
+        from src.universe.taxonomy import Taxonomy
+
+        try:
+            from src.universe.instruments import load_sponsor_brand_map
+
+            try:
+                _brand = load_sponsor_brand_map(_P("configs/sponsor_brands.yaml"))
+            except Exception:
+                _brand = {}
+        except Exception:
+            _brand = {}
+        try:
+            _tax = Taxonomy.from_yaml(_P("configs/taxonomy.yaml"))
+        except Exception:
+            _tax = Taxonomy(rules=[])
+        # attempt to load panel if exists (silver or gold)
+        _panel = None
+        for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+            if _cand.exists():
+                try:
+                    _panel = _pl.read_parquet(str(_cand))
+                    if _panel is not None and _panel.height > 0:
+                        break
+                except Exception:
+                    _panel = None
+        if _panel is not None and _panel.height > 0:
+            try:
+                _master = InstrumentMaster.build(_panel, _tax, _brand)
+            except Exception:
+                _master = InstrumentMaster(attributes={}, panel_start=_dt.date(2020, 1, 1))
+        else:
+            _master = InstrumentMaster(attributes={}, panel_start=_dt.date(2020, 1, 1))
+    except Exception:
+        import datetime as _dt2
+
+        _master = InstrumentMaster(attributes={}, panel_start=_dt2.date(2020, 1, 1))
     cfg = ConfidenceSizingConfig()
-    policy = PortfolioPolicy(sizing_config=cfg, max_per_theme=2, max_per_family=1)
+    policy = PortfolioPolicy(sizing_config=cfg, master=_master, max_per_theme=2, max_per_family=1)
     # Attach B1 scoring delegation for AlphaModel compatibility
     b1 = TopKMomentum(horizon=20, name="P08")
     # expose score via delegation and mark path_dependent

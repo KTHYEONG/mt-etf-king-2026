@@ -55,6 +55,8 @@ class SessionInputs:
     open_map: dict[date, dict[str, float]] | None = None
     adv_map: dict[date, dict[str, float]] | None = None
     panel: pl.DataFrame | None = None
+    regimes: dict[date, object] | None = None
+    rules: object | None = None
 
 
 def build_session_cache(engine, model, panel: pl.DataFrame, config) -> SessionInputs:
@@ -193,4 +195,6 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config) -> SessionIn
         open_map=open_map,
         adv_map=adv_map,
         panel=panel,
+        regimes=getattr(engine, "regimes", None) if hasattr(engine, "regimes") else None,  # type: ignore[attr-defined]
+        rules=rules,
     )
