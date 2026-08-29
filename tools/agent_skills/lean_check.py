@@ -369,8 +369,8 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                 found_impl = False
                 try:
                     tree = ast.parse(sf_content, filename=fh)
-                    if kind == "constant":
-                        # 모듈 수준 상수(AnnAssign/Assign 타깃)를 인식한다.
+                    if kind in ("constant", "type alias"):
+                        # 모듈 수준 상수/타입 별칭(AnnAssign/Assign 타깃)를 인식한다.
                         for node in ast.walk(tree):
                             if (
                                 isinstance(node, ast.AnnAssign)
