@@ -13,6 +13,26 @@ from src.data.providers.base import TransientProviderError
 from src.data.providers.ratelimit import QuotaLedger
 
 
+def test_SCENARIO_B2_06_backfill_2018(tmp_path: Path) -> None:  # noqa: N802
+    """SCENARIO-B2-06: BackfillPlanner.plan('etf_bydd_trd', date(2018,1,1), date(2018,1,31)) has len(scheduled)+len(deferred)+already_present == XKRX session_count in range; scheduled dates all >=2018-01-01"""
+    paths = DataPaths(root=tmp_path)
+    store = BronzeStore(paths)
+
+    def today() -> date:
+        return date(2026, 8, 27)
+
+    ledger = QuotaLedger(paths.state("krx_quota"), daily_quota=8000, today=today)
+    cal = TradingCalendar(name="XKRX")
+    planner = BackfillPlanner(cal, store, ledger)
+    plan = planner.plan("etf_bydd_trd", date(2018, 1, 1), date(2018, 1, 31))
+    session_cnt = cal.session_count(date(2018, 1, 1), date(2018, 1, 31))
+    assert len(plan.scheduled) + len(plan.deferred) + plan.already_present == session_cnt
+    for d in plan.scheduled:
+        assert d >= date(2018, 1, 1)
+    for d in plan.deferred:
+        assert d >= date(2018, 1, 1)
+
+
 def test_scenario_02_07_planner_sessions_and_already_present(tmp_path: Path) -> None:
     """SCENARIO-02-07."""
     paths = DataPaths(root=tmp_path)

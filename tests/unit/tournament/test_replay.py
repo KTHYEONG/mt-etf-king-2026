@@ -1,6 +1,7 @@
-"""SCENARIO-06-11 SCENARIO-07P-06"""
+"""SCENARIO-06-11 SCENARIO-07P-06 SCENARIO-B2-08"""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 
 import polars as pl
@@ -11,6 +12,7 @@ from src.backtest.engine import BacktestConfig, BacktestEngine
 from src.backtest.metrics import compound_returns
 from src.features.regime import RegimeSnapshot, RegimeState
 from src.portfolio.sizing import SizingScheme
+from src.reporting.dashboard import build_rationale
 from src.tournament.replay import TournamentReplay
 from tests.unit.backtest.conftest import build_engine, panel_row
 
@@ -93,3 +95,31 @@ def test_SCENARIO_07P_06_replay_regime() -> None:  # noqa: N802
     report2 = TournamentReplay(engine_none, cal2).run(BASELINES["B1"](), panel, config)
     assert report2.days[0].regime
     assert report2.sessions == len(report2.days)
+
+
+def test_SCENARIO_B2_08_replay_rationales() -> None:  # noqa: N802
+    """SCENARIO-B2-08"""
+    start = date(2025, 9, 22)
+    end = date(2025, 11, 14)
+    cal = __import__("src.core.calendar", fromlist=["TradingCalendar"]).TradingCalendar()
+    sessions = cal.sessions(start, end)
+    rows: list[dict[str, object]] = []
+    for i, d in enumerate(sessions):
+        rows.append(panel_row(day=d, ticker="069500", close=30000.0 + i * 10, mom_20=0.05 + i * 0.001, name="KODEX 200", theme="반도체"))
+        rows.append(panel_row(day=d, ticker="451060", close=20000.0 + i * 5, mom_20=0.03 + i * 0.001, name="KODEX K-반도체", theme="반도체"))
+    panel = pl.DataFrame(rows)
+    engine, cal2, filt = build_engine(panel)
+    config = BacktestConfig(start=start, end=end, capital=1_000_000_000.0, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0.0, 0.0, 0.0))
+    report = TournamentReplay(engine, cal2).run(BASELINES["B1"](), panel, config)
+    assert report.sessions == 35
+    assert len(report.days) == 35
+    for day in report.days:
+        assert isinstance(day.rationales, Mapping)
+        # for each ticker with weight>0, ticker in rationales and WHY in rationale
+        for ticker, w in day.weights.items():
+            if w > 0:
+                assert ticker in day.rationales
+                r = day.rationales[ticker]
+                assert isinstance(r, str)  # noqa: PT018
+                assert len(r.strip()) > 0  # noqa: PT018
+                assert "WHY" in r or build_rationale({"ticker": ticker, "weight": w}) in r
