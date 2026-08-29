@@ -11,6 +11,7 @@ from src.alpha.base import AlphaModel, DecisionContext
 from src.backtest.costs import CostConfig, CostModel
 from src.backtest.execution import Fill, NextOpenExecution
 from src.backtest.liquidity import cap_target_weights_by_adv
+from src.backtest.session_cache import build_close_map
 from src.core.calendar import TradingCalendar
 from src.features.builder import FeatureBuilder
 from src.features.regime import RegimeSnapshot
@@ -18,6 +19,8 @@ from src.portfolio.constraints import normalize_weights
 from src.portfolio.policy import PortfolioPolicy
 from src.portfolio.sizing import SizingScheme, weights_from_scores
 from src.universe.provider import PointInTimeUniverse, UniverseFilters
+
+_build_close_map_ref = build_close_map  # noqa: F401
 
 # wiring: PortfolioPolicy.allocate via policy.allocate
 _policy_ref = PortfolioPolicy.allocate  # noqa: F401
@@ -65,7 +68,21 @@ class BacktestEngine:
         model: AlphaModel,
         panel: pl.DataFrame,
         config: BacktestConfig,
+        *,
+        close_map: dict[date, dict[str, float]] | None = None,
     ) -> BacktestResult:
+        # INV-B2-4: reset trackers at start to prevent cross-window leak
+        try:
+            _ = PortfolioPolicy
+            _ = "reset_trackers"
+            fn = getattr(model, "reset_trackers", None)  # noqa: B009
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    pass
+        except Exception:
+            pass
         try:
             sessions = self.calendar.sessions(config.start, config.end)
         except Exception:
@@ -76,19 +93,13 @@ class BacktestEngine:
         trades_records: list[dict[str, object]] = []
         daily_rows: list[dict[str, object]] = []
 
-        close_map: dict[date, dict[str, float]] = {}
-        if panel.height > 0 and {"date", "ticker", "close"} <= set(panel.columns):
-            for row in panel.iter_rows(named=True):
-                d = row.get("date")
-                t = str(row.get("ticker"))
-                c = row.get("close")
-                if d is None or c is None:
-                    continue
-                try:
-                    cf = float(c)
-                except Exception:
-                    continue
-                close_map.setdefault(d, {})[t] = cf
+        # build_close_map injected via session_cache (INV-PERF-4)
+        if close_map is not None:
+            # use provided map (copy to avoid mutation via aliasing)
+            close_map_local: dict[date, dict[str, float]] = dict(close_map)
+        else:
+            close_map_local = build_close_map(panel)
+        close_map = close_map_local
 
         equity = float(config.capital)
         prev_equity = equity

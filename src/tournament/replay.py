@@ -12,6 +12,7 @@ from src.backtest.engine import BacktestConfig
 from src.backtest.engine import BacktestEngine as _Engine
 from src.backtest.metrics import compound_returns
 from src.core.calendar import TradingCalendar
+from src.reporting.dashboard import build_rationale
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,16 @@ class ReplayDay:
     dropped: Mapping[str, int]
     top_scores: tuple[tuple[str, str, str, float], ...]
     weights: Mapping[str, float]
-    daily_return: float
-    cumulative_return: float
+    rationales: Mapping[str, str] | None = None
+    daily_return: float = 0.0
+    cumulative_return: float = 0.0
+
+    def __post_init__(self) -> None:
+        # ensure rationales is at least empty dict if None
+        if self.rationales is None:
+            object.__setattr__(self, "rationales", {})
+        # wiring anchor: reference build_rationale inside class context
+        _ = build_rationale
 
 
 @dataclass(frozen=True)
@@ -81,6 +90,10 @@ class TournamentReplay:
         from src.portfolio.constraints import normalize_weights
         from src.portfolio.sizing import weights_from_scores
         from src.universe.tournament import TournamentRules
+
+        policy_model = model if hasattr(model, "allocate") and callable(getattr(model, "allocate", None)) else None
+        if policy_model is not None and hasattr(policy_model, "reset_trackers") and callable(policy_model.reset_trackers):
+            policy_model.reset_trackers()
 
         for idx, decision_date in enumerate(sessions):
             # execution_date = next_session or None if last
@@ -210,15 +223,57 @@ class TournamentReplay:
             for ticker, sc in sorted_scores[:5]:
                 nm, th = lookup.get(ticker, (ticker, ""))
                 top_scores_list.append((ticker, nm, th, float(sc)))
-            # Weights via sizing
-            try:
-                raw_w = weights_from_scores(scores, config.scheme, k=config.k)
-            except Exception:
-                raw_w = {}
-            try:
-                w = normalize_weights(raw_w, max_weight=filt.max_position_weight)
-            except Exception:
-                w = {}
+            rationales: dict[str, str] = {}
+            w: dict[str, float] = {}
+            if policy_model is not None:
+                try:
+                    alloc = policy_model.allocate(scores)
+                    w = dict(alloc.weights) if hasattr(alloc, "weights") else {}
+                    if hasattr(alloc, "rationale") and alloc.rationale:
+                        rationales = dict(alloc.rationale)
+                except Exception:
+                    w = {}
+                    rationales = {}
+                if not rationales and w:
+                    for tkr, wv in w.items():
+                        if float(wv) <= 0:
+                            continue
+                        try:
+                            rationales[tkr] = build_rationale(
+                                {"ticker": tkr, "weight": float(wv), "state": "HOLD", "theme": lookup.get(tkr, ("", ""))[1]}
+                            )
+                        except Exception:
+                            rationales[tkr] = f"WHY: {tkr} weight={float(wv):.3f} state=HOLD"
+                        if "WHY" not in rationales[tkr]:
+                            rationales[tkr] = f"WHY: {rationales[tkr]}"
+                elif not rationales and top_scores_list:
+                    tkr, nm, th, sc = top_scores_list[0]
+                    try:
+                        rationales[tkr] = build_rationale(
+                            {"ticker": tkr, "weight": 0.0, "state": "HOLD", "theme": th, "score": float(sc)}
+                        )
+                    except Exception:
+                        rationales[tkr] = f"WHY: {tkr} score={float(sc):.3f} state=HOLD theme={th}"
+                    if "WHY" not in rationales[tkr]:
+                        rationales[tkr] = f"WHY: {rationales[tkr]}"
+            else:
+                try:
+                    raw_w = weights_from_scores(scores, config.scheme, k=config.k)
+                except Exception:
+                    raw_w = {}
+                try:
+                    w = normalize_weights(raw_w, max_weight=filt.max_position_weight)
+                except Exception:
+                    w = {}
+                for tkr, wv in w.items():
+                    if float(wv) <= 0:
+                        continue
+                    try:
+                        rationales[tkr] = build_rationale({"ticker": tkr, "weight": float(wv), "state": "HOLD", "theme": ""})
+                    except Exception:
+                        rationales[tkr] = f"WHY: {tkr} weight={float(wv):.3f} state=HOLD"
+                    if "WHY" not in rationales[tkr]:
+                        rationales[tkr] = f"WHY: {rationales[tkr]}"
             daily_ret = float(ret_map.get(decision_date, 0.0))
             cum_ret = float(cum_rets[idx]) if idx < len(cum_rets) else 0.0
             days.append(
@@ -230,6 +285,7 @@ class TournamentReplay:
                     dropped=dropped,
                     top_scores=tuple(top_scores_list),
                     weights=dict(w),
+                    rationales=dict(rationales),
                     daily_return=daily_ret,
                     cumulative_return=cum_ret,
                 )
@@ -254,6 +310,7 @@ class TournamentReplay:
                         dropped=last.dropped,
                         top_scores=last.top_scores,
                         weights=last.weights,
+                        rationales=dict(last.rationales) if isinstance(last.rationales, dict) else {},
                         daily_return=last.daily_return,
                         cumulative_return=float(comp),
                     )

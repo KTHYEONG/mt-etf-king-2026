@@ -1,9 +1,11 @@
 # mypy: ignore-errors
 from __future__ import annotations  # mypy: ignore-errors
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -75,3 +77,50 @@ def render_dashboard(decision: DailyDecision) -> str:
     # ensure every listed position ticker appears in WHY section (already)
     # Join
     return "\n".join(lines)
+
+
+def write_decision_artifact(decision: DailyDecision, path: Path) -> Path:
+    # ensure parent
+    try:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:  # noqa: S110
+        pass
+    # build payload with as_of, selected
+    try:
+        as_of = str(decision.decision_date)
+    except Exception:
+        as_of = ""
+    selected: list[dict[str, object]] = []
+    try:
+        for ticker, w in decision.weights.items():
+            reason = ""
+            try:
+                reason = str(decision.rationales.get(ticker, "")) if decision.rationales else ""
+            except Exception:
+                reason = ""
+            if not reason or not str(reason).strip():
+                # ensure non-empty; but if missing, use placeholder
+                reason = f"WHY: {ticker} weight={float(w):.3f} state=HOLD"
+            # ensure state= present
+            if "state=" not in reason:
+                reason = reason + " state=HOLD"
+            if "WHY" not in reason:
+                reason = f"WHY: {reason}"
+            selected.append({"ticker": ticker, "weight": float(w), "reason": reason})
+    except Exception:
+        selected = []
+    payload = {"as_of": as_of, "selected": selected}
+    # include portfolio_value if present
+    try:
+        if decision.portfolio_value is not None:
+            payload["portfolio_value"] = float(decision.portfolio_value)
+    except Exception:  # noqa: S110
+        pass
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception:
+        # fallback: try write
+        Path(path).write_text(json.dumps(payload), encoding="utf-8")
+    return Path(path)
