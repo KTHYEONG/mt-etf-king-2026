@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_DATA_STORAGE_REFACTOR",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_DATA_STORAGE_REFACTOR",
+      "domain": "data",
+      "title": "Data Storage Refactor — bronze gzip · panel projection · results store · features PIT",
+      "why": "Bronze plain JSON (~836MB) dominated disk; backtest loaded full 50-col gold; cmd_backtest had no machine-readable artifacts; features CLI failed PIT when --end < silver max date.",
+      "resolution": "BronzeStore gzip canonical .json.gz with legacy plain fallback + storage-migrate CLI; DataPaths.results(); load_backtest_panel column/date projection; write_backtest_result under data/results/<run_id>/; cmd_backtest persists meta+summary; features pre-filters silver to date<=end before build_panel; baselines panel load via DataPaths; SCENARIO_DSR_01..05 + features CLI test pass lean_check.",
+      "impact": "L1 storage: bronze ~6x compress path, dual-read migration; L6 I/O: projected panel load + immutable result artifacts; features CLI accepts partial end ranges without PitViolationError; all 10 mt-etf subcommands verified E2E."
+    },
+    {
       "task_id": "TASK_09_VEHICLE_EXPOSURE",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_09_VEHICLE_EXPOSURE",
