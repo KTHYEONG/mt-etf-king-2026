@@ -70,9 +70,39 @@ def test_SCENARIO_B2_07_cmd_decide_and_artifact(capsys) -> None:  # noqa: N802
 import pytest
 
 
-@pytest.mark.parametrize("scenario_id", ["SCENARIO-08-18", "SCENARIO-B2-07"])
+def test_SCENARIO_09_09_cmd_decide_vehicle_rationale(capsys) -> None:  # noqa: N802
+    import io
+    import sys
+    from datetime import date as _date
+
+    captured = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = captured
+    try:
+        rc = cmd_decide(argparse.Namespace(date="2026-10-07"))
+    finally:
+        sys.stdout = old_stdout
+    assert rc == 0
+    txt = captured.getvalue()
+    assert "vehicle=" in txt or "mult=" in txt
+    dec = DailyDecision(
+        decision_date=_date(2026, 10, 7),
+        weights={"069500": 0.5},
+        rationales={"069500": "WHY: 069500 weight=0.500 state=HOLD vehicle=069500 mult=1"},
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Path(tmp) / "artifact.json"
+        write_decision_artifact(dec, p)
+        data = json.loads(p.read_text(encoding="utf-8"))
+        assert data["selected"]
+        assert "mult=" in data["selected"][0]["reason"]
+
+
+@pytest.mark.parametrize("scenario_id", ["SCENARIO-08-18", "SCENARIO-B2-07", "SCENARIO-09-09"])
 def test_SCENARIO_hyphen_wrapper(scenario_id: str, capsys) -> None:  # noqa: N802
     if scenario_id == "SCENARIO-08-18":
         test_SCENARIO_08_18_cmd_decide(capsys)
     if scenario_id == "SCENARIO-B2-07":
         test_SCENARIO_B2_07_cmd_decide_and_artifact(capsys)
+    if scenario_id == "SCENARIO-09-09":
+        test_SCENARIO_09_09_cmd_decide_vehicle_rationale(capsys)
