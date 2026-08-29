@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_B2_STATE_BACKFILL_PERF",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_B2_STATE_BACKFILL_PERF",
+      "domain": "portfolio",
+      "title": "B-2 State Engine · 2018 Backfill · Path-Dependent Perf · Replay WHY",
+      "why": "B-2 gate blocked: PositionTracker orphan, replay WHY empty (PIT snapshot), fast/slow path_dependent KRX mismatch (adv_map key), n_effective=17 on 2024-only panel; P08 rolling ~55min naive.",
+      "resolution": "Wired state multipliers in PortfolioPolicy(state_enabled); FeatureBuilder.snapshot PIT pre-filter; SessionCache+simulate_window_from_cache fast path with NextOpenExecution; replay/decide WHY+rationale; 2018-2023 ingest (1477 sessions) + normalize + features; adv_map keyed by execution_date; SCENARIO-B2-01..09 and PERF-01..05 pass.",
+      "impact": "L5 B-2 operational: gold 2018-01-02..2026-08-27 (1.39M rows), n_effective 17→58 (INV-B2-5 PASS); fast/slow equiv 0 diff KRX; replay state=HOLD/TRIM logs; P08 FAST 613-win ~147s; full 2090-win ~535s; P08 vs B1 CVaR improved on tournament window."
+    },
+    {
       "task_id": "TASK_08_PORTFOLIO_TOURNAMENT",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_08_PORTFOLIO_TOURNAMENT",
