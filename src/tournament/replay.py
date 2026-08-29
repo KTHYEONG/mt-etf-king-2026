@@ -227,7 +227,36 @@ class TournamentReplay:
             w: dict[str, float] = {}
             if policy_model is not None:
                 try:
-                    alloc = policy_model.allocate(scores)
+                    # pass regime and leverage_allowed wiring (like engine)
+                    try:
+                        from src.universe.tournament import UNKNOWN as _UNK2
+
+                        la2 = getattr(rules, "leverage_allowed", None)
+                        if la2 is _UNK2 or (isinstance(la2, str) and la2.lower() == "unknown"):
+                            lev2 = None
+                        elif isinstance(la2, bool):
+                            lev2 = bool(la2)
+                        elif la2 is None:
+                            lev2 = None
+                        else:
+                            lev2 = bool(la2) if str(la2) != "UNKNOWN" else None
+                        ia2 = getattr(rules, "inverse_allowed", None)
+                        if ia2 is _UNK2 or (isinstance(ia2, str) and ia2.lower() == "unknown"):
+                            inv2 = None
+                        elif isinstance(ia2, bool):
+                            inv2 = bool(ia2)
+                        elif ia2 is None:
+                            inv2 = None
+                        else:
+                            inv2 = bool(ia2) if str(ia2) != "UNKNOWN" else None
+                    except Exception:
+                        lev2 = None
+                        inv2 = None
+                    try:
+                        alloc = policy_model.allocate(scores, regime=regime_label, leverage_allowed=lev2, inverse_allowed=inv2)
+                        _ = "leverage_allowed"
+                    except TypeError:
+                        alloc = policy_model.allocate(scores)
                     w = dict(alloc.weights) if hasattr(alloc, "weights") else {}
                     if hasattr(alloc, "rationale") and alloc.rationale:
                         rationales = dict(alloc.rationale)

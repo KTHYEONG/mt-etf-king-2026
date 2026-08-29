@@ -147,7 +147,51 @@ def simulate_window_from_cache(
         raw_weights: dict[str, float] = {}
         if hasattr(model, "allocate") and callable(getattr(model, "allocate", None)):  # noqa: B009
             try:
-                alloc = model.allocate(scores)  # type: ignore[union-attr]
+                # derive regime and leverage_allowed for PortfolioPolicy wiring
+                regime_str = None
+                lev_allowed = None
+                inv_allowed = None
+                try:
+                    # try cache regimes
+                    cache_regimes = getattr(cache, "regimes", None)
+                    if cache_regimes is not None and isinstance(cache_regimes, dict):
+                        rs = cache_regimes.get(decision_date)
+                        if rs is not None:
+                            regime_str = str(getattr(getattr(rs, "state", rs), "value", str(rs)))
+                    # fallback to global if not in cache
+                    if regime_str is None:
+                        # no engine available here, keep None
+                        pass
+                    # rules from cache
+                    cache_rules = getattr(cache, "rules", None)
+                    if cache_rules is not None:
+                        from src.universe.tournament import UNKNOWN as _UNK
+
+                        la = getattr(cache_rules, "leverage_allowed", None)
+                        if la is _UNK or (isinstance(la, str) and la.lower() == "unknown"):
+                            lev_allowed = None
+                        elif isinstance(la, bool):
+                            lev_allowed = bool(la)
+                        elif la is None:
+                            lev_allowed = None
+                        else:
+                            lev_allowed = bool(la) if str(la) != "UNKNOWN" else None
+                        ia = getattr(cache_rules, "inverse_allowed", None)
+                        if ia is _UNK or (isinstance(ia, str) and ia.lower() == "unknown"):
+                            inv_allowed = None
+                        elif isinstance(ia, bool):
+                            inv_allowed = bool(ia)
+                        elif ia is None:
+                            inv_allowed = None
+                        else:
+                            inv_allowed = bool(ia) if str(ia) != "UNKNOWN" else None
+                except Exception:
+                    pass
+                try:
+                    alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)  # type: ignore[union-attr]
+                    _ = "leverage_allowed"
+                except TypeError:
+                    alloc = model.allocate(scores)  # type: ignore[union-attr]
                 if hasattr(alloc, "weights"):
                     raw_weights = dict(getattr(alloc, "weights"))  # noqa: B009
                 elif isinstance(alloc, dict):
