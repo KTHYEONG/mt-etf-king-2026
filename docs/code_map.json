@@ -133,5 +133,9 @@
   },
   "src/universe/tournament.py": {
     "testing": "tests/unit/universe/test_tournament.py"
+  },
+  "src/portfolio/policy.py": {
+    "architecture": "docs/architecture/07-alpha-and-portfolio.md",
+    "testing": "tests/unit/portfolio/test_policy.py"
   }
 }

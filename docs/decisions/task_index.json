@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_08_PORTFOLIO_TOURNAMENT",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_08_PORTFOLIO_TOURNAMENT",
+      "domain": "portfolio",
+      "title": "Portfolio Policy & Tournament Overlay — confidence sizing · P08 · decide CLI",
+      "why": "Spec 08 requires B1-alpha portfolio layer (confidence sizing, selection, constraints, state machine, exposure, aggression off-by-default, decide dashboard) after M07 A-1 FAIL; B-1 gate needs empirical P08 vs B1 on KRX gold panel.",
+      "resolution": "Implemented src/portfolio/{selection,sizing,constraints,state,exposure,policy}.py, src/tournament/{policy,montecarlo}.py, src/reporting/dashboard.py, P08 baseline, mt-etf decide; model_requires_path_dependent wiring in cli/harness/simulator; SCENARIO-08-01..18 pass lean_check; KRX eval P08 B-1 PASS (P>30%=12.1% vs B1, CVaR5% -35.7% vs -38.6%).",
+      "impact": "L5 portfolio layer operational: P08 adoption candidate for tournament; M07 remains optional (A-1 FAIL); B-2..B-4 pending state/aggression engine wiring; path_dependent P08 eval ~40min full period."
+    },
+    {
       "task_id": "TASK_07_LEADERSHIP_ENGINE",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_07_LEADERSHIP_ENGINE",
