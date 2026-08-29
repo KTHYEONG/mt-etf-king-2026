@@ -1,4 +1,4 @@
-"""SCENARIO-06-09 SCENARIO-06-10"""
+"""SCENARIO-06-09 SCENARIO-06-10 SCENARIO-08-10"""
 from __future__ import annotations
 
 from datetime import date
@@ -10,9 +10,10 @@ from src.alpha.baselines import BASELINES, RegimeGatedMomentum
 from src.alpha.base import DecisionContext
 from src.backtest.costs import CostConfig
 from src.backtest.engine import BacktestConfig
-from src.features.regime import RegimeSnapshot, RegimeState
-from src.portfolio.sizing import SizingScheme
 from src.core.calendar import TradingCalendar
+from src.features.regime import RegimeSnapshot, RegimeState
+from src.portfolio.policy import PathDependentPolicyError, PortfolioPolicy
+from src.portfolio.sizing import ConfidenceSizingConfig, SizingScheme
 from src.tournament.simulator import TournamentSimulator
 from src.universe.tournament import TournamentRules
 from tests.unit.backtest.conftest import build_engine, panel_row
@@ -158,3 +159,33 @@ def test_SCENARIO_07P_04_givebacks() -> None:  # noqa: N802
     assert len(slow.givebacks) == len(slow.returns)
     assert max(abs(g) for g in fast.givebacks) < 1e-9
     assert max(abs(g) for g in slow.givebacks) < 1e-9
+
+
+def test_SCENARIO_08_10_path_dependent_error() -> None:  # noqa: N802
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 1, 20))
+    panel = pl.DataFrame([panel_row(day=d, ticker="069500", close=30000.0, mom_20=0.2, name="KODEX 200") for d in sessions])
+    engine, cal2, filt = build_engine(panel)
+    config = BacktestConfig(start=date(2026, 1, 2), end=date(2026, 1, 20), capital=1e9, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0, 0, 0))
+    policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig())
+    policy.name = "P08"  # type: ignore[attr-defined]
+
+    def _score(snapshot, context):
+        return {"069500": 1.0}
+
+    policy.score = _score  # type: ignore[attr-defined]
+    sim = TournamentSimulator(engine, cal2)
+    import pytest
+
+    with pytest.raises(PathDependentPolicyError):
+        sim.run_rolling(policy, panel, config, horizon=5, path_dependent=False)
+    res = sim.run_rolling(policy, panel, config, horizon=5, path_dependent=True)
+    assert len(res.returns) > 0
+
+import pytest
+
+
+@pytest.mark.parametrize("scenario_id", ["SCENARIO-08-10"])
+def test_SCENARIO_hyphen_wrapper_sim(scenario_id: str) -> None:  # noqa: N802
+    if scenario_id == "SCENARIO-08-10":
+        test_SCENARIO_08_10_path_dependent_error()
