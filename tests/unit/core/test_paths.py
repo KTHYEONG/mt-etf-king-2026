@@ -12,7 +12,7 @@ def test_bronze_silver_gold_state_and_guard(tmp_path: Path) -> None:
     """SCENARIO-01-05: DataPaths 매핑 및 traversal guard."""
     root = tmp_path / "data_root"
     dp = DataPaths(root=root)
-    assert dp.bronze("etp/etf_bydd_trd", date(2026, 8, 27)) == root / "raw/krx/etp/etf_bydd_trd/2026/20260827.json"
+    assert dp.bronze("etp/etf_bydd_trd", date(2026, 8, 27)) == root / "raw/krx/etp/etf_bydd_trd/2026/20260827.json.gz"
     assert dp.silver("etf_daily") == root / "normalized/etf_daily.parquet"
     assert dp.gold("features_etf") == root / "features/features_etf.parquet"
     assert dp.state("krx_quota") == root / "state/krx_quota.json"
@@ -31,3 +31,21 @@ def test_bronze_silver_gold_state_and_guard(tmp_path: Path) -> None:
     assert not (root / "normalized").exists()
     assert not (root / "features").exists()
     assert not (root / "state").exists()
+
+
+def test_SCENARIO_DSR_05_bronze_gz_and_results(tmp_path: Path) -> None:  # noqa: N802
+    """SCENARIO_DSR_05: DataPaths.bronze ends with .json.gz; results guard."""
+    root = tmp_path / "data_root"
+    dp = DataPaths(root=root)
+    p = dp.bronze("etp/etf_bydd_trd", date(2026, 8, 27))
+    assert p.name.endswith(".json.gz")
+    assert p.suffixes == [".json", ".gz"] or p.name.endswith(".json.gz")
+    assert p == root / "raw/krx/etp/etf_bydd_trd/2026/20260827.json.gz"
+    # results
+    assert dp.results("run_a") == root / "results" / "run_a"
+    with pytest.raises(ValueError, match="path traversal not allowed"):
+        dp.results("..")
+    with pytest.raises(ValueError, match="absolute path not allowed"):
+        dp.results("/abs")
+    with pytest.raises(ValueError, match="path traversal not allowed"):
+        dp.results("../escape")

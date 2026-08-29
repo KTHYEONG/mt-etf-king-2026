@@ -269,6 +269,54 @@ def test_scenario_05_11_features_cli(monkeypatch: pytest.MonkeyPatch, tmp_path) 
     clear_settings_caches()
 
 
+def test_features_cli_end_before_silver_max(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """Silver extends past --end; pre-filter avoids PIT violation."""
+    from datetime import date
+
+    import polars as pl
+
+    from src.core.paths import DataPaths
+    from src.core.settings import clear_settings_caches
+
+    monkeypatch.setenv("KRX_OPENAPI_KEY", "TESTKEY123")
+    monkeypatch.setenv("DATA_ROOT", str(tmp_path))
+    clear_settings_caches()
+
+    paths = DataPaths(root=tmp_path)
+    silver_path = paths.silver("etf_daily")
+    silver_path.parent.mkdir(parents=True, exist_ok=True)
+    sessions = [date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 7)]
+    rows = [
+        {
+            "date": d,
+            "ticker": ticker,
+            "name": "Test ETF",
+            "close": 30_000.0,
+            "open": 29_900.0,
+            "high": 30_100.0,
+            "low": 29_800.0,
+            "nav": 29_950.0,
+            "shares_outstanding": 1_000_000,
+            "net_assets": 30_000_000_000,
+            "trading_value": 2_000_000_000,
+            "underlying_index_name": "코스피 200",
+            "is_tradable": True,
+        }
+        for d in sessions
+        for ticker in ["069500", "451060"]
+    ]
+    pl.DataFrame(rows).write_parquet(silver_path)
+
+    end = date(2026, 1, 5)
+    ret = main(["features", "--start", "2026-01-02", "--end", end.isoformat()])
+    assert ret == 0
+    gold = pl.read_parquet(paths.gold("etf_features"))
+    assert gold.height > 0
+    assert gold.select(pl.col("date").max()).item() <= end
+    assert gold.select(pl.col("date").min()).item() >= date(2026, 1, 2)
+    clear_settings_caches()
+
+
 def test_scenario_06_12_backtest_and_replay_cli(monkeypatch: pytest.MonkeyPatch, tmp_path, caplog: pytest.LogCaptureFixture) -> None:
     """SCENARIO-06-12"""
     from datetime import date
