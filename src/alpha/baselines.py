@@ -6,7 +6,12 @@ from typing import Final
 import polars as pl
 
 from src.alpha.base import DecisionContext
+from src.alpha.leadership import SectorLeadershipModel  # noqa: F401
+from src.alpha.state import TransitionConfig, transition  # noqa: F401
+from src.alpha.theme import ThemePanel  # noqa: F401
 from src.features.regime import RegimeState
+from src.universe.instruments import InstrumentMaster  # noqa: F401
+from src.universe.taxonomy import Taxonomy  # noqa: F401
 
 
 class BuyAndHoldBaseline:
@@ -229,6 +234,53 @@ def _make_b5() -> RegimeGatedMomentum:
     return RegimeGatedMomentum(inner=inner, blocked=blocked, name="B5")
 
 
+def _make_m07() -> SectorLeadershipModel:
+    # lazy wiring for M07; requires master and configs - fallback to empty master for registry test
+    from pathlib import Path
+
+    import yaml
+
+    from src.alpha.cluster import ClusterResolver
+    from src.alpha.leadership import SectorScoreWeights
+
+    strat_path = Path("configs/strategies.yaml")
+    if strat_path.exists():
+        with open(strat_path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        lead = (raw.get("leadership") or {}) if isinstance(raw, dict) else {}
+        w_raw = (lead.get("sector_score_weights") or {}) if isinstance(lead, dict) else {}
+        trans_raw = (lead.get("transition") or {}) if isinstance(lead, dict) else {}
+    else:
+        w_raw = {"rs": 0.45, "accel": 0.30, "breadth": 0.25, "breakout": 0.0, "flow": 0.0}
+        trans_raw = {
+            "rs_in": 0.55,
+            "rs_out": 0.35,
+            "rs_hi": 0.75,
+            "accel_in": -0.08,
+            "accel_out": -0.20,
+            "breadth_in": 0.65,
+            "breadth_out": 0.45,
+            "ext_in": 2.5,
+            "ext_out": 1.5,
+            "dd_in": 0.08,
+            "dd_out": 0.05,
+            "patience": 3,
+        }
+    weights = SectorScoreWeights.from_yaml(w_raw)
+    tcfg = TransitionConfig.from_yaml(trans_raw)
+    max_per_theme = 2
+    if isinstance(lead, dict) and "max_per_theme" in lead:
+        try:
+            mp = lead.get("max_per_theme")
+            max_per_theme = int(mp)  # type: ignore[arg-type]
+        except Exception:
+            max_per_theme = 2
+    # empty master fallback
+    master = InstrumentMaster(attributes={}, panel_start=__import__("datetime").date(2020, 1, 1))
+    resolver = ClusterResolver(master, max_per_theme=max_per_theme)
+    return SectorLeadershipModel(master=master, resolver=resolver, weights=weights, transition_config=tcfg, history=None)
+
+
 BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "B0": _make_b0,
     "B1": _make_b1,
@@ -236,4 +288,5 @@ BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "B3": _make_b3,
     "B4": _make_b4,
     "B5": _make_b5,
+    "M07": _make_m07,
 }
