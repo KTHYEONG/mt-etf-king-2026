@@ -135,7 +135,7 @@
     "testing": "tests/unit/universe/test_tournament.py"
   },
   "src/portfolio/policy.py": {
-    "architecture": "docs/architecture/07-alpha-and-portfolio.md",
+    "architecture": "docs/specs/09_vehicle_exposure.md",
     "testing": "tests/unit/portfolio/test_policy.py"
   }
 }
