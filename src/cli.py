@@ -312,9 +312,10 @@ def cmd_features(args: argparse.Namespace) -> int:
         except Exception as exc:
             logger.error(f"[SYS] features status=fail error=read silver {exc!r}")
             return 1
+        if "date" in panel.columns:
+            panel = panel.filter(pl.col("date") <= end)
         t0 = time.time()
-        # Build feature panel with decision_date=end (inclusive)
-        # Ensure panel filtered to <= end for PIT but build_panel does PIT check internally
+        # decision_date=end; input must not contain future sessions (PIT)
         try:
             feature_panel = builder.build_panel(panel, decision_date=end)
         except Exception as exc:
@@ -352,24 +353,13 @@ def cmd_features(args: argparse.Namespace) -> int:
 
 
 def _load_panel_for_backtest(paths: DataPaths, cal) -> object:
-    # Prefer gold panel, fallback to silver
-    import polars as pl
+    from src.data.panel import BACKTEST_PANEL_COLUMNS, load_backtest_panel
 
-    gold_path = paths.gold("etf_features")
-    silver_path = paths.silver("etf_daily")
-    panel = None
-    if gold_path.exists():
-        try:
-            panel = pl.read_parquet(gold_path)
-        except Exception:
-            panel = None
-    if panel is None or (hasattr(panel, "height") and panel.height == 0):
-        if silver_path.exists():
-            try:
-                panel = pl.read_parquet(silver_path)
-            except Exception:
-                panel = None
-    return panel
+    # Delegate to load_backtest_panel with BACKTEST_PANEL_COLUMNS (cal may be unused but signature preserved)
+    # wiring anchor uses load_backtest_panel
+    _ = cal
+    _ = BACKTEST_PANEL_COLUMNS
+    return load_backtest_panel(paths, columns=BACKTEST_PANEL_COLUMNS)
 
 
 def _scores_from_deployment_universe(panel: object, decision_date: date) -> dict[str, float]:
@@ -906,9 +896,86 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 + f" cvar_05={_fmt(dist.cvar_05)} giveback_median={_fmt(dist.giveback_median)} giveback_q90={_fmt(dist.giveback_q90)} rts={_fmt(dist.right_tail_score)}"
                 + " ".join(f"p>{_fmt(t)}={_fmt(v)}" for t, v in sorted(dist.exceedance.items()))
             )
+            # Persist result artifact once per model_key+cost grid cell (write_backtest_result)
+            try:
+                from datetime import UTC, datetime
+
+                from src.reporting.results import make_backtest_run_id, write_backtest_result
+
+                # wiring: ensure write_backtest_result referenced in cmd_backtest
+                _ = write_backtest_result
+                # generate run_id per cell: base + cost suffix to ensure uniqueness
+                base_id = make_backtest_run_id(model_key, start, end)
+                # suffix to differentiate harness cases filesystem-safe
+                suffix = f"{int(float(cost_cfg.commission_bps or 0)*100):04d}_{int(float(cost_cfg.slippage_bps or 0)*100):04d}_{int(float(participation)*1000):04d}"
+                run_id = f"{base_id}_{suffix}"
+                meta = {
+                    "model": model_key,
+                    "start": str(start),
+                    "end": str(end),
+                    "horizon": int(horizon),
+                    "commission_bps": float(cost_cfg.commission_bps or 0.0),
+                    "slippage_bps": float(cost_cfg.slippage_bps or 0.0),
+                    "participation": float(participation),
+                    "created_at": datetime.now(UTC).isoformat(),
+                }
+                summary = {
+                    "n_windows": int(dist.n_windows),
+                    "n_effective": int(dist.n_effective),
+                    "quantiles": {str(k): float(v) for k, v in sorted(dist.quantiles.items())},
+                    "exceedance": {str(k): float(v) for k, v in sorted(dist.exceedance.items())},
+                    "cvar_05": float(dist.cvar_05),
+                    "giveback_median": float(dist.giveback_median),
+                    "giveback_q90": float(dist.giveback_q90),
+                    "right_tail_score": float(dist.right_tail_score),
+                }
+                try:
+                    write_backtest_result(paths, run_id=run_id, meta=meta, summary=summary)
+                except FileExistsError:
+                    logger.warning(f"[SYS] backtest result exists run_id={run_id} skipping overwrite")
+                except Exception as exc2:
+                    logger.warning(f"[SYS] backtest result write failed run_id={run_id} error={exc2!r}")
+            except Exception as exc2:
+                logger.warning(f"[SYS] backtest result write failed error={exc2!r}")
         return 0
     except Exception as exc:
         logger.error(f"[SYS] backtest status=fail error={exc!r}")
+        return 1
+
+
+def cmd_storage_migrate(args: argparse.Namespace) -> int:
+    try:
+        settings = get_settings()
+        paths = DataPaths(root=settings.data_root)
+        from src.data.bronze import BronzeStore
+
+        store = BronzeStore(paths)
+        # wiring: ensure BronzeStore.migrate_plain_to_gzip referenced
+        _ = store.migrate_plain_to_gzip
+        endpoints = ["etp/etf_bydd_trd"]
+        # allow override via args.endpoint if provided
+        ep_arg = getattr(args, "endpoint", None)
+        if ep_arg:
+            endpoints = [str(ep_arg)]
+        # also handle common alias etf_bydd_trd -> etp/etf_bydd_trd?
+        total = {"migrated": 0, "skipped_existing_gz": 0, "failed": 0, "deleted_plain": 0}
+        delete_plain = bool(getattr(args, "delete_plain", True))
+        # if --no-delete supplied?
+        if getattr(args, "no_delete", False):
+            delete_plain = False
+        for ep in endpoints:
+            res = store.migrate_plain_to_gzip(ep, delete_plain=delete_plain)
+            for k in total:
+                total[k] += int(res.get(k, 0))
+        logger.info(
+            f"[DATA] storage-migrate endpoints={endpoints} migrated={total['migrated']} skipped_existing_gz={total['skipped_existing_gz']} failed={total['failed']} deleted_plain={total['deleted_plain']}"
+        )
+        logger.info(
+            f"[SYS] storage-migrate migrated={total['migrated']} skipped={total['skipped_existing_gz']} failed={total['failed']} deleted_plain={total['deleted_plain']}"
+        )
+        return 1 if total["failed"] > 0 else 0
+    except Exception as exc:
+        logger.error(f"[SYS] storage-migrate status=fail error={exc!r}")
         return 1
 
 
@@ -1117,6 +1184,7 @@ SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "backtest": cmd_backtest,
     "replay": cmd_replay,
     "decide": cmd_decide,
+    "storage-migrate": cmd_storage_migrate,
 }
 
 # wiring requirement: SUBCOMMANDS["ingest"] = cmd_ingest
@@ -1127,6 +1195,9 @@ SUBCOMMANDS["features"] = cmd_features
 SUBCOMMANDS["backtest"] = cmd_backtest
 SUBCOMMANDS["replay"] = cmd_replay
 SUBCOMMANDS["decide"] = cmd_decide
+SUBCOMMANDS["storage-migrate"] = cmd_storage_migrate
+# also allow underscore variant for robustness
+SUBCOMMANDS["storage_migrate"] = cmd_storage_migrate
 
 # Import for wiring verification
 from src.data.backfill import run_backfill as _run_backfill_ref  # noqa: F401,E402
@@ -1187,6 +1258,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_dec.add_argument("--date", required=False, default="2026-10-07", help="decision date YYYY-MM-DD")
     p_dec.add_argument("--panel", required=False, help="panel path")
     p_dec.set_defaults(func=cmd_decide)
+    # storage-migrate
+    p_mig = sub.add_parser("storage-migrate", help="migrate bronze plain JSON to gzip")
+    p_mig.add_argument("--endpoint", required=False, default="etp/etf_bydd_trd", help="KRX endpoint to migrate")
+    p_mig.add_argument("--no-delete", action="store_true", dest="no_delete", help="do not delete plain after migrate")
+    p_mig.set_defaults(func=cmd_storage_migrate)
     return parser
 
 
