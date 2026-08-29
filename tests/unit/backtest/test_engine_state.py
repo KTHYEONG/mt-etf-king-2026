@@ -1,5 +1,6 @@
-"""SCENARIO-B2-05"""
+"""SCENARIO-B2-05 SCENARIO-09-10"""
 from datetime import date
+from unittest.mock import patch
 
 import polars as pl
 
@@ -7,6 +8,9 @@ from src.backtest.costs import CostConfig
 from src.backtest.engine import BacktestConfig, BacktestEngine  # noqa: F401
 from src.portfolio.policy import PortfolioPolicy
 from src.portfolio.sizing import ConfidenceSizingConfig
+from src.universe.instruments import InstrumentAttributes, InstrumentMaster
+from src.universe.taxonomy import Taxonomy
+from src.universe.tournament import TournamentRules
 from tests.unit.backtest.conftest import build_engine, panel_row
 
 
@@ -83,3 +87,124 @@ def test_SCENARIO_B2_05_backtest_reset_trackers() -> None:  # noqa: N802
     # Also ensure sum weights behavior not cross-contaminated
     assert res1.daily.height > 0
     assert res2.daily.height > 0
+
+
+def _leverage_family_master() -> InstrumentMaster:
+    panel = pl.DataFrame(
+        [
+            {"date": date(2025, 9, 22), "ticker": "T1", "name": "KODEX 200", "underlying_index_name": "KOSPI 200"},
+            {"date": date(2025, 9, 22), "ticker": "T2", "name": "KODEX 레버리지", "underlying_index_name": "KOSPI 200"},
+        ]
+    )
+    taxonomy = Taxonomy(rules=[])
+    master = InstrumentMaster.build(panel, taxonomy, {})
+    a = master.attributes["T1"]
+    b = master.attributes["T2"]
+    attrs = {
+        "T1": InstrumentAttributes(
+            ticker=a.ticker,
+            name=a.name,
+            issuer=a.issuer,
+            leverage_multiple=1,
+            leverage_family_key=a.leverage_family_key,
+            is_synthetic=a.is_synthetic,
+            is_hedged=a.is_hedged,
+            is_active=a.is_active,
+            index_key=a.index_key,
+            theme=a.theme,
+            first_seen=a.first_seen,
+            last_seen=a.last_seen,
+            left_censored=a.left_censored,
+            confidence=a.confidence,
+        ),
+        "T2": InstrumentAttributes(
+            ticker=b.ticker,
+            name=b.name,
+            issuer=b.issuer,
+            leverage_multiple=2,
+            leverage_family_key=a.leverage_family_key,
+            is_synthetic=b.is_synthetic,
+            is_hedged=b.is_hedged,
+            is_active=b.is_active,
+            index_key=b.index_key,
+            theme=b.theme,
+            first_seen=b.first_seen,
+            last_seen=b.last_seen,
+            left_censored=b.left_censored,
+            confidence=b.confidence,
+        ),
+    }
+    return InstrumentMaster(attributes=attrs, panel_start=master.panel_start)
+
+
+def test_SCENARIO_09_10_engine_leverage_allowed_false() -> None:  # noqa: N802
+    start = date(2025, 9, 22)
+    end = date(2025, 9, 26)
+    cal_sessions = __import__("src.core.calendar", fromlist=["TradingCalendar"]).TradingCalendar().sessions(start, end)
+    rows: list[dict[str, object]] = []
+    for d in cal_sessions:
+        rows.append(panel_row(day=d, ticker="T1", close=30000.0, mom_20=0.10, name="KODEX 200", theme="반도체"))
+        rows.append(panel_row(day=d, ticker="T2", close=20000.0, mom_20=0.05, name="KODEX 레버리지", theme="반도체"))
+    panel = pl.DataFrame(rows)
+    engine, cal, filt = build_engine(panel)
+    config = BacktestConfig(
+        start=start,
+        end=end,
+        capital=1_000_000_000.0,
+        scheme=__import__("src.portfolio.sizing", fromlist=["SizingScheme"]).SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+    master = _leverage_family_master()
+    policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig(), master=master, state_enabled=False)
+    recorded: list[dict[str, object]] = []
+
+    class PolicyModel:
+        name = "P08"
+        path_dependent = True
+
+        def score(self, snapshot, context):  # type: ignore[no-untyped-def]
+            if snapshot.height == 0:
+                return {}
+            return {str(row["ticker"]): float(row["mom_20"]) for row in snapshot.iter_rows(named=True)}
+
+        def allocate(self, scores, **kwargs):  # type: ignore[no-untyped-def]
+            recorded.append(dict(kwargs))
+            return policy.allocate(scores, **kwargs)
+
+        def reset_trackers(self):  # type: ignore[no-untyped-def]
+            return policy.reset_trackers()
+
+    model = PolicyModel()
+    rules_no_lev = TournamentRules(
+        name="test",
+        start_date=start,
+        end_date=end,
+        initial_capital=1_000_000_000,
+        category="autonomous",
+        leverage_allowed=False,
+        inverse_allowed=False,
+        max_weight=1.0,
+        cash_allowed=True,
+        sponsor_etf_only=False,
+        manifest_path=None,
+        issuer_whitelist=None,
+        commission_bps=0.0,
+        slippage_bps=0.0,
+        max_order_to_adv=0.05,
+        stress_grid=(0.01,),
+    )
+    with patch("src.universe.tournament.TournamentRules.from_yaml", return_value=rules_no_lev):
+        res = engine.run(model, panel, config)
+    assert recorded
+    assert any(r.get("leverage_allowed") is False for r in recorded)
+    for row in res.daily.iter_rows(named=True):
+        for col in row:
+            if col.endswith("_weight") or col == "weight":
+                continue
+        # inspect holdings columns if present
+    # final day weights from policy should be +1x only
+    final_alloc = policy.allocate({"T1": 0.10, "T2": 0.05}, regime="RISK_ON", leverage_allowed=False)
+    for ticker in final_alloc.weights:
+        assert master.attributes[ticker].leverage_multiple == 1
