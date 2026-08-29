@@ -27,7 +27,13 @@ class DataPaths:
 
     def bronze(self, endpoint: str, bas_dd: date) -> Path:
         self._check_part(endpoint)
-        rel = Path("raw/krx") / endpoint / str(bas_dd.year) / f"{bas_dd:%Y%m%d}.json"
+        rel = Path("raw/krx") / endpoint / str(bas_dd.year) / f"{bas_dd:%Y%m%d}.json.gz"
+        candidate = self.root / rel
+        return self._guard(candidate)
+
+    def results(self, run_id: str) -> Path:
+        self._check_part(run_id)
+        rel = Path("results") / run_id
         candidate = self.root / rel
         return self._guard(candidate)
 

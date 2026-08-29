@@ -236,12 +236,14 @@ def _make_b5() -> RegimeGatedMomentum:
 
 def _make_p08() -> object:
     # PortfolioPolicy-backed model for P08 (B1 alpha + portfolio policy) with InstrumentMaster for ExposureSelector
+    from src.core.paths import DataPaths
     from src.portfolio.policy import PortfolioPolicy
     from src.portfolio.sizing import ConfidenceSizingConfig
     from src.universe.instruments import InstrumentMaster  # noqa: F401
 
-    # wiring: ensure InstrumentMaster referenced inside _make_p08
+    # wiring: ensure InstrumentMaster and DataPaths referenced inside _make_p08
     _ = InstrumentMaster
+    _ = DataPaths
     # try to build master for vehicle selection; fallback to empty master
     _master = None
     try:
@@ -265,16 +267,38 @@ def _make_p08() -> object:
             _tax = Taxonomy.from_yaml(_P("configs/taxonomy.yaml"))
         except Exception:
             _tax = Taxonomy(rules=[])
-        # attempt to load panel if exists (silver or gold)
+        # attempt to load panel via DataPaths (normalized/features) - fix drift from data/silver|gold
         _panel = None
-        for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
-            if _cand.exists():
-                try:
-                    _panel = _pl.read_parquet(str(_cand))
-                    if _panel is not None and _panel.height > 0:
-                        break
-                except Exception:
-                    _panel = None
+        try:
+            _paths = DataPaths(root=_P("data"))
+            # Prefer gold then silver via DataPaths
+            for _cand in [_paths.gold("etf_features"), _paths.silver("etf_daily")]:
+                if _cand.exists():
+                    try:
+                        _panel = _pl.read_parquet(str(_cand))
+                        if _panel is not None and _panel.height > 0:
+                            break
+                    except Exception:
+                        _panel = None
+            # fallback to legacy paths if DataPaths not found
+            if _panel is None or _panel.height == 0:
+                for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+                    if _cand.exists():
+                        try:
+                            _panel = _pl.read_parquet(str(_cand))
+                            if _panel is not None and _panel.height > 0:
+                                break
+                        except Exception:
+                            _panel = None
+        except Exception:
+            for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+                if _cand.exists():
+                    try:
+                        _panel = _pl.read_parquet(str(_cand))
+                        if _panel is not None and _panel.height > 0:
+                            break
+                    except Exception:
+                        _panel = None
         if _panel is not None and _panel.height > 0:
             try:
                 _master = InstrumentMaster.build(_panel, _tax, _brand)
