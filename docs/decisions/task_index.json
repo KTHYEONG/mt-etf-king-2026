@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_07_LEADERSHIP_ENGINE",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_07_LEADERSHIP_ENGINE",
+      "domain": "alpha",
+      "title": "Sector Leadership Engine — cluster dedup · theme score · M07 harness perf",
+      "why": "Spec 07 requires L1 index_key dedup, 6-state theme machine, SectorLeadershipModel (M07), and harness-viable per-session latency on ~1k-ticker gold panel; preflight closed regime/giveback gaps.",
+      "resolution": "Implemented src/alpha/{cluster,theme,state,leadership}.py and M07 in baselines; O(N) build_snapshot_index/resolve_indexed, incremental transition, build_theme_panel_indexed; configs/strategies.yaml; SCENARIO-07-01..08 and SCENARIO-07P-01..05 pass lean_check; per-session resolve 1.4ms, score 12ms, 62-session engine 2.9s.",
+      "impact": "L4 alpha layer: M07 operational in backtest harness; full-period A-1 gate still FAIL (P>30%=6.5% vs B2 9.1%); unblocks /spec 08_portfolio_tournament."
+    },
+    {
       "task_id": "TASK_07_PREFLIGHT",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_07_PREFLIGHT",
