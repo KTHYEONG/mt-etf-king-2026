@@ -1,4 +1,4 @@
-"""SCENARIO-06-09 SCENARIO-06-10 SCENARIO-08-10"""
+"""SCENARIO-06-09 SCENARIO-06-10 SCENARIO-08-10 SCENARIO-PERF-05"""
 from __future__ import annotations
 
 from datetime import date
@@ -79,7 +79,7 @@ def test_SCENARIO_06_09_rolling_fast_vs_slow_path() -> None:  # noqa: N802
 
     slow_mock = MagicMock(wraps=engine)
     slow_sim = TournamentSimulator(slow_mock, cal)
-    slow = slow_sim.run_rolling(model, panel, config, horizon=5, path_dependent=True)
+    slow = slow_sim.run_rolling(model, panel, config, horizon=5, path_dependent=True, path_dependent_mode="slow")
     assert slow.returns
     assert len(slow.returns) > 1
     assert slow_mock.run.call_count == len(slow.returns)
@@ -185,7 +185,7 @@ def test_SCENARIO_08_10_path_dependent_error() -> None:  # noqa: N802
 import pytest
 
 
-@pytest.mark.parametrize("scenario_id", ["SCENARIO-08-10"])
+@pytest.mark.parametrize("scenario_id", ["SCENARIO-08-10", "SCENARIO-PERF-05"])
 def test_SCENARIO_hyphen_wrapper_sim(scenario_id: str) -> None:  # noqa: N802
-    if scenario_id == "SCENARIO-08-10":
+    if scenario_id in ("SCENARIO-08-10", "SCENARIO-PERF-05"):
         test_SCENARIO_08_10_path_dependent_error()
