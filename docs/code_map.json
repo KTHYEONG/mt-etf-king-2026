@@ -1,4 +1,37 @@
 {
+  "src/alpha/base.py": {
+    "testing": "tests/unit/alpha/test_base.py"
+  },
+  "src/alpha/baselines.py": {
+    "testing": "tests/unit/alpha/test_baselines.py"
+  },
+  "src/alpha/cluster.py": {
+    "testing": "tests/unit/alpha/test_cluster.py"
+  },
+  "src/alpha/leadership.py": {
+    "testing": "tests/unit/alpha/test_leadership.py"
+  },
+  "src/alpha/state.py": {
+    "testing": "tests/unit/alpha/test_state.py"
+  },
+  "src/alpha/theme.py": {
+    "testing": "tests/unit/alpha/test_theme.py"
+  },
+  "src/backtest/costs.py": {
+    "testing": "tests/unit/backtest/test_costs.py"
+  },
+  "src/backtest/engine.py": {
+    "testing": "tests/unit/backtest/test_engine.py"
+  },
+  "src/backtest/execution.py": {
+    "testing": "tests/unit/backtest/test_execution.py"
+  },
+  "src/backtest/liquidity.py": {
+    "testing": "tests/unit/backtest/test_liquidity.py"
+  },
+  "src/backtest/metrics.py": {
+    "testing": "tests/unit/backtest/test_metrics.py"
+  },
   "src/cli.py": {
     "testing": "tests/unit/test_cli.py"
   },
@@ -45,7 +78,6 @@
     "testing": "tests/unit/features/test_breadth.py"
   },
   "src/features/builder.py": {
-    "architecture": "docs/architecture/06-feature-engine.md",
     "testing": "tests/unit/features/test_builder.py"
   },
   "src/features/crosssec.py": {
@@ -69,6 +101,24 @@
   "src/features/volatility.py": {
     "testing": "tests/unit/features/test_volatility.py"
   },
+  "src/portfolio/constraints.py": {
+    "testing": "tests/unit/portfolio/test_constraints.py"
+  },
+  "src/portfolio/sizing.py": {
+    "testing": "tests/unit/portfolio/test_sizing.py"
+  },
+  "src/tournament/distribution.py": {
+    "testing": "tests/unit/tournament/test_distribution.py"
+  },
+  "src/tournament/harness.py": {
+    "testing": "tests/unit/tournament/test_harness.py"
+  },
+  "src/tournament/replay.py": {
+    "testing": "tests/unit/tournament/test_replay.py"
+  },
+  "src/tournament/simulator.py": {
+    "testing": "tests/unit/tournament/test_simulator.py"
+  },
   "src/universe/families.py": {
     "testing": "tests/unit/universe/test_families.py"
   },
@@ -83,9 +133,5 @@
   },
   "src/universe/tournament.py": {
     "testing": "tests/unit/universe/test_tournament.py"
-  },
-  "src/backtest/engine.py": {
-    "architecture": "docs/architecture/08-research-harness.md",
-    "testing": "tests/unit/backtest/test_engine.py"
   }
 }
