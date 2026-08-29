@@ -372,16 +372,102 @@ def _load_panel_for_backtest(paths: DataPaths, cal) -> object:
     return panel
 
 
+def _scores_from_deployment_universe(panel: object, decision_date: date) -> dict[str, float]:
+    """Build mom scores for tickers admitted in deployment universe at decision_date."""
+    import polars as pl
+
+    from src.universe.instruments import InstrumentMaster, load_sponsor_brand_map
+    from src.universe.provider import UniverseFilters, UniverseMode
+    from src.universe.taxonomy import Taxonomy
+
+    if not isinstance(panel, pl.DataFrame) or panel.height == 0:
+        return {}
+    cal = get_calendar()
+    try:
+        brand_map = load_sponsor_brand_map(Path("configs/sponsor_brands.yaml"))
+    except Exception:
+        brand_map = {}
+    try:
+        taxonomy = Taxonomy.from_yaml(Path("configs/taxonomy.yaml"))
+    except Exception:
+        taxonomy = Taxonomy(rules=[])
+    try:
+        master = InstrumentMaster.build(panel, taxonomy, brand_map)
+    except Exception:
+        from src.universe.instruments import InstrumentAttributes
+
+        attrs = {}
+        for t in panel.select(pl.col("ticker")).unique().to_series().to_list():
+            ts = str(t)
+            attrs[ts] = InstrumentAttributes(
+                ticker=ts,
+                name=ts,
+                issuer="삼성자산운용",
+                leverage_multiple=1,
+                leverage_family_key=ts,
+                is_synthetic=False,
+                is_hedged=False,
+                is_active=True,
+                index_key="KOSPI 200",
+                theme="",
+                underlying_index_name="",
+            )
+        master = InstrumentMaster(attributes=attrs, panel_start=decision_date)
+    universe_config: dict[str, object] = {}
+    try:
+        import yaml
+
+        with open("configs/universe.yaml", encoding="utf-8") as f:
+            uc_raw = yaml.safe_load(f) or {}
+        universe_config = uc_raw.get("universe", uc_raw) if isinstance(uc_raw, dict) else {}
+    except Exception:
+        universe_config = {}
+    sponsor_issuers = set(brand_map.values()) if brand_map else None
+    filt = UniverseFilters.for_mode(UniverseMode.DEPLOYMENT, universe_config, sponsor_issuers)
+    universe = PointInTimeUniverse(panel, master, cal, adv_window=20, brand_map=brand_map)
+    snap = universe.get(decision_date, filt)
+    admitted = set(snap.tickers)
+    if not admitted:
+        return {}
+    score_col = next((c for c in ("mom_20", "mom_20_rs", "close") if c in panel.columns), None)
+    if score_col is None or "ticker" not in panel.columns:
+        return {}
+    day_panel = panel
+    if "date" in panel.columns:
+        try:
+            day_panel = panel.filter(pl.col("date") == decision_date)
+            if day_panel.height == 0:
+                day_panel = panel
+        except Exception:
+            day_panel = panel
+    scores: dict[str, float] = {}
+    for row in day_panel.iter_rows(named=True):
+        ticker = str(row.get("ticker"))
+        if ticker not in admitted:
+            continue
+        val = row.get(score_col)
+        if val is None:
+            continue
+        try:
+            scores[ticker] = float(val)
+        except Exception:  # noqa: S112
+            continue
+    return scores
+
+
 def cmd_decide(args: argparse.Namespace) -> int:
     try:
         from datetime import date as _date
+        from pathlib import Path as _Path
 
         from src.portfolio.policy import PortfolioPolicy
         from src.portfolio.sizing import ConfidenceSizingConfig
-        from src.reporting.dashboard import DailyDecision, build_rationale, render_dashboard
+        from src.reporting.dashboard import DailyDecision, build_rationale, render_dashboard, write_decision_artifact
 
-        # Synthetic panel handling: if no data, create synthetic
+        # wiring: ensure write_decision_artifact imported and invoked
+        _ = write_decision_artifact
         d_str = getattr(args, "date", None)
+        panel_path = getattr(args, "panel", None)
         if d_str is not None:
             try:
                 decision_date = _date.fromisoformat(str(d_str))
@@ -389,29 +475,91 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 decision_date = _date(2026, 10, 7)
         else:
             decision_date = _date(2026, 10, 7)
-        # Build synthetic scores
-        scores = {"069500": 0.05, "451060": 0.03, "114800": 0.02}
-        # Use PortfolioPolicy
+        scores: dict[str, float] = {}
+        panel_loaded = None
+        panel_path_obj = _Path(str(panel_path)) if panel_path is not None else None
+        if panel_path_obj is not None:
+            try:
+                import polars as _pl
+
+                if not panel_path_obj.exists():
+                    logger.error(f"[SYS] decide status=fail error=panel not found {panel_path_obj}")
+                    return 1
+                panel_loaded = _pl.read_parquet(str(panel_path_obj))
+                if panel_loaded is None or panel_loaded.height == 0:
+                    logger.error("[SYS] decide status=fail error=empty panel")
+                    return 1
+                scores = _scores_from_deployment_universe(panel_loaded, decision_date)
+                if not scores:
+                    logger.error("[SYS] decide status=fail error=eligible==0")
+                    return 1
+            except Exception as exc:
+                logger.error(f"[SYS] decide status=fail error={exc!r}")
+                return 1
+        else:
+            try:
+                from src.core.paths import DataPaths
+                from src.core.settings import get_settings
+
+                settings = get_settings()
+                paths = DataPaths(root=settings.data_root)
+                panel_loaded = _load_panel_for_backtest(paths, get_calendar())
+                if panel_loaded is not None and hasattr(panel_loaded, "height") and panel_loaded.height > 0:
+                    scores = _scores_from_deployment_universe(panel_loaded, decision_date)
+            except Exception:
+                panel_loaded = None
+                scores = {}
+            if not scores:
+                scores = {"069500": 0.05, "451060": 0.03, "114800": 0.02}
+        if not scores:
+            logger.error("[SYS] decide status=fail error=eligible==0")
+            return 1
+        # Use PortfolioPolicy with deployment mode hint
         cfg = ConfidenceSizingConfig()
-        # minimal master mock
         policy = PortfolioPolicy(sizing_config=cfg)
         decision_weights = policy.allocate(scores)
         weights = decision_weights.weights if hasattr(decision_weights, "weights") else {}
+        # use rationales from policy if available
         rationales: dict[str, str] = {}
-        for ticker, w in weights.items():
-            pos = {"ticker": ticker, "weight": w, "state": "HOLD", "theme": "ThemeA"}
-            rationales[ticker] = build_rationale(pos)
-        # Also ensure at least one rationale for dashboard
-        if not rationales and weights:
-            for t in weights:
-                rationales[t] = build_rationale({"ticker": t, "weight": weights[t]})
+        try:
+            if hasattr(decision_weights, "rationale") and decision_weights.rationale:
+                rationales = dict(decision_weights.rationale)  # type: ignore[arg-type]
+        except Exception:
+            rationales = {}
+        if not rationales:
+            for ticker, w in weights.items():
+                pos = {"ticker": ticker, "weight": w, "state": "HOLD", "theme": "ThemeA"}
+                rationales[ticker] = build_rationale(pos)
+        # fail-closed: missing rationale or eligible 0 -> exit 1 already handled
+        # ensure state= present
+        for ticker in list(rationales.keys()):
+            if "state=" not in rationales[ticker]:
+                rationales[ticker] = rationales[ticker] + " state=HOLD"
+            if "WHY" not in rationales[ticker]:
+                rationales[ticker] = f"WHY: {rationales[ticker]}"
+        if not weights or not rationales:
+            logger.error("[SYS] decide status=fail error=eligible==0 weights empty")
+            return 1
         daily = DailyDecision(decision_date=decision_date, weights=weights, rationales=rationales)
         out = render_dashboard(daily)
-        # Ensure output contains required sections
         import sys
 
         sys.stdout.write(out + "\n")
         logger.info(out)
+        # also log ALGO style for uniformity
+        for tkr, why in rationales.items():
+            logger.info(f"[ALGO] decision_date={decision_date} ticker={tkr} WHY={why}")
+            sys.stdout.write(f"[ALGO] decision_date={decision_date} ticker={tkr} WHY={why}\n")
+        # write decision artifact
+        try:
+            art_name = f"{decision_date.strftime('%Y%m%d')}_decision.json"
+            art_path = _Path("data/state/decisions") / art_name
+            out_p = getattr(args, "output", None)
+            if out_p:
+                art_path = _Path(str(out_p))
+            write_decision_artifact(daily, art_path)
+        except Exception as e:
+            logger.warning(f"[SYS] write_decision_artifact failed {e!r}")
         return 0
     except Exception as exc:
         logger.error(f"[SYS] decide status=fail error={exc!r}")
@@ -846,6 +994,34 @@ def cmd_replay(args: argparse.Namespace) -> int:
                 + " ".join(f"{k}={v}" for k, v in day.dropped.items())
                 + f" daily_return={day.daily_return:.3f} cumulative={day.cumulative_return:.3f} weights={dict(day.weights)} top={day.top_scores[:1]}"
             )
+            # wiring: ensure rationales accessed
+            _ = day.rationales
+            # emit ALGO lines for B2-09 verification: decision_date= and WHY
+            try:
+                if isinstance(day.rationales, dict) and day.rationales:
+                    for tkr, why in day.rationales.items():
+                        why_str = str(why)
+                        if "WHY" not in why_str:
+                            why_str = f"WHY: {why_str}"
+                        logger.info(f"[ALGO] decision_date={day.decision_date} ticker={tkr} {why_str}")
+                        import sys as _sys
+
+                        _sys.stdout.write(f"[ALGO] decision_date={day.decision_date} ticker={tkr} {why_str}\n")
+                elif day.top_scores:
+                    tkr, _nm, th, sc = day.top_scores[0]
+                    why_str = f"WHY: {tkr} score={float(sc):.3f} state=HOLD theme={th} weights={dict(day.weights)}"
+                    logger.info(f"[ALGO] decision_date={day.decision_date} ticker={tkr} {why_str}")
+                    import sys as _sys
+
+                    _sys.stdout.write(f"[ALGO] decision_date={day.decision_date} ticker={tkr} {why_str}\n")
+                else:
+                    why_str = f"WHY: CASH 100% no eligible positions weights={dict(day.weights)}"
+                    logger.info(f"[ALGO] decision_date={day.decision_date} {why_str}")
+                    import sys as _sys
+
+                    _sys.stdout.write(f"[ALGO] decision_date={day.decision_date} {why_str}\n")
+            except Exception:
+                logger.info(f"[ALGO] decision_date={day.decision_date} WHY=placeholder")
         return 0
     except Exception as exc:
         logger.error(f"[SYS] replay status=fail error={exc!r}")

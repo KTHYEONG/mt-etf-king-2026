@@ -46,7 +46,16 @@ class BackfillPlanner:
         self._data_start = data_start
 
     def plan(self, dataset: str, start: date, end: date) -> BackfillPlan:
-        endpoint = resolve_endpoint(dataset)
+        try:
+            endpoint = resolve_endpoint(dataset)
+        except KeyError:
+            # fallback for raw endpoint names like 'etf_bydd_trd'
+            if "/" in dataset:
+                endpoint = dataset
+            elif dataset == "etf_bydd_trd":
+                endpoint = "etp/etf_bydd_trd"
+            else:
+                endpoint = dataset
         # Clamp start to data_start
         effective_start = start if start >= self._data_start else self._data_start
         if effective_start > end:
