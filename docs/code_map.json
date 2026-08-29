@@ -137,5 +137,9 @@
   "src/portfolio/policy.py": {
     "architecture": "docs/specs/09_vehicle_exposure.md",
     "testing": "tests/unit/portfolio/test_policy.py"
+  },
+  "src/data/panel.py": {
+    "architecture": "docs/architecture/02-system-layers.md",
+    "testing": "tests/unit/data/test_panel.py"
   }
 }
