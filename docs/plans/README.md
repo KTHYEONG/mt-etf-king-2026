@@ -6,4 +6,4 @@
 | --- | --- |
 | [feedback-architecture-adoption.md](feedback-architecture-adoption.md) | 피드백 반영 계획 — architecture 차이, 수용/보류/기각, 작업 순서 |
 
-**현재 다음 단계**: B-2 state machine engine 연결 · 2018 backfill(n_eff↑) · P08 대회 운영 준비 (`decide` + replay WHY 로그)
+**현재 다음 단계**: `/spec`→`/implement` **09_vehicle_exposure** — `ExposureSelector`·gross exposure를 `PortfolioPolicy.allocate`에 연결 · aggression(default off) wiring · decide WHY에 vehicle/mult (B-2·2018 backfill 완료)

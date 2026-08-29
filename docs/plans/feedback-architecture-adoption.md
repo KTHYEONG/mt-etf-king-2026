@@ -290,7 +290,7 @@ A. 아니다. **가설**이다. A-1(P(R>30%) > B2) 통과 못 하면 baseline으
 A. 버리지 않는다. **드리프트 난 부분만** preflight/07 spec implement 시 맞춘다. 캐논 INV는 `architecture/10-invariants-and-gates.md`.
 
 **Q. 지금 당장 뭘 실행하나?**  
-A. `/spec 07_leadership_engine`
+A. `/implement docs/specs/09_vehicle_exposure_contract.json` (B-2·08 완료 후 Phase 4 잔여: vehicle/gross/aggression wiring)
 
 ---
 
