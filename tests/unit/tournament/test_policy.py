@@ -1,4 +1,6 @@
-"""SCENARIO-08-11 SCENARIO-08-12"""
+"""SCENARIO-08-11 SCENARIO-08-12 SCENARIO-09-08"""
+from src.portfolio.policy import PortfolioPolicy
+from src.portfolio.sizing import ConfidenceSizingConfig
 from src.tournament.policy import AggressionInput, AggressionPolicy, risk_multiplier
 
 
@@ -21,9 +23,28 @@ def test_SCENARIO_08_12_risk_multiplier_monotonic() -> None:  # noqa: N802
 import pytest
 
 
-@pytest.mark.parametrize("scenario_id", ["SCENARIO-08-11", "SCENARIO-08-12"])
+def test_SCENARIO_09_08_aggression_scales_weights() -> None:  # noqa: N802
+    pol = AggressionPolicy(enabled=False)
+    inp = AggressionInput(delta=0.10, n=5)
+    assert pol.apply(inp) == 1.0
+    enabled = AggressionPolicy(enabled=True, config={"factor": 2.0, "epsilon": 0.001})
+    p = PortfolioPolicy(
+        sizing_config=ConfidenceSizingConfig(),
+        state_enabled=False,
+        aggression=enabled,
+    )
+    dec = p.allocate(
+        {"A": 0.50, "B": 0.30, "C": 0.20},
+        aggression_input=inp,
+    )
+    assert sum(dec.weights.values()) <= 1.0 + 1e-9
+
+
+@pytest.mark.parametrize("scenario_id", ["SCENARIO-08-11", "SCENARIO-08-12", "SCENARIO-09-08"])
 def test_SCENARIO_hyphen_wrapper(scenario_id: str) -> None:  # noqa: N802
     if scenario_id == "SCENARIO-08-11":
         test_SCENARIO_08_11_aggression_disabled()
     if scenario_id == "SCENARIO-08-12":
         test_SCENARIO_08_12_risk_multiplier_monotonic()
+    if scenario_id == "SCENARIO-09-08":
+        test_SCENARIO_09_08_aggression_scales_weights()

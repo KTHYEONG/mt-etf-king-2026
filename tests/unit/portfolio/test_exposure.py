@@ -1,10 +1,10 @@
-"""SCENARIO-08-16 SCENARIO-08-17"""
+"""SCENARIO-08-16 SCENARIO-08-17 SCENARIO-09-01 SCENARIO-09-02 SCENARIO-09-03"""
 from datetime import date
 
 import polars as pl
 
 from src.portfolio.constraints import leverage_gate
-from src.portfolio.exposure import ExposureSelector
+from src.portfolio.exposure import ExposureSelector, target_multiple_for_regime
 from src.universe.instruments import InstrumentAttributes, InstrumentMaster
 from src.universe.taxonomy import Taxonomy
 
@@ -81,9 +81,44 @@ def test_SCENARIO_08_17_leverage_gate_unknown() -> None:  # noqa: N802
 import pytest
 
 
-@pytest.mark.parametrize("scenario_id", ["SCENARIO-08-16", "SCENARIO-08-17"])
+def test_SCENARIO_09_01_target_multiple_for_regime() -> None:  # noqa: N802
+    for regime in (None, "NEUTRAL", "RISK_OFF"):
+        assert target_multiple_for_regime(regime, True, None) == 1
+    for regime in ("RISK_ON", "STRONG_RISK_ON"):
+        assert target_multiple_for_regime(regime, True, None) == 2
+    for regime in (None, "NEUTRAL", "RISK_ON", "STRONG_RISK_ON"):
+        assert target_multiple_for_regime(regime, None, None) == 1
+
+
+def test_SCENARIO_09_02_exposure_selector_regime() -> None:  # noqa: N802
+    master = _master_with_family()
+    sel = ExposureSelector(master)
+    fk = master.attributes["T1"].leverage_family_key
+    assert sel.select(fk, leverage_allowed=None) == "T1"
+    assert master.attributes[sel.select(fk, leverage_allowed=None)].leverage_multiple == 1
+    chosen = sel.select(fk, leverage_allowed=True, confidence_low=False, regime="RISK_ON")
+    assert chosen == "T2"
+    assert master.attributes[chosen].leverage_multiple == 2
+
+
+def test_SCENARIO_09_03_confidence_low_forces_plus_one() -> None:  # noqa: N802
+    master = _master_with_family()
+    sel = ExposureSelector(master)
+    fk = master.attributes["T1"].leverage_family_key
+    chosen = sel.select(fk, leverage_allowed=True, confidence_low=True, regime="RISK_ON")
+    assert chosen == "T1"
+    assert master.attributes[chosen].leverage_multiple == 1
+
+
+@pytest.mark.parametrize("scenario_id", ["SCENARIO-08-16", "SCENARIO-08-17", "SCENARIO-09-01", "SCENARIO-09-02", "SCENARIO-09-03"])
 def test_SCENARIO_hyphen_wrapper(scenario_id: str) -> None:  # noqa: N802
     if scenario_id == "SCENARIO-08-16":
         test_SCENARIO_08_16_exposure_low_confidence()
     if scenario_id == "SCENARIO-08-17":
         test_SCENARIO_08_17_leverage_gate_unknown()
+    if scenario_id == "SCENARIO-09-01":
+        test_SCENARIO_09_01_target_multiple_for_regime()
+    if scenario_id == "SCENARIO-09-02":
+        test_SCENARIO_09_02_exposure_selector_regime()
+    if scenario_id == "SCENARIO-09-03":
+        test_SCENARIO_09_03_confidence_low_forces_plus_one()
