@@ -1,0 +1,214 @@
+{
+  "feature": "09_vehicle_exposure",
+  "domain": "portfolio",
+  "stage": 4,
+  "target_file": "src/portfolio/policy.py",
+  "context_files": [
+    "src/portfolio/exposure.py",
+    "src/portfolio/constraints.py",
+    "src/portfolio/policy.py",
+    "src/portfolio/state.py",
+    "src/portfolio/sizing.py",
+    "src/portfolio/selection.py",
+    "src/tournament/policy.py",
+    "src/backtest/engine.py",
+    "src/tournament/simulator.py",
+    "src/tournament/replay.py",
+    "src/alpha/baselines.py",
+    "src/cli.py",
+    "src/reporting/dashboard.py",
+    "src/universe/instruments.py",
+    "src/universe/families.py",
+    "src/features/regime.py",
+    "configs/portfolio.yaml",
+    "configs/tournament.yaml",
+    "configs/strategies.yaml",
+    "docs/specs/09_vehicle_exposure.md",
+    "docs/architecture/07-alpha-and-portfolio.md",
+    "docs/architecture/10-invariants-and-gates.md",
+    "docs/plans/feedback-architecture-adoption.md",
+    "docs/decisions/task_index.json"
+  ],
+  "symbols": [
+    {
+      "name": "gross_exposure",
+      "kind": "function",
+      "target_file": "src/portfolio/constraints.py",
+      "signature": "def gross_exposure(weights: Mapping[str, float], multiples: Mapping[str, int]) -> float"
+    },
+    {
+      "name": "apply_gross_exposure_cap",
+      "kind": "function",
+      "target_file": "src/portfolio/constraints.py",
+      "signature": "def apply_gross_exposure_cap(weights: Mapping[str, float], multiples: Mapping[str, int], max_gross: float) -> dict[str, float]"
+    },
+    {
+      "name": "ExposureSelector.select",
+      "kind": "method",
+      "target_file": "src/portfolio/exposure.py",
+      "signature": "def select(self, family_key: str, leverage_allowed: bool | None = None, confidence_low: bool = False, regime: str | None = None, inverse_allowed: bool | None = None, target_multiple: int | None = None) -> str | None"
+    },
+    {
+      "name": "ExposureSelector.pick_vehicle",
+      "kind": "method",
+      "target_file": "src/portfolio/exposure.py",
+      "signature": "def pick_vehicle(self, tickers: list[str], leverage_allowed: bool | None = None, confidence_low: bool = False, regime: str | None = None, inverse_allowed: bool | None = None) -> dict[str, str]"
+    },
+    {
+      "name": "target_multiple_for_regime",
+      "kind": "function",
+      "target_file": "src/portfolio/exposure.py",
+      "signature": "def target_multiple_for_regime(regime: str | None, leverage_allowed: bool | None, inverse_allowed: bool | None) -> int"
+    },
+    {
+      "name": "PortfolioDecision",
+      "kind": "class",
+      "target_file": "src/portfolio/policy.py",
+      "signature": "@dataclass(frozen=True) class PortfolioDecision: weights: dict[str, float]; rationale: dict[str, str] | None = None; vehicles: dict[str, str] | None = None; gross: float | None = None"
+    },
+    {
+      "name": "PortfolioPolicy.__init__",
+      "kind": "method",
+      "target_file": "src/portfolio/policy.py",
+      "signature": "def __init__(self, master=None, sizing_config=None, max_per_theme: int = 2, max_per_family: int = 1, min_rebalance_delta: float = 0.0, state_enabled: bool = True, max_gross_exposure: float = 1.60, aggression: AggressionPolicy | None = None) -> None"
+    },
+    {
+      "name": "PortfolioPolicy.allocate",
+      "kind": "method",
+      "target_file": "src/portfolio/policy.py",
+      "signature": "def allocate(self, scores: Mapping[str, float], capital: float | None = None, adv: Mapping[str, float] | None = None, participation: float | None = None, current_weights: Mapping[str, float] | None = None, theme_states: Mapping[str, str] | None = None, regime: str | None = None, leverage_allowed: bool | None = None, inverse_allowed: bool | None = None, aggression_input: AggressionInput | None = None) -> PortfolioDecision"
+    },
+    {
+      "name": "AggressionPolicy.apply",
+      "kind": "method",
+      "target_file": "src/tournament/policy.py",
+      "signature": "def apply(self, inp: AggressionInput) -> float"
+    },
+    {
+      "name": "BASELINES['P08']",
+      "kind": "registry_entry",
+      "target_file": "src/alpha/baselines.py",
+      "signature": "BASELINES['P08'] -> PortfolioPolicy with InstrumentMaster for ExposureSelector"
+    }
+  ],
+  "wiring": [
+    {
+      "caller_file": "src/portfolio/policy.py",
+      "anchor": "def allocate",
+      "import_symbol": "ExposureSelector",
+      "invocation_expression": "pick_vehicle"
+    },
+    {
+      "caller_file": "src/portfolio/policy.py",
+      "anchor": "def allocate",
+      "import_symbol": "apply_gross_exposure_cap",
+      "invocation_expression": "apply_gross_exposure_cap"
+    },
+    {
+      "caller_file": "src/portfolio/policy.py",
+      "anchor": "def allocate",
+      "import_symbol": "AggressionPolicy",
+      "invocation_expression": "aggression"
+    },
+    {
+      "caller_file": "src/portfolio/exposure.py",
+      "anchor": "def select",
+      "import_symbol": "target_multiple_for_regime",
+      "invocation_expression": "target_multiple_for_regime"
+    },
+    {
+      "caller_file": "src/backtest/engine.py",
+      "anchor": "model.allocate",
+      "import_symbol": "allocate",
+      "invocation_expression": "leverage_allowed"
+    },
+    {
+      "caller_file": "src/cli.py",
+      "anchor": "def cmd_decide",
+      "import_symbol": "PortfolioPolicy",
+      "invocation_expression": "vehicle="
+    },
+    {
+      "caller_file": "src/alpha/baselines.py",
+      "anchor": "def _make_p08",
+      "import_symbol": "PortfolioPolicy",
+      "invocation_expression": "InstrumentMaster"
+    }
+  ],
+  "requirements": [
+    "INV-09-1: final weight keys are ExposureSelector vehicles when master is set; score tickers never force leveraged isu_cd without selector",
+    "INV-09-2: leverage_allowed is None => all selected leverage_multiple == 1 (fail-closed UNKNOWN)",
+    "INV-09-3: confidence LOW => force +1x regardless of leverage_allowed True",
+    "INV-09-4: after allocate, gross_exposure(weights, multiples) <= max_gross_exposure (default 1.60 from configs/portfolio.yaml)",
+    "INV-09-5: liquidity cap after vehicle remap uses ADV of the vehicle ticker; if ADV insufficient demote to +1x",
+    "INV-09-6: no synthetic leverage returns — only real family member tickers (INV-14)",
+    "INV-09-7: AggressionPolicy enabled defaults False; apply returns 1.0; when enabled scale weights then renormalize sum<=1",
+    "allocate O(K) vehicle pass with K<=max_positions; no O(N_tickers) family scans beyond selected keys",
+    "PortfolioDecision.rationale entries MUST include vehicle= and mult= when vehicle pass runs",
+    "BacktestEngine/simulator/replay MUST pass regime state string and rules.leverage_allowed into allocate when model has allocate",
+    "Harness research: when rules.leverage_allowed is UNKNOWN, run two explicit scenarios (True and False) — do not invent a single blended path",
+    "Immutable: do not change NextOpenExecution, CostModel, or INV-10 fill timing"
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "SCENARIO-09-01",
+      "target_test_file": "tests/unit/portfolio/test_exposure.py",
+      "execution_command": "uv run pytest tests/unit/portfolio/test_exposure.py -k SCENARIO-09-01 -q",
+      "expected_behavior": "target_multiple_for_regime(None|NEUTRAL|RISK_OFF, leverage_allowed=True, inverse_allowed=None) == 1; STRONG_RISK_ON|RISK_ON with leverage_allowed=True == 2; any regime with leverage_allowed=None == 1"
+    },
+    {
+      "scenario_id": "SCENARIO-09-02",
+      "target_test_file": "tests/unit/portfolio/test_exposure.py",
+      "execution_command": "uv run pytest tests/unit/portfolio/test_exposure.py -k SCENARIO-09-02 -q",
+      "expected_behavior": "ExposureSelector.select(family, leverage_allowed=None) returns +1x ticker; select(..., leverage_allowed=True, confidence_low=False, regime='RISK_ON') returns +2x when family has multiple==2"
+    },
+    {
+      "scenario_id": "SCENARIO-09-03",
+      "target_test_file": "tests/unit/portfolio/test_exposure.py",
+      "execution_command": "uv run pytest tests/unit/portfolio/test_exposure.py -k SCENARIO-09-03 -q",
+      "expected_behavior": "confidence_low=True forces +1x even when leverage_allowed=True and regime=RISK_ON (INV-19)"
+    },
+    {
+      "scenario_id": "SCENARIO-09-04",
+      "target_test_file": "tests/unit/portfolio/test_constraints.py",
+      "execution_command": "uv run pytest tests/unit/portfolio/test_constraints.py -k SCENARIO-09-04 -q",
+      "expected_behavior": "gross_exposure({'A':0.8}, {'A':2}) == 1.6; apply_gross_exposure_cap({'A':0.9}, {'A':2}, max_gross=1.60) yields G<=1.60 within 1e-9"
+    },
+    {
+      "scenario_id": "SCENARIO-09-05",
+      "target_test_file": "tests/unit/portfolio/test_policy.py",
+      "execution_command": "uv run pytest tests/unit/portfolio/test_policy.py -k SCENARIO-09-05 -q",
+      "expected_behavior": "PortfolioPolicy(master=family_master).allocate(scores, regime='RISK_ON', leverage_allowed=True) remaps +1 ticker to +2 vehicle; decision.vehicles maps src->dst; rationale values contain 'vehicle=' and 'mult='"
+    },
+    {
+      "scenario_id": "SCENARIO-09-06",
+      "target_test_file": "tests/unit/portfolio/test_policy.py",
+      "execution_command": "uv run pytest tests/unit/portfolio/test_policy.py -k SCENARIO-09-06 -q",
+      "expected_behavior": "allocate(..., leverage_allowed=None) keeps multiples==1 for all weight keys; decision.gross <= max_gross_exposure"
+    },
+    {
+      "scenario_id": "SCENARIO-09-07",
+      "target_test_file": "tests/unit/portfolio/test_policy.py",
+      "execution_command": "uv run pytest tests/unit/portfolio/test_policy.py -k SCENARIO-09-07 -q",
+      "expected_behavior": "after vehicle remap to +2x, apply_liquidity_cap uses adv[vehicle]; if adv[vehicle]*participation/capital < weight then demote to +1x or reduce weight so final notional <= ADV*phi"
+    },
+    {
+      "scenario_id": "SCENARIO-09-08",
+      "target_test_file": "tests/unit/tournament/test_policy.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_policy.py -k SCENARIO-09-08 -q",
+      "expected_behavior": "AggressionPolicy(enabled=False).apply(any) == 1.0; PortfolioPolicy with aggression enabled scales weights by multiplier then sum(weights) <= 1.0 + 1e-9"
+    },
+    {
+      "scenario_id": "SCENARIO-09-09",
+      "target_test_file": "tests/unit/cli/test_decide.py",
+      "execution_command": "uv run pytest tests/unit/cli/test_decide.py -k SCENARIO-09-09 -q",
+      "expected_behavior": "cmd_decide exit 0; stdout contains 'vehicle=' OR rationale with vehicle=; decision artifact selected[].reason non-empty and includes mult= when master available"
+    },
+    {
+      "scenario_id": "SCENARIO-09-10",
+      "target_test_file": "tests/unit/backtest/test_engine_state.py",
+      "execution_command": "uv run pytest tests/unit/backtest/test_engine_state.py -k SCENARIO-09-10 -q",
+      "expected_behavior": "BacktestEngine path calling model.allocate passes leverage_allowed from TournamentRules (or explicit kwarg); with leverage_allowed=False engine never holds ticker with leverage_multiple!=1 from master"
+    }
+  ]
+}

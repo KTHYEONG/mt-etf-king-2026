@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_09_VEHICLE_EXPOSURE",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_09_VEHICLE_EXPOSURE",
+      "domain": "portfolio",
+      "title": "Vehicle Exposure Wiring — ExposureSelector · gross exposure · aggression(default off)",
+      "why": "Phase 4 residual after 08/B-2: ExposureSelector was orphan (INV-24), gross_exposure only in config (INV-18), AggressionPolicy not wired in allocate; decide/P08 held alpha tickers without vehicle remap.",
+      "resolution": "Wired target_multiple_for_regime, gross_exposure/apply_gross_exposure_cap, ExposureSelector.pick_vehicle, gross cap, and AggressionPolicy in PortfolioPolicy.allocate; BacktestEngine/simulator/replay/decide/P08 pass regime+leverage_allowed; SCENARIO-09-01..10 and lean_check PASS.",
+      "impact": "L5 vehicle layer operational: UNKNOWN→+1x fail-closed, RISK_ON+L=True remaps T1→T2 (+2x, gross 0.68); decide WHY includes vehicle=/mult=; INV-09-1..7 enforced in production path."
+    },
+    {
       "task_id": "TASK_B2_STATE_BACKFILL_PERF",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_B2_STATE_BACKFILL_PERF",
