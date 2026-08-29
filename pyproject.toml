@@ -69,8 +69,9 @@ ignore = [
 "src/backtest/engine.py" = ["S112", "S110", "SIM105", "PERF401", "F841"]
 "src/backtest/execution.py" = ["S110", "SIM105"]
 "src/tournament/distribution.py" = ["S311", "RUF046", "RUF005", "C400", "F841"]
-"src/tournament/simulator.py" = ["F841", "RUF005", "RUF046", "PERF401", "SIM105", "S110"]
+"src/tournament/simulator.py" = ["F841", "RUF005", "RUF046", "PERF401", "SIM105", "S110", "S112"]
 "src/tournament/replay.py" = ["S110", "SIM105", "F841", "PERF401"]
+"src/backtest/session_cache.py" = ["S112", "S110", "SIM105", "PERF401", "F841", "E402"]
 "src/cli.py" = ["S110", "SIM102", "SIM105", "PERF401", "F841"]
 
 [tool.ruff.lint.mccabe]

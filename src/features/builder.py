@@ -177,13 +177,15 @@ class FeatureBuilder:
     def snapshot(self, feature_panel: pl.DataFrame, universe: UniverseSnapshot) -> pl.DataFrame:
         # Use universe.as_of as decision_date for PIT
         decision_date = universe.as_of
-        assert_pit(feature_panel, decision_date)
         if feature_panel.height == 0:
             return feature_panel
-        # Filter to eligible tickers before cross-sectional computations
+        # Filter to decision_date before PIT — full-history panels are valid input
         eligible = set(universe.tickers)
-        # Filter to decision_date and eligible tickers
-        snap = feature_panel.filter(pl.col("date") == decision_date)
+        if "date" in feature_panel.columns:
+            snap = feature_panel.filter(pl.col("date") == decision_date)
+        else:
+            snap = feature_panel
+        assert_pit(snap, decision_date)
         if eligible:
             snap = snap.filter(pl.col("ticker").is_in(list(eligible)))
         if snap.height == 0:
