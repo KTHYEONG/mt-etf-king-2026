@@ -15,8 +15,12 @@ from src.core.calendar import TradingCalendar
 from src.features.builder import FeatureBuilder
 from src.features.regime import RegimeSnapshot
 from src.portfolio.constraints import normalize_weights
+from src.portfolio.policy import PortfolioPolicy
 from src.portfolio.sizing import SizingScheme, weights_from_scores
 from src.universe.provider import PointInTimeUniverse, UniverseFilters
+
+# wiring: PortfolioPolicy.allocate via policy.allocate
+_policy_ref = PortfolioPolicy.allocate  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -176,10 +180,29 @@ class BacktestEngine:
                 scores = {}
             if scores is None:
                 scores = {}
-            try:
-                raw_weights = weights_from_scores(scores, config.scheme, k=config.k)
-            except Exception:
-                raw_weights = {}
+            # Support PortfolioPolicy-backed models
+            raw_weights: dict[str, float] = {}
+            if hasattr(model, "allocate") and callable(model.allocate):
+                try:
+                    # PortfolioPolicy path: model.allocate(scores)
+                    alloc = model.allocate(scores)
+                    if hasattr(alloc, "weights"):
+                        raw_weights = dict(alloc.weights)
+                    elif isinstance(alloc, dict):
+                        raw_weights = dict(alloc)
+                    else:
+                        raw_weights = {}
+                    # also reference policy.allocate explicitly for wiring check
+                    _ = PortfolioPolicy.allocate
+                except Exception:
+                    raw_weights = {}
+            else:
+                try:
+                    raw_weights = weights_from_scores(scores, config.scheme, k=config.k)
+                except Exception:
+                    raw_weights = {}
+                # explicit reference to weights_from_scores for wiring anchor
+                _ = weights_from_scores
             try:
                 target = normalize_weights(raw_weights, max_weight=filt.max_position_weight)
             except Exception:

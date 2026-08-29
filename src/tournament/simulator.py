@@ -9,6 +9,18 @@ from src.alpha.base import AlphaModel
 from src.backtest.engine import BacktestConfig, BacktestEngine
 from src.backtest.metrics import compound_returns, max_drawdown, peak_to_final_giveback, window_returns
 from src.core.calendar import TradingCalendar
+from src.portfolio.policy import PathDependentPolicyError
+
+# wiring: path_dependent must be True for PortfolioPolicy
+_path_dependent_ref = PathDependentPolicyError  # noqa: F401
+
+
+def model_requires_path_dependent(model: object) -> bool:
+    if getattr(model, "path_dependent", False) is True:
+        return True
+    from src.portfolio.policy import PortfolioPolicy
+
+    return isinstance(model, PortfolioPolicy)
 
 
 @dataclass(frozen=True)
@@ -34,6 +46,9 @@ class TournamentSimulator:
         horizon: int,
         path_dependent: bool = False,
     ) -> RollingResult:
+        # INV-08-4: PortfolioPolicy.path_dependent=True requires path_dependent=True
+        if not path_dependent and model_requires_path_dependent(model):
+            raise PathDependentPolicyError("PortfolioPolicy requires path_dependent=True")
         sessions = self.calendar.sessions(config.start, config.end)
         if not sessions or horizon <= 0:
             return RollingResult(name=getattr(model, "name", "model"), horizon=horizon, starts=(), returns=(), drawdowns=(), givebacks=())

@@ -4,12 +4,14 @@ from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from pathlib import Path
 
+import polars as pl
 import yaml
 
+from src.alpha.base import AlphaModel
 from src.backtest.costs import CostConfig
 from src.backtest.engine import BacktestConfig, BacktestEngine
 from src.tournament.distribution import ReturnDistribution
-from src.tournament.simulator import TournamentSimulator
+from src.tournament.simulator import TournamentSimulator, model_requires_path_dependent
 
 
 def load_participation_grid() -> tuple[float, ...]:
@@ -37,8 +39,8 @@ def iter_harness_cases(costs: CostConfig, participation_grid: Sequence[float] | 
 def run_distribution_eval(
     engine: BacktestEngine,
     simulator: TournamentSimulator,
-    model: object,
-    panel: object,
+    model: AlphaModel,
+    panel: pl.DataFrame,
     base_config: BacktestConfig,
     *,
     participation: float,
@@ -48,7 +50,13 @@ def run_distribution_eval(
 ) -> ReturnDistribution:
     filt = replace(base_config.filters, max_order_to_adv=float(participation))
     config = replace(base_config, filters=filt)
-    rolling = simulator.run_rolling(model, panel, config, horizon=horizon)  # type: ignore[arg-type]
+    rolling = simulator.run_rolling(
+        model,
+        panel,
+        config,
+        horizon=horizon,
+        path_dependent=model_requires_path_dependent(model),
+    )
     name = getattr(model, "name", "model")
     return ReturnDistribution.summarise(
         name=str(name),
