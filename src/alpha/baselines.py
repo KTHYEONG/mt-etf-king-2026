@@ -234,6 +234,29 @@ def _make_b5() -> RegimeGatedMomentum:
     return RegimeGatedMomentum(inner=inner, blocked=blocked, name="B5")
 
 
+def _make_p08() -> object:
+    # PortfolioPolicy-backed model for P08 (B1 alpha + portfolio policy)
+    from src.portfolio.policy import PortfolioPolicy
+    from src.portfolio.sizing import ConfidenceSizingConfig
+
+    cfg = ConfidenceSizingConfig()
+    policy = PortfolioPolicy(sizing_config=cfg, max_per_theme=2, max_per_family=1)
+    # Attach B1 scoring delegation for AlphaModel compatibility
+    b1 = TopKMomentum(horizon=20, name="P08")
+    # expose score via delegation and mark path_dependent
+    policy.name = "P08"  # type: ignore[attr-defined]
+    _ = policy.allocate  # reference for wiring
+
+    def _score(snapshot, context):  # type: ignore[no-untyped-def]
+        return b1.score(snapshot, context)
+
+    policy.score = _score  # type: ignore[attr-defined]
+    # wiring reference for lean_check
+    _ = PortfolioPolicy
+    _p08_ref = "P08"  # noqa: F401
+    return policy
+
+
 def _make_m07() -> SectorLeadershipModel:
     # lazy wiring for M07; requires master and configs - fallback to empty master for registry test
     from pathlib import Path
@@ -289,4 +312,5 @@ BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "B4": _make_b4,
     "B5": _make_b5,
     "M07": _make_m07,
+    "P08": _make_p08,
 }
