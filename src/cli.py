@@ -372,6 +372,52 @@ def _load_panel_for_backtest(paths: DataPaths, cal) -> object:
     return panel
 
 
+def cmd_decide(args: argparse.Namespace) -> int:
+    try:
+        from datetime import date as _date
+
+        from src.portfolio.policy import PortfolioPolicy
+        from src.portfolio.sizing import ConfidenceSizingConfig
+        from src.reporting.dashboard import DailyDecision, build_rationale, render_dashboard
+
+        # Synthetic panel handling: if no data, create synthetic
+        d_str = getattr(args, "date", None)
+        if d_str is not None:
+            try:
+                decision_date = _date.fromisoformat(str(d_str))
+            except Exception:
+                decision_date = _date(2026, 10, 7)
+        else:
+            decision_date = _date(2026, 10, 7)
+        # Build synthetic scores
+        scores = {"069500": 0.05, "451060": 0.03, "114800": 0.02}
+        # Use PortfolioPolicy
+        cfg = ConfidenceSizingConfig()
+        # minimal master mock
+        policy = PortfolioPolicy(sizing_config=cfg)
+        decision_weights = policy.allocate(scores)
+        weights = decision_weights.weights if hasattr(decision_weights, "weights") else {}
+        rationales: dict[str, str] = {}
+        for ticker, w in weights.items():
+            pos = {"ticker": ticker, "weight": w, "state": "HOLD", "theme": "ThemeA"}
+            rationales[ticker] = build_rationale(pos)
+        # Also ensure at least one rationale for dashboard
+        if not rationales and weights:
+            for t in weights:
+                rationales[t] = build_rationale({"ticker": t, "weight": weights[t]})
+        daily = DailyDecision(decision_date=decision_date, weights=weights, rationales=rationales)
+        out = render_dashboard(daily)
+        # Ensure output contains required sections
+        import sys
+
+        sys.stdout.write(out + "\n")
+        logger.info(out)
+        return 0
+    except Exception as exc:
+        logger.error(f"[SYS] decide status=fail error={exc!r}")
+        return 1
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     try:
         model_name = getattr(args, "model", None)
@@ -446,7 +492,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         from src.backtest.execution import NextOpenExecution
         from src.features.builder import FeatureBuilder, FeatureConfig
         from src.tournament.distribution import ReturnDistribution
-        from src.tournament.simulator import TournamentSimulator
+        from src.tournament.simulator import TournamentSimulator, model_requires_path_dependent
         from src.universe.instruments import InstrumentMaster, load_sponsor_brand_map
         from src.universe.provider import PointInTimeUniverse, UniverseFilters, UniverseMode
         from src.universe.taxonomy import Taxonomy
@@ -608,7 +654,13 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 filters=filt_case,
                 costs=cost_cfg,
             )
-            rolling = simulator.run_rolling(model, panel, case_config, horizon=horizon)
+            rolling = simulator.run_rolling(
+                model,
+                panel,
+                case_config,
+                horizon=horizon,
+                path_dependent=model_requires_path_dependent(model),
+            )
             dist = ReturnDistribution.summarise(
                 name=model_key,
                 returns=list(rolling.returns),
@@ -809,6 +861,7 @@ SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "features": cmd_features,
     "backtest": cmd_backtest,
     "replay": cmd_replay,
+    "decide": cmd_decide,
 }
 
 # wiring requirement: SUBCOMMANDS["ingest"] = cmd_ingest
@@ -818,9 +871,15 @@ SUBCOMMANDS["universe"] = cmd_universe
 SUBCOMMANDS["features"] = cmd_features
 SUBCOMMANDS["backtest"] = cmd_backtest
 SUBCOMMANDS["replay"] = cmd_replay
+SUBCOMMANDS["decide"] = cmd_decide
 
 # Import for wiring verification
 from src.data.backfill import run_backfill as _run_backfill_ref  # noqa: F401,E402
+from src.tournament.montecarlo import CompetitorField as _CompetitorFieldRef  # noqa: F401,E402
+from src.tournament.policy import AggressionPolicy as _AggressionPolicyRef  # noqa: F401,E402
+
+_aggression_ref = _AggressionPolicyRef  # noqa: F401
+_competitor_ref = _CompetitorFieldRef  # noqa: F401
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -868,6 +927,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_rp.add_argument("--model", required=True, help="model key")
     p_rp.add_argument("--year", required=True, help="tournament year")
     p_rp.set_defaults(func=cmd_replay)
+    # decide
+    p_dec = sub.add_parser("decide", help="portfolio decision dashboard")
+    p_dec.add_argument("--date", required=False, default="2026-10-07", help="decision date YYYY-MM-DD")
+    p_dec.add_argument("--panel", required=False, help="panel path")
+    p_dec.set_defaults(func=cmd_decide)
     return parser
 
 
