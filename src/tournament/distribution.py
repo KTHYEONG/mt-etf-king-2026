@@ -315,7 +315,7 @@ def measure_vehicle_activity_from_session_cache(
 
                     ctx = DecisionContext(
                         decision_date=sess,
-                        regime=regime_snap,
+                        regime=regime_snap,  # type: ignore[arg-type]
                         capital=1_000_000_000.0,
                         held={},
                         rules=rules,  # type: ignore[arg-type]

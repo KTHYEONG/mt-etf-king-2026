@@ -786,6 +786,36 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             except Exception as exc:
                 logger.error(f"[SYS] backtest status=fail error=P11 preflight failed {exc!r}")
                 return 1
+        if model_key == "P14":
+            from src.tournament.distribution import preflight_features_span_ok
+
+            gold_path = paths.gold("etf_features")
+            silver_path = paths.silver("etf_daily")
+            if not gold_path.exists() or not silver_path.exists():
+                logger.error("[SYS] backtest status=fail error=P14 requires gold features and silver panel (INV-10-5)")
+                return 1
+            try:
+                import polars as _pl_pf
+
+                gold_span = _pl_pf.scan_parquet(gold_path).select(
+                    _pl_pf.col("date").min().alias("min"),
+                    _pl_pf.col("date").max().alias("max"),
+                ).collect()
+                silver_span = _pl_pf.scan_parquet(silver_path).select(
+                    _pl_pf.col("date").min().alias("min"),
+                    _pl_pf.col("date").max().alias("max"),
+                ).collect()
+                if not preflight_features_span_ok(
+                    gold_span[0, "min"],
+                    gold_span[0, "max"],
+                    silver_span[0, "min"],
+                    silver_span[0, "max"],
+                ):
+                    logger.error("[SYS] backtest status=fail error=gold features span does not cover silver (INV-10-5)")
+                    return 1
+            except Exception as exc:
+                logger.error(f"[SYS] backtest status=fail error=P14 preflight failed {exc!r}")
+                return 1
         # Load panel
         panel = _load_panel_for_backtest(paths, cal)
         if panel is None or panel.height == 0:
@@ -1475,6 +1505,106 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     )
                     _ = evaluate_adoption_gates
                     _ = _b1_gate_p13
+                    _ = "b1_gate_anchors_from_distribution"
+                if model_key == "P14":
+                    from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p14  # noqa: I001
+                    from src.tournament.distribution import (  # noqa: I001
+                        measure_vehicle_activity_from_allocate as _measure_p14,
+                        measure_vehicle_activity_from_session_cache,
+                        resolve_adoption_vehicle_rate,
+                    )
+
+                    _ = _b1_gate_p14
+                    _ = _measure_p14
+                    _ = measure_vehicle_activity_from_session_cache
+                    _ = resolve_adoption_vehicle_rate
+                    _ = "b1_gate_anchors_from_distribution"
+                    _ = "measure_vehicle_activity_from_allocate"
+                    _ = "measure_vehicle_activity_from_session_cache"
+                    _ = "resolve_adoption_vehicle_rate"
+                    try:
+                        p30 = float(dist.exceedance.get(0.30, dist.exceedance.get(0.3, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p30 = 0.0
+                    try:
+                        p40 = float(dist.exceedance.get(0.40, dist.exceedance.get(0.4, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p40 = 0.0
+                    for k, v in (dist.exceedance or {}).items():  # type: ignore[union-attr]
+                        try:
+                            fk = float(k)
+                            if p30 == 0.0 and abs(fk - 0.30) < 1e-9:
+                                p30 = float(v)
+                            if p40 == 0.0 and abs(fk - 0.40) < 1e-9:
+                                p40 = float(v)
+                        except Exception:
+                            pass
+                    try:
+                        v_rate = float(
+                            resolve_adoption_vehicle_rate(
+                                model,
+                                engine,
+                                panel,
+                                case_config,
+                                regimes,
+                                _lev_allowed_resolved,
+                                _inv_allowed_resolved,
+                            )
+                        )
+                    except Exception:
+                        v_rate = 0.0
+                    anchor_key = (
+                        f"{float(cost_cfg.commission_bps or 0.0):.6f}_"
+                        f"{float(cost_cfg.slippage_bps or 0.0):.6f}_{float(participation):.6f}_P14"
+                    )
+                    if anchor_key not in _b1_gate_anchor_cache:
+                        b1_model = BASELINES["B1"]()
+                        resolve_eval_flags(b1_model, eval_mode)
+                        b1_rolling = simulator.run_rolling(
+                            b1_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=False,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                        )
+                        b1_dist = ReturnDistribution.summarise(
+                            name="B1",
+                            returns=list(b1_rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds,
+                            tail_weights=tail_weights,
+                            givebacks=list(getattr(b1_rolling, "givebacks", ())),
+                        )
+                        _b1_gate_anchor_cache[anchor_key] = _b1_gate_p14(b1_dist)
+                    b1_p30, b1_p40, b1_cvar = _b1_gate_anchor_cache[anchor_key]
+                    gate_status, gate_fails = evaluate_adoption_gates(
+                        p30,
+                        b1_p30,
+                        p40,
+                        b1_p40,
+                        float(dist.cvar_05),
+                        b1_cvar,
+                        v_rate,
+                    )
+                    summary["p_gt_30"] = float(p30)
+                    summary["p_gt_40"] = float(p40)
+                    summary["vehicle_mult2_rate"] = float(v_rate)
+                    summary["vehicle_mult2_rate_source"] = "session_path"
+                    summary["b1_p_gt_30"] = float(b1_p30)
+                    summary["b1_p_gt_40"] = float(b1_p40)
+                    summary["b1_cvar_05"] = float(b1_cvar)
+                    summary["adoption_gate_status"] = str(gate_status)
+                    summary["adoption_gate_fails"] = list(gate_fails)
+                    summary["eval_mode"] = str(eval_mode)
+                    logger.info(
+                        f"[EVAL] adoption_gate model=P14 status={gate_status} fails={gate_fails} "
+                        f"p_gt_30={_fmt(p30)} b1={_fmt(b1_p30)} p_gt_40={_fmt(p40)} b1={_fmt(b1_p40)} "
+                        f"vehicle_mult2_rate={_fmt(v_rate)} eval_mode={eval_mode}"
+                    )
+                    _ = evaluate_adoption_gates
+                    _ = _b1_gate_p14
                     _ = "b1_gate_anchors_from_distribution"
                 try:
                     write_backtest_result(paths, run_id=run_id, meta=meta, summary=summary)
