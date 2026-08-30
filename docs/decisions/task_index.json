@@ -1,6 +1,26 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_BACKTEST_PERF_CUT",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_BACKTEST_PERF_CUT",
+      "domain": "tournament",
+      "title": "Backtest Perf Cut — single protocol default · session cache reuse · scores_path_independent",
+      "why": "cmd_backtest 36-cell stress grid made P10 FAST ~128s/cell (~77min full run); adoption iteration blocked by grid multiplier not alpha logic.",
+      "resolution": "iter_protocol_cases(single|grid), CLI --protocol/--stress-grid default single (3+5bps φ=1%), shared build_session_cache across grid cells, P08/P10 scores_path_independent=True, run_rolling session_cache param; SCENARIO-11-01..06 pass lean_check.",
+      "impact": "L6 harness: default adoption run 1 cell (~169s P10 vs ~106s B1 on 2024-2026); 36-cell grid opt-in via --stress-grid; fast path default preserved."
+    },
+    {
+      "task_id": "TASK_TOURNAMENT_TAIL_LIFT",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_TOURNAMENT_TAIL_LIFT",
+      "domain": "portfolio",
+      "title": "Tournament Tail Lift — family-canonical score · P10 · dual leverage · tail gates",
+      "why": "B1 P(R>50%)≈7.7% lottery-level; alpha scored leveraged ETFs directly and UNKNOWN leverage fail-closed blocked +2x vehicle amplification.",
+      "resolution": "family_canonical_scores, P10 baseline (B1+canonical+P08 policy), resolve_leverage_scenario, vehicle_activity_rate, evaluate_tail_gates, --leverage-scenario CLI, P10 preflight INV-10-5; SCENARIO-10-01..08 pass; KRX eval 2024-2026 single protocol: P10 aggressive P>40%=4.7% vs B1 9.5%, vehicle_mult2_rate=1.0, tail gate FAIL (p_gt_40/p_gt_50).",
+      "impact": "L5 tail-lift infra operational but adoption No-Go: vehicle chain wired (mult2 100% aggressive / 0% conservative) yet right-tail below B1; median/CVaR improved; B1 fallback retained."
+    },
+    {
       "task_id": "TASK_DATA_STORAGE_REFACTOR",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_DATA_STORAGE_REFACTOR",
