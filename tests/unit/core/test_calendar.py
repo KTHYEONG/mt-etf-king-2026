@@ -53,4 +53,15 @@ def test_SCENARIO_03A_01_kst_today_and_find_future_dates() -> None:  # noqa: N80
     assert find_future_dates([], date(2026, 8, 28)) == []
 
 
+def test_session_count_matches_sessions_without_allocating_list() -> None:
+    import inspect
+    from datetime import date
+    from src.core.calendar import TradingCalendar
+    cal = TradingCalendar()
+    for s, e in ((date(2018, 1, 2), date(2026, 8, 27)), (date(2026, 9, 21), date(2026, 11, 13)), (date(2026, 8, 27), date(2026, 8, 27))):
+        assert cal.session_count(s, e) == len(cal.sessions(s, e))
+    src = inspect.getsource(TradingCalendar.session_count)
+    assert "self.sessions(" not in src
+
+
 globals()["test SCENARIO-03A-01"] = test_SCENARIO_03A_01_kst_today_and_find_future_dates  # noqa: E402, F401, N816
