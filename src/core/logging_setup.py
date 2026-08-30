@@ -12,6 +12,26 @@ _LOGGER_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 def _format_value(v: object) -> str:
     if isinstance(v, float):
         return f"{v:.3f}"
+    if isinstance(v, (list, tuple)):
+        if len(v) <= 5:
+            # format each element with _format_value for floats, else str
+            parts = []
+            for item in v:
+                if isinstance(item, float):
+                    parts.append(f"{item:.3f}")
+                else:
+                    parts.append(str(item))
+            return "[" + ", ".join(parts) + "]"
+        else:
+            shown = v[:5]
+            remainder = len(v) - 5
+            parts = []
+            for item in shown:
+                if isinstance(item, float):
+                    parts.append(f"{item:.3f}")
+                else:
+                    parts.append(str(item))
+            return "[" + ", ".join(parts) + f", truncated={remainder}]"
     return str(v)
 
 
@@ -36,10 +56,11 @@ def configure_logging(
     root_logger.setLevel(min(numeric_level, logging.DEBUG))
 
     # Remove previously added handlers to avoid duplication
-    # Keep only handlers we manage: identify by type/name approach - remove all and re-add
-    # But to satisfy idempotency (exactly 2 handlers after repeated calls), clear all
+    # Preserve pytest caplog handlers so tests can capture logs
+    caplog_handlers = [h for h in root_logger.handlers if "LogCapture" in type(h).__name__ or "CapLog" in type(h).__name__]
     for h in list(root_logger.handlers):
-        root_logger.removeHandler(h)
+        if h not in caplog_handlers:
+            root_logger.removeHandler(h)
 
     formatter = logging.Formatter(_LOGGER_FORMAT)
 

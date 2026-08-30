@@ -166,5 +166,8 @@
   },
   "src/reporting/timeseries.py": {
     "testing": "tests/unit/reporting/test_timeseries.py"
+  },
+  "src/reporting/trace_store.py": {
+    "testing": "tests/unit/reporting/test_trace_store.py"
   }
 }

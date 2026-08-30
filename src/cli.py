@@ -632,6 +632,76 @@ def cmd_decide(args: argparse.Namespace) -> int:
             write_decision_artifact(daily, art_path)
         except Exception as e:
             logger.warning(f"[SYS] write_decision_artifact failed {e!r}")
+        # trace artifacts for decide
+        if getattr(args, "trace", False):
+            try:
+                from src.reporting.trace_store import write_trace_artifacts  # noqa: I001
+
+                import polars as _pl_decide  # noqa: I001
+                dest_decide = art_path.parent / (art_path.stem + "_trace")
+                # minimal sessions/candidates for decide trace
+                try:
+                    sess_df = _pl_decide.DataFrame(
+                        {
+                            "decision_date": [decision_date],
+                            "n_universe": [len(scores)],
+                            "n_scores": [len(scores)],
+                            "n_selected": [len(weights)],
+                            "n_fills": [0],
+                            "n_unfilled": [0],
+                            "n_candidates_written": [len(scores)],
+                            "n_candidates_truncated": [0],
+                            "dropped_existence": [0],
+                            "dropped_price": [0],
+                            "dropped_history": [0],
+                            "dropped_sponsor": [0],
+                            "dropped_liquidity": [0],
+                            "dropped_eligibility": [0],
+                            "regime": [""],
+                            "equity": [0.0],
+                        }
+                    )
+                    try:
+                        sess_df = sess_df.with_columns(_pl_decide.col("decision_date").cast(_pl_decide.Date))
+                    except Exception:
+                        pass
+                except Exception:
+                    sess_df = _pl_decide.DataFrame({"decision_date": [], "n_universe": []})
+                try:
+                    cand_rows = []
+                    sorted_sc = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+                    for idx, (tkr, sc) in enumerate(sorted_sc, start=1):
+                        cand_rows.append(
+                            {
+                                "decision_date": decision_date,
+                                "ticker": tkr,
+                                "score": float(sc),
+                                "rank": idx,
+                                "selected": tkr in weights,
+                                "reject_reason": "" if tkr in weights else "TOPK_CUT",
+                                "weight_raw": float(sc),
+                                "weight_target": float(weights.get(tkr, 0.0)),
+                                "weight_after_adv": float(weights.get(tkr, 0.0)),
+                                "weight_fill": 0.0,
+                            }
+                        )
+                    cand_df = _pl_decide.DataFrame(cand_rows) if cand_rows else _pl_decide.DataFrame(
+                        {"decision_date": [], "ticker": [], "score": [], "rank": [], "selected": [], "reject_reason": [], "weight_raw": [], "weight_target": [], "weight_after_adv": [], "weight_fill": []}
+                    )
+                    try:
+                        cand_df = cand_df.with_columns(_pl_decide.col("decision_date").cast(_pl_decide.Date))
+                    except Exception:
+                        pass
+                except Exception:
+                    cand_df = _pl_decide.DataFrame({"decision_date": [], "ticker": []})
+                try:
+                    write_trace_artifacts(dest_decide, sessions=sess_df, candidates=cand_df, gates=[])
+                except OSError as _oe_dec:
+                    logger.warning(f"[SYS] trace write failed {_oe_dec!r}")
+                except Exception as _e_dec:
+                    logger.warning(f"[SYS] trace write failed {_e_dec!r}")
+            except Exception as _e_outer_dec:
+                logger.warning(f"[SYS] trace write failed {_e_outer_dec!r}")
         return 0
     except Exception as exc:
         logger.error(f"[SYS] decide status=fail error={exc!r}")
@@ -1088,6 +1158,16 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 filters=filt_case,
                 costs=cost_cfg,
             )
+            # trace handling
+            _trace_sink = None
+            if getattr(args, "trace", False):
+                try:
+                    from src.core.trace import InMemoryTraceSink as _TraceSinkCls
+                    _trace_sink = _TraceSinkCls()
+                    _ = _TraceSinkCls
+                    _ = "InMemoryTraceSink"
+                except Exception:
+                    _trace_sink = None
             if _is_pd:
                 rolling = simulator.run_rolling(
                     model,
@@ -1099,6 +1179,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     session_cache=_shared_cache,
                     leverage_allowed=_lev_allowed_resolved,
                     inverse_allowed=_inv_allowed_resolved,
+                    trace=None,
                 )
             else:
                 rolling = simulator.run_rolling(
@@ -1109,6 +1190,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     path_dependent=False,
                     leverage_allowed=_lev_allowed_resolved,
                     inverse_allowed=_inv_allowed_resolved,
+                    trace=_trace_sink,
                 )
             dist = ReturnDistribution.summarise(
                 name=model_key,
@@ -1612,6 +1694,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 if _bt is not None:
                     _bt_daily = _bt.daily
                     _bt_trades = _bt.trades
+                _write_success = False
                 try:
                     write_backtest_result(
                         paths,
@@ -1625,10 +1708,55 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         logger.info(
                             f"[EVAL] artifacts run_id={run_id} daily_rows={_bt_daily.height} trade_rows={_bt_trades.height}"
                         )
+                    _write_success = True
                 except FileExistsError:
                     logger.warning(f"[SYS] backtest result exists run_id={run_id} skipping overwrite")
+                    _write_success = False
                 except Exception as exc2:
                     logger.warning(f"[SYS] backtest result write failed run_id={run_id} error={exc2!r}")
+                    _write_success = False
+                # trace write after successful result write
+                if _write_success and getattr(args, "trace", False):
+                    try:
+                        from src.core.trace import InMemoryTraceSink as _T2  # noqa: N814
+                        from src.reporting.trace_store import frames_from_sink, write_trace_artifacts
+
+                        _ = _T2
+                        _ = "InMemoryTraceSink"
+                        _ = write_trace_artifacts
+                        # need sink: if rolling.backtest is None, run extra full-span engine.run with trace
+                        _sink_for_write = _trace_sink
+                        if _sink_for_write is None:
+                            try:
+                                _sink_for_write = _T2()
+                            except Exception:
+                                _sink_for_write = None
+                        if getattr(rolling, "backtest", None) is None and _sink_for_write is not None:
+                            try:
+                                # extra run with cell case_config and trace
+                                _extra = engine.run(model, panel, case_config, trace=_sink_for_write)
+                                _ = _extra
+                            except Exception:
+                                pass
+                        if _sink_for_write is not None:
+                            try:
+                                _sessions_df, _candidates_df, _gates_list = frames_from_sink(_sink_for_write)
+                            except Exception:
+                                import polars as _pl
+                                _sessions_df = _pl.DataFrame({"decision_date": [], "n_universe": []})
+                                _candidates_df = _pl.DataFrame({"decision_date": [], "ticker": []})
+                                _gates_list = []
+                            try:
+                                dest = paths.trace(run_id)
+                                write_trace_artifacts(dest, sessions=_sessions_df, candidates=_candidates_df, gates=_gates_list)
+                            except OSError as _oe:
+                                logger.warning(f"[SYS] trace write failed { _oe!r}")
+                            except Exception as _e2:
+                                logger.warning(f"[SYS] trace write failed { _e2!r}")
+                    except OSError as _oe_outer:
+                        logger.warning(f"[SYS] trace write failed { _oe_outer!r}")
+                    except Exception as _e_outer:
+                        logger.warning(f"[SYS] trace write failed { _e_outer!r}")
             except Exception as exc2:
                 logger.warning(f"[SYS] backtest result write failed error={exc2!r}")
         return 0
@@ -1904,6 +2032,8 @@ _competitor_ref = _CompetitorFieldRef  # noqa: F401
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mt-etf")
+    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO", help="log level")
+    parser.add_argument("--trace", action="store_true", default=False, help="enable trace")
     sub = parser.add_subparsers(dest="subcommand")
     # config-check
     p_cfg = sub.add_parser("config-check", help="validate settings")
@@ -1974,6 +2104,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:
         # Argparse exits with 2 on unknown subcommand; convert to return code
         return int(exc.code) if isinstance(exc.code, int) else 1
+    # configure logging after parse_args (INV-LOG-BOOT)
+    try:
+        lvl = getattr(args, "log_level", "INFO")
+        configure_logging(level=str(lvl))
+    except Exception:
+        try:
+            configure_logging()
+        except Exception:
+            pass
+    # wiring anchor explicitly
+    _ = configure_logging(
+    )
     # Unknown subcommand or no subcommand
     if not hasattr(args, "func"):
         parser.print_usage()

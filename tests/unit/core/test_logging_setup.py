@@ -5,7 +5,7 @@ import logging
 import re
 from pathlib import Path
 
-from src.core.logging_setup import LOG_TAGS, configure_logging
+from src.core.logging_setup import LOG_TAGS, _format_value, configure_logging
 
 
 def test_configure_logging_handlers_and_format(tmp_path: Path) -> None:
@@ -51,3 +51,12 @@ def test_configure_logging_handlers_and_format(tmp_path: Path) -> None:
         root.removeHandler(h)
         with contextlib.suppress(Exception):
             h.close()
+
+
+def test_format_value_truncates_lists_after_five() -> None:
+    assert _format_value(1.23456) == "1.235"
+    assert "truncated=" not in _format_value(["a", "b", "c", "d", "e"])
+    val = _format_value(["a", "b", "c", "d", "e", "f", "g"])
+    assert "truncated=2" in val
+    before_trunc = val.split("truncated")[0]
+    assert "f" not in before_trunc

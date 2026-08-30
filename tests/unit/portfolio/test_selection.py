@@ -61,6 +61,54 @@ def test_SCENARIO_08_06_family_dedup() -> None:  # noqa: N802
 
 import pytest
 
+from src.portfolio.selection import explain_selection_drops
+
+
+def test_explain_selection_drops_family_then_theme() -> None:
+    master = _master_two_same_family()
+    scores = {"A": 0.5, "B": 0.4}
+    sel = select_positions(scores, master, 2, 1)
+    assert sel == ["A"]
+    exp = explain_selection_drops(scores, master, 2, 1)
+    assert exp["B"] == "FAMILY_DEDUP"
+    assert "A" not in exp
+    # theme dedup case
+    # create master with different family but same theme
+    panel = pl.DataFrame(
+        [
+            {"date": date(2026, 1, 2), "ticker": "X", "name": "KODEX 200", "underlying_index_name": "KOSPI 200"},
+            {"date": date(2026, 1, 2), "ticker": "Y", "name": "TIGER 200", "underlying_index_name": "KOSPI 200"},
+        ]
+    )
+    tax = Taxonomy(rules=[])
+    m = InstrumentMaster.build(panel, tax, {})
+    # force different family keys but same theme
+    attrs = dict(m.attributes)
+    x_attr = attrs["X"]
+    y_attr = attrs["Y"]
+    new_y = InstrumentAttributes(
+        ticker=y_attr.ticker,
+        name=y_attr.name,
+        issuer=y_attr.issuer,
+        leverage_multiple=y_attr.leverage_multiple,
+        leverage_family_key="different_family_key",
+        is_synthetic=y_attr.is_synthetic,
+        is_hedged=y_attr.is_hedged,
+        is_active=y_attr.is_active,
+        index_key=y_attr.index_key,
+        theme=x_attr.theme,
+        first_seen=y_attr.first_seen,
+        last_seen=y_attr.last_seen,
+        left_censored=y_attr.left_censored,
+        confidence=y_attr.confidence,
+    )
+    master2 = InstrumentMaster(attributes={"X": x_attr, "Y": new_y}, panel_start=m.panel_start)
+    scores2 = {"X": 0.9, "Y": 0.8}
+    exp2 = explain_selection_drops(scores2, master2, 1, 1)
+    # higher score X selected, Y dropped due to theme
+    assert exp2["Y"] == "THEME_DEDUP"
+    assert set(select_positions(scores2, master2, 1, 1)) == set(scores2) - set(exp2)
+
 
 @pytest.mark.parametrize("scenario_id", ["SCENARIO-08-06"])
 def test_SCENARIO_hyphen_wrapper(scenario_id: str) -> None:  # noqa: N802
