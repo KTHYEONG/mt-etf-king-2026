@@ -59,7 +59,7 @@ class SessionInputs:
     rules: object | None = None
 
 
-def build_session_cache(engine, model, panel: pl.DataFrame, config) -> SessionInputs:
+def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_allowed: bool | None = None, inverse_allowed: bool | None = None) -> SessionInputs:
     close_map = build_close_map(panel)
     open_map = _build_open_map(panel)
     try:
@@ -103,6 +103,26 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config) -> SessionIn
             )
     except Exception:
         rules = None
+
+    # INV-12-3: leverage_allowed/inverse_allowed resolved from CLI must be stored on rules
+    if rules is not None and (leverage_allowed is not None or inverse_allowed is not None):
+        try:
+            from dataclasses import replace as _replace
+
+            kw: dict[str, object] = {}
+            if leverage_allowed is not None:
+                kw["leverage_allowed"] = leverage_allowed
+            if inverse_allowed is not None:
+                kw["inverse_allowed"] = inverse_allowed
+            rules = _replace(rules, **kw)  # type: ignore[arg-type]
+        except Exception:
+            try:
+                if leverage_allowed is not None:
+                    object.__setattr__(rules, "leverage_allowed", leverage_allowed)  # type: ignore[attr-defined]
+                if inverse_allowed is not None:
+                    object.__setattr__(rules, "inverse_allowed", inverse_allowed)  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     use_scores = bool(getattr(model, "scores_path_independent", True))
 

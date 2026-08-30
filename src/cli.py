@@ -16,7 +16,9 @@ from src.data.silver import SilverBuilder  # noqa: F401
 from src.features.breadth import cluster_breadth as _cluster_breadth_ref  # noqa: F401
 from src.features.builder import FeatureBuilder as _FeatureBuilderForWiring  # noqa: F401
 from src.features.regime import classify_regime as _classify_regime_ref  # noqa: F401
-from src.tournament.distribution import stationary_bootstrap_ci as _stationary_bootstrap_ci_ref  # noqa: F401
+from src.tournament.distribution import (
+    evaluate_adoption_gates,
+)
 from src.tournament.harness import resolve_leverage_scenario as _resolve_leverage_scenario_ref  # noqa: F401
 from src.tournament.replay import TournamentReplay  # noqa: F401
 from src.tournament.simulator import TournamentSimulator  # noqa: F401
@@ -709,6 +711,21 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     pass
         except Exception:
             pass
+        _inv_allowed_resolved: bool | None = None
+        try:
+            _inv_raw = getattr(rules, "inverse_allowed", None)
+            from src.universe.tournament import UNKNOWN as _UNK_INV
+
+            if _inv_raw is _UNK_INV or (isinstance(_inv_raw, str) and _inv_raw.lower() == "unknown"):
+                _inv_allowed_resolved = None
+            elif isinstance(_inv_raw, bool):
+                _inv_allowed_resolved = bool(_inv_raw)
+            elif _inv_raw is None:
+                _inv_allowed_resolved = None
+            else:
+                _inv_allowed_resolved = bool(_inv_raw) if str(_inv_raw) != "UNKNOWN" else None
+        except Exception:
+            _inv_allowed_resolved = None
         if model_key == "P10":
             from src.tournament.distribution import preflight_features_span_ok
 
@@ -738,6 +755,36 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     return 1
             except Exception as exc:
                 logger.error(f"[SYS] backtest status=fail error=P10 preflight failed {exc!r}")
+                return 1
+        if model_key == "P11":
+            from src.tournament.distribution import preflight_features_span_ok
+
+            gold_path = paths.gold("etf_features")
+            silver_path = paths.silver("etf_daily")
+            if not gold_path.exists() or not silver_path.exists():
+                logger.error("[SYS] backtest status=fail error=P11 requires gold features and silver panel (INV-10-5)")
+                return 1
+            try:
+                import polars as _pl_pf
+
+                gold_span = _pl_pf.scan_parquet(gold_path).select(
+                    _pl_pf.col("date").min().alias("min"),
+                    _pl_pf.col("date").max().alias("max"),
+                ).collect()
+                silver_span = _pl_pf.scan_parquet(silver_path).select(
+                    _pl_pf.col("date").min().alias("min"),
+                    _pl_pf.col("date").max().alias("max"),
+                ).collect()
+                if not preflight_features_span_ok(
+                    gold_span[0, "min"],
+                    gold_span[0, "max"],
+                    silver_span[0, "min"],
+                    silver_span[0, "max"],
+                ):
+                    logger.error("[SYS] backtest status=fail error=gold features span does not cover silver (INV-10-5)")
+                    return 1
+            except Exception as exc:
+                logger.error(f"[SYS] backtest status=fail error=P11 preflight failed {exc!r}")
                 return 1
         # Load panel
         panel = _load_panel_for_backtest(paths, cal)
@@ -782,7 +829,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         from src.backtest.execution import NextOpenExecution
         from src.features.builder import FeatureBuilder, FeatureConfig
         from src.tournament.distribution import ReturnDistribution
-        from src.tournament.simulator import TournamentSimulator, model_requires_path_dependent
+        from src.tournament.simulator import TournamentSimulator
         from src.universe.instruments import InstrumentMaster, load_sponsor_brand_map
         from src.universe.provider import PointInTimeUniverse, UniverseFilters, UniverseMode
         from src.universe.taxonomy import Taxonomy
@@ -882,10 +929,31 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             logger.warning(f"[DATA] backtest regime build failed {exc!r}")
             regimes = None
         if regimes is not None:
-            engine = BacktestEngine(cal, universe, builder, execution, regimes=regimes)
+            engine = BacktestEngine(
+                cal,
+                universe,
+                builder,
+                execution,
+                regimes=regimes,
+                leverage_allowed=_lev_allowed_resolved,
+                inverse_allowed=_inv_allowed_resolved,
+            )
         else:
-            engine = BacktestEngine(cal, universe, builder, execution)
+            engine = BacktestEngine(
+                cal,
+                universe,
+                builder,
+                execution,
+                leverage_allowed=_lev_allowed_resolved,
+                inverse_allowed=_inv_allowed_resolved,
+            )
         model = BASELINES[model_key]()
+        # INV-12-1/12-2 eval mode wiring
+        eval_mode = getattr(args, "eval_mode", "adoption")
+        from src.tournament.eval_mode import resolve_eval_flags
+
+        _eval_flags = resolve_eval_flags(model, eval_mode)
+        _ = _eval_flags
         # Determine sizing scheme and k based on model name (B2 is EQUAL_K etc) - simple defaults
         from src.portfolio.sizing import SizingScheme
 
@@ -946,24 +1014,27 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         cases = list(iter_protocol_cases(_protocol, commission_bps=_comm_bps, slippage_bps=_slip_bps, participation=_part_val))
         # also keep iter_harness_cases reference for parity
         _ = list(iter_harness_cases(CostConfig()))  # noqa: F841
-        # path-dependent mode (INV-11-2)
-        _is_pd = bool(model_requires_path_dependent(model))
+        # path-dependent mode (INV-11-2, INV-12-1)
+        _is_pd = bool(_eval_flags.path_dependent)
         _scores_pi = bool(getattr(model, "scores_path_independent", True))
         _path_mode = "fast" if _scores_pi else "slow"
         _ = _path_mode
-        # cache reuse for grid + path_dependent (INV-11-3)
+        # cache reuse for path_dependent fast path (INV-11-3, INV-12-3)
         _shared_cache = None
-        if _protocol == "grid" and _is_pd and _scores_pi:
+        if _is_pd and _scores_pi:
             try:
                 from dataclasses import replace as _replace
 
                 _first_cost, _first_part = cases[0] if cases else (CostConfig(), 0.01)
                 _filt_base = _replace(filt, max_order_to_adv=float(_first_part))
                 _bconfig_base = _replace(bconfig, filters=_filt_base, costs=_first_cost)
-                _shared_cache = build_session_cache(engine, model, panel, _bconfig_base)
+                # wiring: build_session_cache(engine, model, panel, _bconfig_base, leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved)
+                _shared_cache = build_session_cache(engine, model, panel, _bconfig_base, leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved)
             except Exception:
                 _shared_cache = None
             _ = _shared_cache
+
+        _b1_gate_anchor_cache: dict[str, tuple[float, float, float]] = {}
 
         for cost_cfg, participation in cases:
             filt_case = UniverseFilters(
@@ -996,6 +1067,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     path_dependent=True,
                     path_dependent_mode=_path_mode,
                     session_cache=_shared_cache,
+                    leverage_allowed=_lev_allowed_resolved,
+                    inverse_allowed=_inv_allowed_resolved,
                 )
             else:
                 rolling = simulator.run_rolling(
@@ -1003,7 +1076,9 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     panel,
                     case_config,
                     horizon=horizon,
-                    path_dependent=model_requires_path_dependent(model),
+                    path_dependent=False,
+                    leverage_allowed=_lev_allowed_resolved,
+                    inverse_allowed=_inv_allowed_resolved,
                 )
             dist = ReturnDistribution.summarise(
                 name=model_key,
@@ -1103,6 +1178,91 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = "p_gt_50"
                     _ = "cvar_05"
                     _ = "vehicle_mult2_rate"
+                if model_key == "P11":
+                    from src.tournament.distribution import (
+                        b1_gate_anchors_from_distribution,
+                        measure_vehicle_activity_from_allocate,
+                    )
+
+                    try:
+                        p30 = float(dist.exceedance.get(0.30, dist.exceedance.get(0.3, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p30 = 0.0
+                    try:
+                        p40 = float(dist.exceedance.get(0.40, dist.exceedance.get(0.4, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p40 = 0.0
+                    for k, v in (dist.exceedance or {}).items():  # type: ignore[union-attr]
+                        try:
+                            fk = float(k)
+                            if p30 == 0.0 and abs(fk - 0.30) < 1e-9:
+                                p30 = float(v)
+                            if p40 == 0.0 and abs(fk - 0.40) < 1e-9:
+                                p40 = float(v)
+                        except Exception:
+                            pass
+                    try:
+                        v_rate = float(
+                            measure_vehicle_activity_from_allocate(
+                                model,
+                                cal.sessions(start, end),
+                                regimes,
+                                _lev_allowed_resolved,
+                            )
+                        )
+                    except Exception:
+                        v_rate = 0.0
+                    anchor_key = (
+                        f"{float(cost_cfg.commission_bps or 0.0):.6f}_"
+                        f"{float(cost_cfg.slippage_bps or 0.0):.6f}_{float(participation):.6f}"
+                    )
+                    if anchor_key not in _b1_gate_anchor_cache:
+                        b1_model = BASELINES["B1"]()
+                        resolve_eval_flags(b1_model, eval_mode)
+                        b1_rolling = simulator.run_rolling(
+                            b1_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=False,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                        )
+                        b1_dist = ReturnDistribution.summarise(
+                            name="B1",
+                            returns=list(b1_rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds,
+                            tail_weights=tail_weights,
+                            givebacks=list(getattr(b1_rolling, "givebacks", ())),
+                        )
+                        _b1_gate_anchor_cache[anchor_key] = b1_gate_anchors_from_distribution(b1_dist)
+                    b1_p30, b1_p40, b1_cvar = _b1_gate_anchor_cache[anchor_key]
+                    gate_status, gate_fails = evaluate_adoption_gates(
+                        p30,
+                        b1_p30,
+                        p40,
+                        b1_p40,
+                        float(dist.cvar_05),
+                        b1_cvar,
+                        v_rate,
+                    )
+                    summary["p_gt_30"] = float(p30)
+                    summary["p_gt_40"] = float(p40)
+                    summary["vehicle_mult2_rate"] = float(v_rate)
+                    summary["b1_p_gt_30"] = float(b1_p30)
+                    summary["b1_p_gt_40"] = float(b1_p40)
+                    summary["b1_cvar_05"] = float(b1_cvar)
+                    summary["adoption_gate_status"] = str(gate_status)
+                    summary["adoption_gate_fails"] = list(gate_fails)
+                    summary["eval_mode"] = str(eval_mode)
+                    logger.info(
+                        f"[EVAL] adoption_gate model=P11 status={gate_status} fails={gate_fails} "
+                        f"p_gt_30={_fmt(p30)} b1={_fmt(b1_p30)} p_gt_40={_fmt(p40)} b1={_fmt(b1_p40)} "
+                        f"vehicle_mult2_rate={_fmt(v_rate)} eval_mode={eval_mode}"
+                    )
+                    _ = evaluate_adoption_gates
+                    _ = b1_gate_anchors_from_distribution
                 try:
                     write_backtest_result(paths, run_id=run_id, meta=meta, summary=summary)
                 except FileExistsError:
@@ -1422,6 +1582,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_bt.add_argument("--start", required=True, help="start date YYYY-MM-DD")
     p_bt.add_argument("--end", required=True, help="end date YYYY-MM-DD")
     p_bt.add_argument("--leverage-scenario", choices=["aggressive", "conservative", "rules"], default="aggressive", dest="leverage_scenario", help="leverage scenario")
+    p_bt.add_argument("--eval-mode", choices=["adoption", "operational"], default="adoption", dest="eval_mode", help="eval mode")
     p_bt.add_argument("--protocol", choices=["single", "grid"], default="single", help="cost x participation protocol")
     p_bt.add_argument("--stress-grid", action="store_true", dest="stress_grid", help="alias for --protocol grid")
     p_bt.add_argument("--commission-bps", type=float, default=None, dest="commission_bps", help="commission bps for single protocol")

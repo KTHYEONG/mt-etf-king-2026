@@ -156,6 +156,31 @@ def evaluate_tail_gates(
     return ("FAIL", fails)
 
 
+def evaluate_adoption_gates(
+    p_gt_30: float,
+    b1_p_gt_30: float,
+    p_gt_40: float,
+    b1_p_gt_40: float,
+    cvar: float,
+    b1_cvar: float,
+    vehicle_rate: float,
+    *,
+    min_vehicle_rate: float = 0.25,
+) -> tuple[str, list[str]]:
+    fails: list[str] = []
+    if not (float(p_gt_30) >= float(b1_p_gt_30) - 1e-12):
+        fails.append("p_gt_30")
+    if not (float(p_gt_40) >= float(b1_p_gt_40) + 0.02 - 1e-12):
+        fails.append("p_gt_40")
+    if not (float(cvar) >= float(b1_cvar) - 0.05 - 1e-12):
+        fails.append("cvar_05")
+    if not (float(vehicle_rate) >= float(min_vehicle_rate) - 1e-12):
+        fails.append("vehicle_activity")
+    if not fails:
+        return ("PASS", [])
+    return ("FAIL", fails)
+
+
 def preflight_features_span_ok(gold_min: object, gold_max: object, silver_min: object, silver_max: object) -> bool:
     try:
         ok = gold_min <= silver_min and gold_max >= silver_max  # type: ignore[operator]
@@ -177,10 +202,10 @@ def _regime_label(regime_snap: object | None) -> str | None:
 
 def score_seed_for_vehicle_probe(master: object | None) -> dict[str, float]:
     if master is None:
-        return {"069500": 1.0}
+        return {"069500": 1.0, "122630": 0.1}
     attrs = getattr(master, "attributes", None)
     if not isinstance(attrs, Mapping):
-        return {"069500": 1.0}
+        return {"069500": 1.0, "122630": 0.1}
     by_family: dict[str, list[tuple[str, int]]] = {}
     for ticker, attr in attrs.items():
         fk = str(getattr(attr, "leverage_family_key", ticker))
@@ -190,12 +215,34 @@ def score_seed_for_vehicle_probe(master: object | None) -> dict[str, float]:
             mult = 1
         by_family.setdefault(fk, []).append((str(ticker), mult))
     for members in by_family.values():
-        plus1 = [t for t, m in members if m == 1]
-        has2 = any(m == 2 for _, m in members)
-        if plus1 and has2:
-            return {plus1[0]: 1.0}
-    first = next(iter(attrs.keys()), "069500")
-    return {str(first): 1.0}
+        plus1 = sorted(t for t, m in members if m == 1)
+        lev2 = sorted(t for t, m in members if m == 2)
+        if plus1 and lev2:
+            # spread required so confidence_vehicle_gate sees high conf (INV-12-4 probe)
+            return {plus1[0]: 1.0, lev2[0]: 0.1}
+    tickers = sorted(str(t) for t in attrs)
+    if len(tickers) >= 2:
+        return {tickers[0]: 1.0, tickers[1]: 0.1}
+    if tickers:
+        return {tickers[0]: 1.0}
+    return {"069500": 1.0, "122630": 0.1}
+
+
+def b1_gate_anchors_from_distribution(dist: ReturnDistribution) -> tuple[float, float, float]:
+    exc = dist.exceedance if isinstance(dist.exceedance, Mapping) else {}
+    p30 = float(exc.get(0.30, exc.get(0.3, 0.0)))
+    p40 = float(exc.get(0.40, exc.get(0.4, 0.0)))
+    if p30 == 0.0 or p40 == 0.0:
+        for k, v in exc.items():
+            try:
+                fk = float(k)
+                if p30 == 0.0 and abs(fk - 0.30) < 1e-9:
+                    p30 = float(v)
+                if p40 == 0.0 and abs(fk - 0.40) < 1e-9:
+                    p40 = float(v)
+            except Exception:
+                continue
+    return (float(p30), float(p40), float(dist.cvar_05))
 
 
 def measure_vehicle_activity_from_allocate(

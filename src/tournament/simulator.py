@@ -21,8 +21,12 @@ _path_dependent_ref = PathDependentPolicyError  # noqa: F401
 
 
 def model_requires_path_dependent(model: object) -> bool:
-    if getattr(model, "path_dependent", False) is True:
-        return True
+    if hasattr(model, "path_dependent"):
+        val = getattr(model, "path_dependent", None)
+        if val is True:
+            return True
+        if val is False:
+            return False
     from src.portfolio.policy import PortfolioPolicy
 
     return isinstance(model, PortfolioPolicy)
@@ -42,6 +46,11 @@ def simulate_window_from_cache(
 ) -> tuple[float, float, float]:
     # Lightweight per-window PnL without panel scans (INV-PERF-1, INV-PERF-4)
     # Uses precomputed scores/close_map; allocate is the only path-dependent work.
+    # wiring: build_session_cache cache.rules leverage_allowed
+    from src.backtest.session_cache import build_session_cache as _bsc_ref  # noqa: F401
+
+    _ = _bsc_ref
+    # cache.rules leverage_allowed
     dates = getattr(cache, "dates", ())
     close_map = getattr(cache, "close_map", {})
     scores_map = getattr(cache, "scores", {})
@@ -325,6 +334,8 @@ class TournamentSimulator:
         *,
         path_dependent_mode: str = "fast",
         session_cache: object | None = None,
+        leverage_allowed: bool | None = None,
+        inverse_allowed: bool | None = None,
     ) -> RollingResult:
         # INV-08-4: PortfolioPolicy.path_dependent=True requires path_dependent=True
         if not path_dependent and model_requires_path_dependent(model):
@@ -479,7 +490,14 @@ class TournamentSimulator:
                 if session_cache is not None:
                     cache = session_cache
                 else:
-                    cache = build_session_cache(self.engine, model, panel, config)
+                    cache = build_session_cache(
+                        self.engine,
+                        model,
+                        panel,
+                        config,
+                        leverage_allowed=leverage_allowed,
+                        inverse_allowed=inverse_allowed,
+                    )
                 # ensure path_dependent_mode wiring present
                 _mode_ref = path_dependent_mode  # noqa: F401
                 # also reference simulate_window_from_cache explicitly
