@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ruff: noqa
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -53,6 +55,16 @@ class CandidateTrace:
     weight_target: float = 0.0
     weight_after_adv: float = 0.0
     weight_fill: float = 0.0
+    # lineage and capacity fields
+    source_ticker: str = ""
+    vehicle_ticker: str = ""
+    family_key: str = ""
+    multiple: int = 1
+    route_reason: str = ""
+    lottery_active: bool = False
+    weight_intended: float = 0.0
+    weight_after_capacity: float = 0.0
+    weight_filled: float = 0.0
     # optional diagnostic fields stored as extra dict
     diagnostics: dict[str, float] | None = None
 

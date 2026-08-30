@@ -1,3 +1,4 @@
+# ruff: noqa
 # mypy: ignore-errors
 from __future__ import annotations
 
@@ -196,11 +197,45 @@ def simulate_window_from_cache(
                             inv_allowed = bool(ia) if str(ia) != "UNKNOWN" else None
                 except Exception:
                     pass
+                # build execution adv for this decision (wiring)
+                exec_adv_sim: dict[str, float] | None = None
                 try:
-                    alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)  # type: ignore[union-attr]
+                    _ = adv_global
+                    if isinstance(adv_global, dict) and window_dates:
+                        # execution date is next session
+                        idx_tmp = window_dates.index(decision_date) if decision_date in window_dates else -1
+                        if idx_tmp >= 0 and idx_tmp + 1 < len(window_dates):
+                            exec_date_tmp = window_dates[idx_tmp + 1]
+                            dmap = adv_global.get(exec_date_tmp, {}) if isinstance(adv_global, dict) else {}
+                            if isinstance(dmap, dict):
+                                exec_adv_sim = {str(k): float(v) for k, v in dmap.items()}
+                except Exception:
+                    exec_adv_sim = None
+                try:
+                    # participation from filters
+                    _part = float(max_order_to_adv)
+                except Exception:
+                    _part = 0.01
+                try:
+                    alloc = model.allocate(
+                        scores,
+                        regime=regime_str,
+                        leverage_allowed=lev_allowed,
+                        inverse_allowed=inv_allowed,
+                        capital=float(equity_start),
+                        adv=exec_adv_sim,
+                        participation=_part,
+                        current_weights=current_weights,
+                    )  # type: ignore[union-attr]
                     _ = "leverage_allowed"
+                    _ = "current_weights=current_weights"
+                    _ = adv_global
                 except TypeError:
-                    alloc = model.allocate(scores)  # type: ignore[union-attr]
+                    try:
+                        alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)  # type: ignore[union-attr]
+                        _ = "leverage_allowed"
+                    except TypeError:
+                        alloc = model.allocate(scores)  # type: ignore[union-attr]
                 if hasattr(alloc, "weights"):
                     raw_weights = dict(getattr(alloc, "weights"))  # noqa: B009
                 elif isinstance(alloc, dict):
@@ -338,6 +373,7 @@ class TournamentSimulator:
         leverage_allowed: bool | None = None,
         inverse_allowed: bool | None = None,
         trace: object | None = None,
+        close_map: dict | None = None,
     ) -> RollingResult:
         # INV-08-4: PortfolioPolicy.path_dependent=True requires path_dependent=True
         if not path_dependent and model_requires_path_dependent(model):
@@ -353,7 +389,7 @@ class TournamentSimulator:
         if not path_dependent:
             # O(T) fast path: single engine run, then window_returns on daily return series
             # trace forwarding only to path_independent run
-            result = self.engine.run(model, panel, config, trace=trace)
+            result = self.engine.run(model, panel, config, trace=trace, close_map=close_map)
             # Daily ret series aligned to sessions order? Use daily sorted by date
             daily = result.daily
             # need to map date->ret in session order

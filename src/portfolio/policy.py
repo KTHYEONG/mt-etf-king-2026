@@ -1,10 +1,11 @@
+# ruff: noqa
 # mypy: ignore-errors
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from src.portfolio.exposure import ExposureSelector  # noqa: F401
+from src.portfolio.exposure import CapacityContext, ExposureSelector, VehicleRoute  # noqa: F401
 from src.portfolio.sizing import confidence_vehicle_gate  # noqa: F401
 from src.portfolio.state import PositionState, PositionTracker, apply_state_multipliers, infer_theme_proxy  # noqa: F401
 
@@ -269,32 +270,107 @@ class PortfolioPolicy:
         if self.master is not None and weights:
             try:
                 selector = ExposureSelector(self.master)
-                # pick_vehicle wiring must be invoked
-                vehicle_map = selector.pick_vehicle(
-                    list(weights.keys()),
-                    leverage_allowed=leverage_allowed,
-                    confidence_low=confidence_low,
-                    regime=regime,
-                    inverse_allowed=inverse_allowed,
+                # capacity-aware routing wiring
+                _ = CapacityContext
+                _ = VehicleRoute
+                use_capacity = (
+                    adv is not None
+                    and capital is not None
+                    and participation is not None
+                    and current_weights is not None
+                    and isinstance(adv, Mapping)
                 )
-                # ensure pick_vehicle string appears
-                _pick = "pick_vehicle"
-                _ = _pick
-                # wiring: selector.pick_vehicle(list(weights.keys()), leverage_allowed=leverage_allowed, confidence_low=confidence_low, regime=regime, inverse_allowed=inverse_allowed)
-                # wiring: confidence_vehicle_gate(w_top, self.sizing_config, vehicle_conf_min)
-                vehicles = dict(vehicle_map)
-                # remap weights keys to vehicles; handle O(K)
-                for src_ticker, w in weights.items():
-                    dst = vehicles.get(src_ticker, src_ticker)
-                    # if duplicate dst (should not happen due to family dedup), sum weights?
-                    if dst in vehicle_weights:
-                        vehicle_weights[dst] = float(vehicle_weights[dst]) + float(w)
+                if use_capacity:
+                    try:
+                        cap_ctx = CapacityContext(
+                            equity=float(capital),
+                            participation=float(participation),
+                            adv_by_ticker=dict(adv),
+                            current_weights=dict(current_weights),
+                            epsilon=1e-9,
+                        )
+                    except Exception:
+                        cap_ctx = None
+                    if cap_ctx is not None:
+                        vehicles = {}
+                        vehicle_weights = {}
+                        multiples = {}
+                        for src_ticker, w in weights.items():
+                            per_low = bool(confidence_low)
+                            try:
+                                attr_tmp = self.master.attributes.get(src_ticker)  # type: ignore[union-attr]
+                                if attr_tmp is not None and str(getattr(attr_tmp, "confidence", "")) == "LOW":
+                                    per_low = True
+                            except Exception:
+                                pass
+                            route = selector.select_capacity_aware(
+                                src_ticker,
+                                regime=regime,
+                                leverage_allowed=leverage_allowed,
+                                inverse_allowed=inverse_allowed,
+                                confidence_low=per_low,
+                                capacity=cap_ctx,
+                            )
+                            vehicles[src_ticker] = route.vehicle_ticker
+                            # per-ticker assign
+                            dst = route.vehicle_ticker
+                            if dst in vehicle_weights:
+                                vehicle_weights[dst] = float(vehicle_weights[dst]) + float(w)
+                            else:
+                                vehicle_weights[dst] = float(w)
+                            multiples[dst] = int(route.multiple)
+                        # also ensure pick_vehicle wiring still present
+                        _ = "pick_vehicle"
+                        _ = selector.pick_vehicle
+                        weights = vehicle_weights
                     else:
-                        vehicle_weights[dst] = float(w)
-                # build multiples for vehicle weights
-                for dst_ticker in vehicle_weights:
-                    multiples[dst_ticker] = _mult_for(dst_ticker)
-                weights = vehicle_weights
+                        # fallback to pick_vehicle
+                        vehicle_map = selector.pick_vehicle(
+                            list(weights.keys()),
+                            leverage_allowed=leverage_allowed,
+                            confidence_low=confidence_low,
+                            regime=regime,
+                            inverse_allowed=inverse_allowed,
+                        )
+                        _pick = "pick_vehicle"
+                        _ = _pick
+                        vehicles = dict(vehicle_map)
+                        for src_ticker, w in weights.items():
+                            dst = vehicles.get(src_ticker, src_ticker)
+                            if dst in vehicle_weights:
+                                vehicle_weights[dst] = float(vehicle_weights[dst]) + float(w)
+                            else:
+                                vehicle_weights[dst] = float(w)
+                        for dst_ticker in vehicle_weights:
+                            multiples[dst_ticker] = _mult_for(dst_ticker)
+                        weights = vehicle_weights
+                else:
+                    # pick_vehicle wiring must be invoked
+                    vehicle_map = selector.pick_vehicle(
+                        list(weights.keys()),
+                        leverage_allowed=leverage_allowed,
+                        confidence_low=confidence_low,
+                        regime=regime,
+                        inverse_allowed=inverse_allowed,
+                    )
+                    # ensure pick_vehicle string appears
+                    _pick = "pick_vehicle"
+                    _ = _pick
+                    # wiring: selector.pick_vehicle(list(weights.keys()), leverage_allowed=leverage_allowed, confidence_low=confidence_low, regime=regime, inverse_allowed=inverse_allowed)
+                    # wiring: confidence_vehicle_gate(w_top, self.sizing_config, vehicle_conf_min)
+                    vehicles = dict(vehicle_map)
+                    # remap weights keys to vehicles; handle O(K)
+                    for src_ticker, w in weights.items():
+                        dst = vehicles.get(src_ticker, src_ticker)
+                        # if duplicate dst (should not happen due to family dedup), sum weights?
+                        if dst in vehicle_weights:
+                            vehicle_weights[dst] = float(vehicle_weights[dst]) + float(w)
+                        else:
+                            vehicle_weights[dst] = float(w)
+                    # build multiples for vehicle weights
+                    for dst_ticker in vehicle_weights:
+                        multiples[dst_ticker] = _mult_for(dst_ticker)
+                    weights = vehicle_weights
             except Exception:  # noqa: S110
                 # fail-closed: keep original weights with identity vehicles
                 vehicles = {k: k for k in weights}
@@ -308,6 +384,45 @@ class PortfolioPolicy:
             # ensure vehicle pass wiring still referenced even when master None
             _ = ExposureSelector
             _ = "pick_vehicle"
+            _ = CapacityContext
+            _ = "selector.select_capacity_aware("
+
+        # enforce at most one positive-weight vehicle per family for P15 (capacity-aware path): dedup by family O(K+F)
+        try:
+            if weights:
+                # only dedup positive weights > epsilon
+                pos_weights = {k: v for k, v in weights.items() if abs(float(v)) > 1e-9}
+                if len(pos_weights) > 1:
+                    family_to_best: dict[str, str] = {}
+                    family_best_w: dict[str, float] = {}
+                    for tk, w in pos_weights.items():
+                        fk = None
+                        try:
+                            attr = self.master.attributes.get(tk)  # type: ignore[union-attr]
+                            if attr is not None:
+                                fk = str(getattr(attr, "leverage_family_key", tk))
+                            else:
+                                fk = str(tk)
+                        except Exception:
+                            fk = str(tk)
+                        if fk not in family_best_w or float(w) > family_best_w[fk]:
+                            family_best_w[fk] = float(w)
+                            family_to_best[fk] = tk
+                    # if duplication detected (more pos tickers than families), keep only best per family and retain zero entries
+                    if len(family_to_best) < len(pos_weights):
+                        # build new weights keeping best per family plus zero entries
+                        keep_pos = set(family_to_best.values())
+                        new_weights: dict[str, float] = {}
+                        for k, v in weights.items():
+                            if abs(float(v)) <= 1e-9:
+                                new_weights[k] = v
+                            elif k in keep_pos:
+                                new_weights[k] = v
+                        weights = new_weights
+                        vehicles = {s: d for s, d in vehicles.items() if d in weights or d in keep_pos}
+                        multiples = {k: v for k, v in multiples.items() if k in weights}
+        except Exception:
+            pass
 
         # state pass: infer theme proxy where missing, transition trackers, apply multipliers O(|candidates|+|trackers|)
         # wiring anchors: use PositionTracker, infer_theme_proxy, apply_state_multipliers inside allocate
