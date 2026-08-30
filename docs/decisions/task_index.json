@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_12_TOURNAMENT_ADOPTION_ALIGN",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_12_TOURNAMENT_ADOPTION_ALIGN",
+      "domain": "tournament",
+      "title": "Tournament Adoption Align — eval mode · engine leverage · P11 · dynamic B1 gates",
+      "why": "Adoption eval mixed path_dependent state (P08 tail collapse), BacktestEngine ignored CLI leverage_allowed, vehicle probe used single-ticker seed (mult2_rate=0), and P11 gates used stale 2024 B1 anchors.",
+      "resolution": "EvalMode adoption/operational split; BacktestEngine+session_cache+run_rolling leverage propagation; confidence_vehicle_gate+P11; multi-ticker score_seed_for_vehicle_probe; b1_gate_anchors_from_distribution inline B1 anchor; SCENARIO-12 pass lean_check; KRX 2018-2026 P11 P>30%=2.01% vs B1 4.07%, vehicle_mult2_rate=100%, adoption gate FAIL (tail only).",
+      "impact": "L6 adoption harness: eval-mode wiring complete, vehicle probe accurate; P11 No-Go vs B1 on P(R>30/40%) — B1 single-model tournament fallback retained; CVaR/giveback edge preserved."
+    },
+    {
       "task_id": "TASK_BACKTEST_PERF_CUT",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_BACKTEST_PERF_CUT",
