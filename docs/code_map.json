@@ -147,5 +147,9 @@
   },
   "src/portfolio/selection.py": {
     "testing": "tests/unit/portfolio/test_canonical_scores.py"
+  },
+  "src/tournament/eval_mode.py": {
+    "architecture": "docs/architecture/08-research-harness.md",
+    "testing": "tests/unit/tournament/test_eval_mode.py"
   }
 }
