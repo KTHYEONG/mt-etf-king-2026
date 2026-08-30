@@ -268,12 +268,25 @@ class BacktestEngine:
                     except Exception:
                         regime_str = None
                     lev_allowed, inv_allowed = self._resolve_allocate_leverage(rules)
-                    # PortfolioPolicy path: model.allocate with regime and leverage_allowed
+                    theme_states = None
                     try:
-                        alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)
+                        fn = getattr(model, "theme_states_by_representative", None)
+                        if callable(fn):
+                            theme_states = fn()
+                        _ = "theme_states="
+                    except Exception:
+                        theme_states = None
+                    # PortfolioPolicy path: model.allocate with regime and leverage_allowed and theme_states
+                    try:
+                        alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed, theme_states=theme_states)
                         _ = "leverage_allowed"
+                        _ = "theme_states="
                     except TypeError:
-                        alloc = model.allocate(scores)
+                        try:
+                            alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)
+                            _ = "leverage_allowed"
+                        except TypeError:
+                            alloc = model.allocate(scores)
                     if hasattr(alloc, "weights"):
                         raw_weights = dict(alloc.weights)
                     elif isinstance(alloc, dict):
