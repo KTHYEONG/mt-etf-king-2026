@@ -185,3 +185,123 @@ def confidence_weights(scores: Mapping[str, float], config: ConfidenceSizingConf
         for k_ in list(result.keys()):
             result[k_] = float(result[k_] * factor)
     return result
+
+
+@dataclass(frozen=True)
+class LotteryExposureConfig:
+    enabled: bool = False
+    risk_on_regimes: frozenset[str] = frozenset({"RISK_ON", "STRONG_RISK_ON"})
+    w_top: float = 1.0
+    max_gross: float = 2.0
+    suppress_vehicle_gate: bool = True
+    suppress_trim: bool = True
+
+    @classmethod
+    def from_yaml(cls, raw: Mapping[str, object]) -> LotteryExposureConfig:
+        # fail-closed defaults on missing/malformed
+        enabled = False
+        risk_on_regimes: frozenset[str] = frozenset({"RISK_ON", "STRONG_RISK_ON"})
+        w_top = 1.0
+        max_gross = 2.0
+        suppress_vehicle_gate = True
+        suppress_trim = True
+        if not isinstance(raw, Mapping):
+            return cls()
+        # enabled
+        try:
+            if "enabled" in raw:
+                enabled = bool(raw["enabled"])
+        except Exception:
+            enabled = False
+        # risk_on_regimes
+        try:
+            if "risk_on_regimes" in raw:
+                val = raw["risk_on_regimes"]
+                if isinstance(val, (list, tuple, set, frozenset)):
+                    risk_on_regimes = frozenset(str(x) for x in val)
+                elif val is not None:
+                    risk_on_regimes = frozenset({str(val)})
+        except Exception:
+            risk_on_regimes = frozenset({"RISK_ON", "STRONG_RISK_ON"})
+        # w_top
+        try:
+            if "w_top" in raw:
+                w_top = float(raw["w_top"])  # type: ignore[arg-type]
+        except Exception:
+            w_top = 1.0
+        # max_gross
+        try:
+            if "max_gross" in raw:
+                max_gross = float(raw["max_gross"])  # type: ignore[arg-type]
+        except Exception:
+            max_gross = 2.0
+        # suppress_vehicle_gate
+        try:
+            if "suppress_vehicle_gate" in raw:
+                suppress_vehicle_gate = bool(raw["suppress_vehicle_gate"])
+        except Exception:
+            suppress_vehicle_gate = True
+        # suppress_trim
+        try:
+            if "suppress_trim" in raw:
+                suppress_trim = bool(raw["suppress_trim"])
+        except Exception:
+            suppress_trim = True
+        return cls(
+            enabled=enabled,
+            risk_on_regimes=risk_on_regimes,
+            w_top=w_top,
+            max_gross=max_gross,
+            suppress_vehicle_gate=suppress_vehicle_gate,
+            suppress_trim=suppress_trim,
+        )
+
+
+def lottery_active(
+    regime: str | None,
+    leverage_allowed: bool | None,
+    config: LotteryExposureConfig | None,
+) -> bool:
+    if config is None:
+        return False
+    try:
+        if not bool(getattr(config, "enabled", False)):
+            return False
+    except Exception:
+        return False
+    if leverage_allowed is not True:
+        return False
+    if regime is None:
+        return False
+    try:
+        regimes = getattr(config, "risk_on_regimes", frozenset({"RISK_ON", "STRONG_RISK_ON"}))
+        regime_str = str(regime)
+        # normalize to set of strings
+        try:
+            regime_set = frozenset(str(x) for x in regimes)  # type: ignore[union-attr]
+        except Exception:
+            regime_set = frozenset({"RISK_ON", "STRONG_RISK_ON"})
+        return regime_str in regime_set
+    except Exception:
+        return False
+
+
+def lottery_concentration_weights(
+    scores: Mapping[str, float],
+    config: LotteryExposureConfig,
+) -> dict[str, float]:
+    if not scores:
+        return {}
+    # single key = argmax score tie-break ticker asc
+    sorted_items = sorted(scores.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))
+    top_ticker = str(sorted_items[0][0])
+    try:
+        w = float(getattr(config, "w_top", 1.0))
+    except Exception:
+        w = 1.0
+    # clamp [0,1]
+    if w < 0:
+        w = 0.0
+    if w > 1:
+        w = 1.0
+    return {top_ticker: float(w)}
