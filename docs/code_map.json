@@ -111,7 +111,10 @@
     "testing": "tests/unit/tournament/test_distribution.py"
   },
   "src/tournament/harness.py": {
-    "testing": "tests/unit/tournament/test_harness.py"
+    "testing": [
+      "tests/unit/tournament/test_harness.py",
+      "tests/unit/tournament/test_backtest_perf_cut.py"
+    ]
   },
   "src/tournament/replay.py": {
     "testing": "tests/unit/tournament/test_replay.py"
@@ -141,5 +144,8 @@
   "src/data/panel.py": {
     "architecture": "docs/architecture/02-system-layers.md",
     "testing": "tests/unit/data/test_panel.py"
+  },
+  "src/portfolio/selection.py": {
+    "testing": "tests/unit/portfolio/test_canonical_scores.py"
   }
 }
