@@ -1,53 +1,58 @@
 ---
 trigger:
   - on_label: ["quant"]
-  - on_file_path_regex: "src/.*(etf|portfolio|allocation|rebalance|execution|data|backtest).*"
-  - on_file_path_glob: ["src/**/etf/**/*.py", "src/**/portfolio/**/*.py", "src/**/allocation/**/*.py", "src/**/rebalance/**/*.py", "src/**/data/**/*.py"]
+  - on_file_path_regex: "src/.*(etf|portfolio|allocation|rebalance|execution|data|backtest|alpha|feature).*"
+  - on_file_path_glob: ["src/**/etf/**/*.py", "src/**/portfolio/**/*.py", "src/**/allocation/**/*.py", "src/**/rebalance/**/*.py", "src/**/data/**/*.py", "src/**/alpha/**/*.py", "src/**/backtest/**/*.py"]
 priority: 10
 ---
 
-# Quant & ETF Engineering Principles
+# Tournament Quant & ETF Engineering Directives
 
-This document provides quantitative and financial directives for building robust ETF accumulation, portfolio allocation, and rebalancing systems (global/domestic universal).
+This document defines quantitative and financial directives for the **36-session ETF Tournament Research & Trading System** (Money Today ETF King 2026).
 
-## 0. Priority Hierarchy
-1. **Financial Realism Over Pure Metrics:** Model tracking errors, disparity, expense ratios, and cash drag realistically over idealized backtests.
-2. **Data Integrity & Temporal Consistency:** Enforce strict point-in-time data availability (NAV, market price, distributions, FX).
-3. **Deterministic Numerical Stability:** Safeguard against zero-division, precision loss, and portfolio weight floating-point drifts.
+## 0. Tournament Objective & Decision Philosophy
+1. **Distribution Optimization Over Scalar Metrics:**
+   - The primary objective is maximizing prize expectation $\mathbb{E}[\text{Prize}]$ by lifting right-tail outcome probability ($P(R_{36d} > 30\%\sim 40\%)$) while capping lower-tail catastrophe risk ($P(R_{36d} < -25\%) \le 5\%$).
+   - Mean, Sharpe ratio, or long-term CAGR are secondary diagnostic metrics; they must never override 36-session return distribution criteria (G1~G5 gates).
+2. **Strict Layer Separation (ARCH-1 / INV-24):**
+   - Keep `Signal (Alpha)` $\to$ `Portfolio (Allocation/Sizing)` $\to$ `Tournament Policy (Regime/Overlay)` strictly decoupled.
+   - Alpha models select theme/index keys; exposure selectors choose leverage vehicles (1X, 2X, -1X, -2X).
+3. **Fail-Closed & Empirical Realism:**
+   - Never extrapolate unverified rules. Treat missing/unknown rules as discrete scenarios (primary vs fallback).
 
-## 1. ETF Microstructure & Valuation Metrics
-- **NAV & Disparity (괴리율) Accounting:**
-  - Track both Market Price and Net Asset Value (NAV / iNAV).
-  - Calculate Disparity Ratio: `disparity = (market_price - nav) / nav`.
-  - Guard against abnormal disparity spikes (e.g. illiquid sessions, market opening/closing auction dislocations) before executing rebalance or accumulation orders.
-- **Total Expense Ratio (TER) & Real Cost Drag:**
-  - Account for annual expense ratios (운용보수, 기타비용) deducted daily from NAV.
-  - Model broker commissions, exchange fees, and bid-ask spreads per execution venue.
-- **Tracking Error & Index Replication:**
-  - Measure Tracking Difference ($TD = R_{ETF} - R_{Index}$) and Tracking Error ($TE = \text{Std}(TD)$) when evaluating ETF suitability.
+## 1. Portfolio Sizing & Effective Exposure
+- **Concentrated Momentum Allocation:**
+   - Optimize for concentrated sizing (Top 1~3 holdings, max single weight $\le 80\%$, min cash buffer $\ge 5\%$) to capture explosive sector moves.
+   - Dynamic exit on leadership deterioration (momentum score drop $\ge 30\%$, drawdowns $\le -15\%$).
+- **Effective Gross Exposure Invariant (INV-18):**
+   - Apply exposure constraints to **effective leverage exposure**, NOT raw weights:
+     $$\text{Gross Exposure} = \sum |w_i \times \text{multiplier}_i| \le 1.60$$
+   - Enforce single-holding constraint per underlying index family (INV-17): $\max(\text{count}(\text{family})) \le 1$.
+- **Leverage & Inverse Realism (INV-14, INV-19):**
+   - Use actual ETF price series for leverage/inverse backtesting; NEVER synthesize via index return $\times$ multiplier (preserves volatility drag).
+   - If multiplier confidence is low or unverified, fail-closed to 1X exposure.
 
-## 2. Accumulation (적립식) & Portfolio Rebalancing
-- **Systematic Accumulation Strategies:**
-  - Support Dollar-Cost Averaging (DCA), Dynamic Accumulation (Value Averaging, Volatility/Drawdown-adjusted sizing).
-  - Enforce minimum trade unit (lot size / fractional shares) and cash buffer constraints.
-- **Portfolio Weight Normalization & Invariants:**
-  - Enforce invariant: $\sum w_i + w_{cash} = 1.0 \pm 10^{-6}$.
-  - Rebalancing thresholds: Use tolerance bands (e.g., target weight $\pm 2\%$) or periodic calendar schedules to minimize excessive turnover and transaction friction.
-- **Distribution (Dividend) Handling & Total Return (TR):**
-  - Explicitly distinguish between Price Return (PR) and Total Return (TR).
-  - Support automated dividend reinvestment (DRIP) modeling and cash buffer accumulation.
+## 2. Universe & Eligibility Invariants
+- **Sponsor Universe Boundary (INV-20, INV-21):**
+   - Strategy adoption, ML models, and live execution must operate strictly on the **10 Tournament Sponsor ETF Universe** (`configs/sponsor_brands.yaml`).
+   - Structural analysis across all KRX ETFs is permitted only for hypothesis generation.
+- **Liquidity & Execution Capacity (INV-11):**
+   - Ensure capital capacity (1.0B KRW initial capital) conforms to ADV limits:
+     $$\text{Order Value} \le \text{ADV}_{20} \times \text{participation\_rate} \quad (\text{participation\_rate} \le 1\%\sim 2\%)$$
+   - Discard illiquid candidates before calculating signals.
 
-## 3. Data Integrity & Temporal Alignment
-- **Explicit Timestamp Semantics:** Define `observation_time` (NAV release, market close), `decision_time` (signal calculation, rebalance decision), and `execution_time` (order fill / next market open/close).
-- **Multi-Currency & FX Alignment:**
-  - Explicitly track currency denominations (USD, KRW, EUR, etc.) and FX conversion timestamps for international ETF holdings.
-  - Avoid look-ahead bias when aligning foreign ETF NAV/prices with local currency valuation.
-- **Point-in-Time Data Availability:** Ensure split adjustments, dividend ex-dates, and NAV updates are reflected only after their actual publication timestamp.
+## 3. Microstructure & Point-in-Time Execution
+- **Strict Timestamp & Execution Mechanics (INV-10):**
+   - Signals generated at $close(t)$ MUST execute at $open(t+1)$ (next-day market opening). Same-bar look-ahead cheats are strictly prohibited.
+- **Realistic Friction & Cost Drag (INV-12):**
+   - Apply transaction taxes, broker commissions, and bid-ask / liquidity slippage directly at the fill event.
+- **Point-in-Time (PIT) Data Integrity (INV-7, INV-8, INV-9):**
+   - Use strict XKRX session calendar only (`core/calendar.py`). Avoid generic business-day generators (`bdate_range`).
+   - Cross-sectional ranking, z-scores, and normalizations must strictly use cross-sectional data available at date $t$.
 
-## 4. Safe Numerical Computation
-- **Safe Vectorized Division:** Use `np.divide` with explicit `out` initialization and `where` masks to avoid zero-division errors.
-  ```python
-  result = np.zeros_like(numerator, dtype=float)
-  np.divide(numerator, denominator, out=result, where=denominator != 0)
-  ```
-- **Log-space Compounding:** Use `np.log1p()` and `np.expm1()` for compounding long-term returns and cumulative returns to avoid numerical underflow.
+## 4. Deterministic & Safe Numerical Computation
+- **Safe Vectorized Operations:**
+   - Guard against zero-division and empty arrays using `np.divide(..., where=...)` with explicit zero-fill.
+- **Distribution Stability & Non-Stationarity:**
+   - Calculate rolling 36-session statistics using overlapping window corrections ($n_{\text{effective}}$).
+   - Track giveback metrics (median & q90) and drawdown profiles for every strategy evaluation.
