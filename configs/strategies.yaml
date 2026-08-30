@@ -25,6 +25,12 @@ leadership:
 portfolio:
   adoption:
     vehicle_conf_min: 0.85
+  tail_concentration:
+    enabled: true
+    tradable_states: ["LEADING", "RECOVERY"]
+    risk_on_regimes: ["RISK_ON", "STRONG_RISK_ON"]
+    w_top_full: 1.0
+    k_full: 1
 
 right_tail_weights:
   0.75: 0.2
