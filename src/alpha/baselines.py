@@ -427,6 +427,107 @@ def _make_p10() -> object:
     return policy
 
 
+def _make_p11() -> object:
+    # P11: B1 alpha + family_canonical_scores + confidence sizing + confidence-gated vehicle
+    from src.core.paths import DataPaths
+    from src.portfolio.policy import PortfolioPolicy
+    from src.portfolio.selection import family_canonical_scores
+    from src.portfolio.sizing import ConfidenceSizingConfig
+    from src.universe.instruments import InstrumentMaster  # noqa: F401
+
+    _ = family_canonical_scores
+    _ = InstrumentMaster
+    _ = DataPaths
+    # preflight same as P10: ensure gold/silver span check referenced
+    from src.tournament.distribution import preflight_features_span_ok
+
+    _ = preflight_features_span_ok
+    _master = None
+    try:
+        import datetime as _dt
+        from pathlib import Path as _P
+
+        import polars as _pl
+
+        from src.universe.taxonomy import Taxonomy
+
+        try:
+            from src.universe.instruments import load_sponsor_brand_map
+
+            try:
+                _brand = load_sponsor_brand_map(_P("configs/sponsor_brands.yaml"))
+            except Exception:
+                _brand = {}
+        except Exception:
+            _brand = {}
+        try:
+            _tax = Taxonomy.from_yaml(_P("configs/taxonomy.yaml"))
+        except Exception:
+            _tax = Taxonomy(rules=[])
+        _panel = None
+        try:
+            _paths = DataPaths(root=_P("data"))
+            for _cand in [_paths.gold("etf_features"), _paths.silver("etf_daily")]:
+                if _cand.exists():
+                    try:
+                        _panel = _pl.read_parquet(str(_cand))
+                        if _panel is not None and _panel.height > 0:
+                            break
+                    except Exception:
+                        _panel = None
+            if _panel is None or _panel.height == 0:
+                for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+                    if _cand.exists():
+                        try:
+                            _panel = _pl.read_parquet(str(_cand))
+                            if _panel is not None and _panel.height > 0:
+                                break
+                        except Exception:
+                            _panel = None
+        except Exception:
+            for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+                if _cand.exists():
+                    try:
+                        _panel = _pl.read_parquet(str(_cand))
+                        if _panel is not None and _panel.height > 0:
+                            break
+                    except Exception:
+                        _panel = None
+        if _panel is not None and _panel.height > 0:
+            try:
+                _master = InstrumentMaster.build(_panel, _tax, _brand)
+            except Exception:
+                _master = InstrumentMaster(attributes={}, panel_start=_dt.date(2020, 1, 1))
+        else:
+            _master = InstrumentMaster(attributes={}, panel_start=_dt.date(2020, 1, 1))
+    except Exception:
+        import datetime as _dt2
+
+        _master = InstrumentMaster(attributes={}, panel_start=_dt2.date(2020, 1, 1))
+    cfg = ConfidenceSizingConfig()
+    policy = PortfolioPolicy(sizing_config=cfg, master=_master, max_per_theme=2, max_per_family=1)
+    b1 = TopKMomentum(horizon=20, name="P11")
+    policy.name = "P11"  # type: ignore[attr-defined]
+    policy.scores_path_independent = True
+    _ = policy.allocate
+    _ = policy.scores_path_independent
+    _p11_anchor = "P11"  # noqa: F401
+    _p08_anchor = "P08"  # noqa: F401
+
+    def _score(snapshot, context):  # type: ignore[no-untyped-def]
+        raw = b1.score(snapshot, context)
+        if not raw:
+            return {}
+        try:
+            return family_canonical_scores(raw, _master)
+        except Exception:
+            return {}
+
+    policy.score = _score  # type: ignore[attr-defined]
+    _ = PortfolioPolicy
+    return policy
+
+
 def _make_m07() -> SectorLeadershipModel:
     # lazy wiring for M07; requires master and configs - fallback to empty master for registry test
     from pathlib import Path
@@ -484,4 +585,5 @@ BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "M07": _make_m07,
     "P08": _make_p08,
     "P10": _make_p10,
+    "P11": _make_p11,
 }

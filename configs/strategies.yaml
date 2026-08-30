@@ -22,6 +22,10 @@ leadership:
     dd_out: 0.05
     patience: 3
 
+portfolio:
+  adoption:
+    vehicle_conf_min: 0.85
+
 right_tail_weights:
   0.75: 0.2
   0.90: 0.3
