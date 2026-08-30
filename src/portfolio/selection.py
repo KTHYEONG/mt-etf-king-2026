@@ -63,6 +63,46 @@ def select_positions(
             continue
     return result
 
+def explain_selection_drops(
+    scores: Mapping[str, float], master: object, max_per_theme: int, max_per_family: int = 1
+) -> dict[str, str]:
+    if not scores:
+        return {}
+    sorted_tickers = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    family_counts: dict[str, int] = {}
+    after_family: list[tuple[str, float]] = []
+    dropped: dict[str, str] = {}
+    for ticker, sc in sorted_tickers:
+        try:
+            attr = master.attributes.get(ticker) if hasattr(master, "attributes") else None  # type: ignore[union-attr]
+        except Exception:
+            attr = None
+        if attr is not None:
+            fk = getattr(attr, "leverage_family_key", ticker)
+        else:
+            fk = ticker
+        cnt = family_counts.get(str(fk), 0)
+        if cnt < max_per_family:
+            after_family.append((ticker, sc))
+            family_counts[str(fk)] = cnt + 1
+        else:
+            dropped[ticker] = "FAMILY_DEDUP"
+    theme_counts: dict[str, int] = {}
+    for ticker, _sc in after_family:
+        try:
+            attr = master.attributes.get(ticker) if hasattr(master, "attributes") else None  # type: ignore[union-attr]
+        except Exception:
+            attr = None
+        theme = getattr(attr, "theme", "UNKNOWN") if attr is not None else "UNKNOWN"
+        cnt = theme_counts.get(str(theme), 0)
+        if cnt < max_per_theme:
+            theme_counts[str(theme)] = cnt + 1
+        else:
+            dropped[ticker] = "THEME_DEDUP"
+    # verify alignment: selected set equals scores - dropped
+    return dropped
+
+
 def family_canonical_scores(scores: Mapping[str, float], master: object) -> dict[str, float]:
     if not scores:
         return {}

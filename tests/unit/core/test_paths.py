@@ -49,3 +49,15 @@ def test_SCENARIO_DSR_05_bronze_gz_and_results(tmp_path: Path) -> None:  # noqa:
         dp.results("/abs")
     with pytest.raises(ValueError, match="path traversal not allowed"):
         dp.results("../escape")
+
+
+def test_paths_trace_under_results_and_guard(tmp_path: Path) -> None:
+    dp = DataPaths(root=tmp_path)
+    assert dp.trace("run_a") == tmp_path / "results" / "run_a" / "trace"
+    assert not (tmp_path / "results").exists()
+    with pytest.raises(ValueError, match="path traversal"):
+        dp.trace("..")
+    with pytest.raises(ValueError, match="path traversal"):
+        dp.trace("../escape")
+    with pytest.raises(ValueError, match="absolute path"):
+        dp.trace("/abs")

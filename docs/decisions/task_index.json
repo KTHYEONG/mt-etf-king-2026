@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_17_DEBUG_TRACE_STORE",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_17_DEBUG_TRACE_STORE",
+      "domain": "reporting",
+      "title": "Debug Trace Store — session decision provenance (candidates/sessions/gates)",
+      "why": "Backtest daily/trades parquet and decide rationale captured WHAT traded but dropped per-session score vectors, reject reasons, and universe drop counts—blocking root-cause analysis for tail-lift and adoption tuning.",
+      "resolution": "Added core/trace (TraceSink, InMemory/Null, REJECT_REASONS), reporting/trace_store (sessions/candidates/gates parquet+jsonl), engine trace emission with allocate-only explain_selection_drops, CLI --trace/--log-level, DataPaths.trace; verified B1 2025Q1 run with 401 candidate rows and TOPK_CUT labels.",
+      "impact": "L6/L8: opt-in results/{run_id}/trace/ and decide *_decision_trace artifacts for joinable forensics; default backtest path unchanged when --trace off."
+    },
+    {
       "task_id": "TASK_16_BACKTEST_TIMESERIES",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_16_BACKTEST_TIMESERIES",

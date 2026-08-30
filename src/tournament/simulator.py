@@ -337,6 +337,7 @@ class TournamentSimulator:
         session_cache: object | None = None,
         leverage_allowed: bool | None = None,
         inverse_allowed: bool | None = None,
+        trace: object | None = None,
     ) -> RollingResult:
         # INV-08-4: PortfolioPolicy.path_dependent=True requires path_dependent=True
         if not path_dependent and model_requires_path_dependent(model):
@@ -351,7 +352,8 @@ class TournamentSimulator:
 
         if not path_dependent:
             # O(T) fast path: single engine run, then window_returns on daily return series
-            result = self.engine.run(model, panel, config)
+            # trace forwarding only to path_independent run
+            result = self.engine.run(model, panel, config, trace=trace)
             # Daily ret series aligned to sessions order? Use daily sorted by date
             daily = result.daily
             # need to map date->ret in session order
@@ -432,7 +434,7 @@ class TournamentSimulator:
                         filters=config.filters,
                         costs=config.costs,
                     )
-                    res = self.engine.run(model, panel, win_config)
+                    res = self.engine.run(model, panel, win_config, trace=None)
                     daily = res.daily
                     ret_col = "ret" if "ret" in daily.columns else ("return" if "return" in daily.columns else None)
                     if ret_col is None:
