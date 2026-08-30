@@ -1606,8 +1606,25 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = evaluate_adoption_gates
                     _ = _b1_gate_p14
                     _ = "b1_gate_anchors_from_distribution"
+                _bt_daily = None
+                _bt_trades = None
+                _bt = getattr(rolling, "backtest", None)
+                if _bt is not None:
+                    _bt_daily = _bt.daily
+                    _bt_trades = _bt.trades
                 try:
-                    write_backtest_result(paths, run_id=run_id, meta=meta, summary=summary)
+                    write_backtest_result(
+                        paths,
+                        run_id=run_id,
+                        meta=meta,
+                        summary=summary,
+                        daily=_bt_daily,
+                        trades=_bt_trades,
+                    )
+                    if _bt_daily is not None and _bt_trades is not None:
+                        logger.info(
+                            f"[EVAL] artifacts run_id={run_id} daily_rows={_bt_daily.height} trade_rows={_bt_trades.height}"
+                        )
                 except FileExistsError:
                     logger.warning(f"[SYS] backtest result exists run_id={run_id} skipping overwrite")
                 except Exception as exc2:
