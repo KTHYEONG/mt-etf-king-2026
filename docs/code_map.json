@@ -9,7 +9,10 @@
     "testing": "tests/unit/alpha/test_cluster.py"
   },
   "src/alpha/leadership.py": {
-    "testing": "tests/unit/alpha/test_leadership.py"
+    "testing": [
+      "tests/unit/alpha/test_leadership.py",
+      "tests/unit/alpha/test_p12.py"
+    ]
   },
   "src/alpha/state.py": {
     "testing": "tests/unit/alpha/test_state.py"
