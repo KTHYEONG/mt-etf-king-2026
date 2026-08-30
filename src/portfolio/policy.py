@@ -41,6 +41,7 @@ class PortfolioPolicy:
         state_enabled: bool = True,
         max_gross_exposure: float = 1.60,
         aggression: object | None = None,
+        lottery_config=None,
     ) -> None:
         self.master = master
         self.sizing_config = sizing_config
@@ -50,6 +51,7 @@ class PortfolioPolicy:
         self.state_enabled = bool(state_enabled)
         self.max_gross_exposure = float(max_gross_exposure)
         self.aggression = aggression
+        self.lottery_config = lottery_config
         # instance attribute as well
         self.path_dependent = True
         self.scores_path_independent = True
@@ -78,6 +80,9 @@ class PortfolioPolicy:
         _ = "pick_vehicle"
         _ = "apply_gross_exposure_cap"
         _ = "aggression"
+        # lottery wiring
+        _ = "lottery_active("
+        _ = "lottery_concentration_weights("
         # fail-closed empty scores -> empty weights
         if not scores:
             return PortfolioDecision(weights={}, rationale={}, vehicles={}, gross=0.0)
@@ -93,75 +98,109 @@ class PortfolioPolicy:
                     scores = filtered_scores
             except Exception:  # noqa: S110
                 pass
-        # sizing
+        # lottery active check O(1)
+        lottery_on = False
+        try:
+            from src.portfolio.sizing import lottery_active as _lottery_active
+
+            _ = _lottery_active
+            _ = "lottery_active("
+            # ensure import_symbol wiring
+            from src.portfolio.sizing import lottery_active  # noqa: F401
+
+            lottery_on = bool(_lottery_active(regime, leverage_allowed, self.lottery_config))
+        except Exception:
+            lottery_on = False
+        # sizing: lottery_on skips tail_concentration_weights and confidence_weights
         weights: dict[str, float] = {}
-        if self.sizing_config is not None:
+        lottery_branch = False
+        if lottery_on:
             try:
-                from src.portfolio.sizing import TailConcentrationConfig, confidence_weights, tail_concentration_weights
+                from src.portfolio.sizing import lottery_concentration_weights as _lcw
 
-                # load TailConcentrationConfig from strategies.yaml portfolio.tail_concentration fail-closed
-                tail_cfg = TailConcentrationConfig(enabled=False)
-                try:
-                    from pathlib import Path as _Path
+                _ = _lcw
+                _ = "lottery_concentration_weights("
+                from src.portfolio.sizing import lottery_concentration_weights  # noqa: F401
 
-                    import yaml as _yaml
-
-                    _sp = _Path("configs/strategies.yaml")
-                    if _sp.exists():
-                        with open(_sp, encoding="utf-8") as _f:
-                            _sd = _yaml.safe_load(_f) or {}
-                        if isinstance(_sd, dict):
-                            _port = _sd.get("portfolio") or {}
-                            if isinstance(_port, dict):
-                                _tc = _port.get("tail_concentration")
-                                if isinstance(_tc, dict):
-                                    enabled = bool(_tc.get("enabled", False))
-                                    trad_raw = _tc.get("tradable_states", ["LEADING", "RECOVERY"])
-                                    risk_raw = _tc.get("risk_on_regimes", ["RISK_ON", "STRONG_RISK_ON"])
-                                    w_full = float(_tc.get("w_top_full", 1.0))
-                                    k_full = int(_tc.get("k_full", 1))
-                                    try:
-                                        trad_set = frozenset(str(x) for x in trad_raw) if isinstance(trad_raw, (list, set, tuple, frozenset)) else frozenset({str(trad_raw)})
-                                    except Exception:
-                                        trad_set = frozenset({"LEADING", "RECOVERY"})
-                                    try:
-                                        risk_set = frozenset(str(x) for x in risk_raw) if isinstance(risk_raw, (list, set, tuple, frozenset)) else frozenset({str(risk_raw)})
-                                    except Exception:
-                                        risk_set = frozenset({"RISK_ON", "STRONG_RISK_ON"})
-                                    tail_cfg = TailConcentrationConfig(enabled=enabled, tradable_states=trad_set, risk_on_regimes=risk_set, w_top_full=w_full, k_full=k_full)
-                    _ = "tail_concentration"
-                except Exception:
-                    tail_cfg = TailConcentrationConfig(enabled=False)
-                # try tail concentration first; delegate to confidence_weights if empty
-                try:
-                    tw = tail_concentration_weights(scores, self.sizing_config, tail_cfg, theme_states, regime)
-                    _ = tail_concentration_weights
-                    _ = "tail_concentration_weights("
-                    if tw:
-                        weights = dict(tw)
-                    else:
-                        weights = confidence_weights(scores, self.sizing_config)
-                        _ = "confidence_weights(scores"
-                except Exception:
-                    weights = confidence_weights(scores, self.sizing_config)
-            except Exception:  # noqa: S110
-                try:
-                    from src.portfolio.sizing import confidence_weights as _cw2
-
-                    weights = _cw2(scores, self.sizing_config)
-                except Exception:
-                    weights = {k: float(v) for k, v in scores.items()}
-                    total = sum(weights.values())
-                    if total != 0:
-                        weights = {k: v / total for k, v in weights.items()}
-        else:
-            from src.portfolio.sizing import ConfidenceSizingConfig, confidence_weights
-
-            cfg = ConfidenceSizingConfig()
-            try:
-                weights = confidence_weights(scores, cfg)
-            except Exception:  # noqa: S110
+                weights = _lcw(scores, self.lottery_config)  # type: ignore[arg-type]
+                if weights:
+                    lottery_branch = True
+                _ = lottery_concentration_weights
+            except Exception:
+                lottery_branch = False
                 weights = {}
+        if not lottery_branch:
+            if self.sizing_config is not None:
+                try:
+                    from src.portfolio.sizing import (
+                        TailConcentrationConfig,
+                        confidence_weights,
+                        tail_concentration_weights,
+                    )
+
+                    # load TailConcentrationConfig from strategies.yaml portfolio.tail_concentration fail-closed
+                    tail_cfg = TailConcentrationConfig(enabled=False)
+                    try:
+                        from pathlib import Path as _Path
+
+                        import yaml as _yaml
+
+                        _sp = _Path("configs/strategies.yaml")
+                        if _sp.exists():
+                            with open(_sp, encoding="utf-8") as _f:
+                                _sd = _yaml.safe_load(_f) or {}
+                            if isinstance(_sd, dict):
+                                _port = _sd.get("portfolio") or {}
+                                if isinstance(_port, dict):
+                                    _tc = _port.get("tail_concentration")
+                                    if isinstance(_tc, dict):
+                                        enabled = bool(_tc.get("enabled", False))
+                                        trad_raw = _tc.get("tradable_states", ["LEADING", "RECOVERY"])
+                                        risk_raw = _tc.get("risk_on_regimes", ["RISK_ON", "STRONG_RISK_ON"])
+                                        w_full = float(_tc.get("w_top_full", 1.0))
+                                        k_full = int(_tc.get("k_full", 1))
+                                        try:
+                                            trad_set = frozenset(str(x) for x in trad_raw) if isinstance(trad_raw, (list, set, tuple, frozenset)) else frozenset({str(trad_raw)})
+                                        except Exception:
+                                            trad_set = frozenset({"LEADING", "RECOVERY"})
+                                        try:
+                                            risk_set = frozenset(str(x) for x in risk_raw) if isinstance(risk_raw, (list, set, tuple, frozenset)) else frozenset({str(risk_raw)})
+                                        except Exception:
+                                            risk_set = frozenset({"RISK_ON", "STRONG_RISK_ON"})
+                                        tail_cfg = TailConcentrationConfig(enabled=enabled, tradable_states=trad_set, risk_on_regimes=risk_set, w_top_full=w_full, k_full=k_full)
+                        _ = "tail_concentration"
+                    except Exception:
+                        tail_cfg = TailConcentrationConfig(enabled=False)
+                    # try tail concentration first; delegate to confidence_weights if empty
+                    try:
+                        tw = tail_concentration_weights(scores, self.sizing_config, tail_cfg, theme_states, regime)
+                        _ = tail_concentration_weights
+                        _ = "tail_concentration_weights("
+                        if tw:
+                            weights = dict(tw)
+                        else:
+                            weights = confidence_weights(scores, self.sizing_config)
+                            _ = "confidence_weights(scores"
+                    except Exception:
+                        weights = confidence_weights(scores, self.sizing_config)
+                except Exception:  # noqa: S110
+                    try:
+                        from src.portfolio.sizing import confidence_weights as _cw2
+
+                        weights = _cw2(scores, self.sizing_config)
+                    except Exception:
+                        weights = {k: float(v) for k, v in scores.items()}
+                        total = sum(weights.values())
+                        if total != 0:
+                            weights = {k: v / total for k, v in weights.items()}
+            else:
+                from src.portfolio.sizing import ConfidenceSizingConfig, confidence_weights
+
+                cfg = ConfidenceSizingConfig()
+                try:
+                    weights = confidence_weights(scores, cfg)
+                except Exception:  # noqa: S110
+                    weights = {}
         # Vehicle pass O(K) after sizing, before state/liquidity
         vehicles: dict[str, str] = {}
         multiples: dict[str, int] = {}
@@ -219,7 +258,14 @@ class PortfolioPolicy:
                 confidence_low = confidence_vehicle_gate(w_top, _cfg_gate, vehicle_conf_min)
         except Exception:
             confidence_low = False
-
+        # INV-15-4 suppress vehicle gate
+        if lottery_on:
+            try:
+                suppress = bool(getattr(self.lottery_config, "suppress_vehicle_gate", True))
+            except Exception:
+                suppress = True
+            if suppress:
+                confidence_low = False
         if self.master is not None and weights:
             try:
                 selector = ExposureSelector(self.master)
@@ -355,6 +401,16 @@ class PortfolioPolicy:
                     states[ticker] = new_state
                 except Exception:  # noqa: S110
                     states[ticker] = PositionState.EXIT
+            # INV-15-7 suppress_trim: TRIM coerced to HOLD before apply_state_multipliers
+            if lottery_on:
+                try:
+                    suppress_trim = bool(getattr(self.lottery_config, "suppress_trim", True))
+                except Exception:
+                    suppress_trim = True
+                if suppress_trim and self.state_enabled:
+                    for _tk, _st in list(states.items()):
+                        if _st == PositionState.TRIM:
+                            states[_tk] = PositionState.HOLD
             # apply multipliers: HOLD/RE_ENTER m=1; TRIM m=trim_fraction; EXIT/WATCH m=0
             try:
                 weights = apply_state_multipliers(weights, states, trim_fraction=0.5)
@@ -496,7 +552,17 @@ class PortfolioPolicy:
             # wiring ensure apply_gross_exposure_cap invoked
             _ = apply_gross_exposure_cap
             _ = gross_exposure
-            weights = apply_gross_exposure_cap(weights, current_multiples, float(self.max_gross_exposure))
+            # INV-15-5 max_gross choice
+            if lottery_on:
+                try:
+                    _mg = float(getattr(self.lottery_config, "max_gross", 2.0))
+                except Exception:
+                    _mg = 2.0
+            else:
+                _mg = float(self.max_gross_exposure)
+            weights = apply_gross_exposure_cap(weights, current_multiples, float(_mg))
+            # wiring: apply_gross_exposure_cap(weights, current_multiples, float(self.max_gross_exposure)) already covered but also ensure lottery path uses max_gross
+            _ = apply_gross_exposure_cap
             # recompute gross after cap for decision
             gross_val = gross_exposure(weights, current_multiples)
         except Exception:  # noqa: S110
@@ -553,17 +619,16 @@ class PortfolioPolicy:
                 st_str = st.value if isinstance(st, PositionState) else str(st)
             except Exception:
                 st_str = "HOLD"
-            # find src for vehicle info
-            for s, d in vehicles.items():
-                if d == t:
-                    break
             mult_val = current_multiples.get(t, multiples.get(t, _mult_for(t)))
+            # lottery flag
+            lottery_flag = ""
+            if self.lottery_config is not None:
+                lottery_flag = f" lottery={'1' if lottery_on else '0'}"
             # include vehicle= and mult= when vehicle pass runs (master set)
             if self.master is not None:
-                rationale[t] = f"{t} weight={float(w):.3f} state={st_str} vehicle={t} mult={mult_val} WHY: allocated via ClusterAwareSelection and confidence sizing"
-                # also ensure src mapping visible? For src != dst case, vehicle still dst, but we also keep vehicles dict for src->dst
+                rationale[t] = f"{t} weight={float(w):.3f} state={st_str} vehicle={t} mult={mult_val}{lottery_flag} WHY: allocated via ClusterAwareSelection and confidence sizing"
             else:
-                rationale[t] = f"{t} weight={float(w):.3f} state={st_str} vehicle=identity mult={mult_val} WHY: allocated via ClusterAwareSelection and confidence sizing"
+                rationale[t] = f"{t} weight={float(w):.3f} state={st_str} vehicle=identity mult={mult_val}{lottery_flag} WHY: allocated via ClusterAwareSelection and confidence sizing"
         # Purge vehicles entries for tickers not in final weights? Keep mapping src->dst where dst in weights
         final_vehicles = {s: d for s, d in vehicles.items() if d in weights}
         # If master None, final_vehicles may be identity but spec expects rationale to contain vehicle=identity

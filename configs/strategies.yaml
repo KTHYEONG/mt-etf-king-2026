@@ -38,6 +38,13 @@ portfolio:
     risk_on_regimes: ["RISK_ON", "STRONG_RISK_ON"]
     w_top_full: 1.0
     k_full: 1
+  lottery_exposure:
+    enabled: true
+    risk_on_regimes: ["RISK_ON", "STRONG_RISK_ON"]
+    w_top: 1.0
+    max_gross: 2.0
+    suppress_vehicle_gate: true
+    suppress_trim: true
 
 right_tail_weights:
   0.75: 0.2
