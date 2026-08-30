@@ -111,7 +111,10 @@
     "testing": "tests/unit/portfolio/test_sizing.py"
   },
   "src/tournament/distribution.py": {
-    "testing": "tests/unit/tournament/test_distribution.py"
+    "testing": [
+      "tests/unit/tournament/test_distribution.py",
+      "tests/unit/tournament/test_distribution_tail.py"
+    ]
   },
   "src/tournament/harness.py": {
     "testing": [
@@ -154,5 +157,8 @@
   "src/tournament/eval_mode.py": {
     "architecture": "docs/architecture/08-research-harness.md",
     "testing": "tests/unit/tournament/test_eval_mode.py"
+  },
+  "src/alpha/intensity.py": {
+    "testing": "tests/unit/alpha/test_intensity.py"
   }
 }
