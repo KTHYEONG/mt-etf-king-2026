@@ -4,8 +4,11 @@ from datetime import date
 import pytest
 
 from src.tournament.distribution import (
+    ReturnDistribution,
+    b1_gate_anchors_from_distribution,
     measure_vehicle_activity_from_allocate,
     preflight_features_span_ok,
+    score_seed_for_vehicle_probe,
     vehicle_activity_rate,
 )
 from src.universe.instruments import InstrumentAttributes, InstrumentMaster
@@ -64,9 +67,36 @@ def test_SCENARIO_10_09_measure_vehicle_activity() -> None:
         [date(2026, 1, 2), date(2026, 1, 3)],
         {date(2026, 1, 2): _Snap(), date(2026, 1, 3): _Snap()},
         True,
-        {"A1": 1.0},
+        {"A1": 1.0, "A2": 0.1},
     )
     assert rate == 1.0
+    seed = score_seed_for_vehicle_probe(master2)
+    assert len(seed) >= 2
+    rate_probe = measure_vehicle_activity_from_allocate(
+        policy,
+        [date(2026, 1, 2), date(2026, 1, 3)],
+        {date(2026, 1, 2): _Snap(), date(2026, 1, 3): _Snap()},
+        True,
+    )
+    assert rate_probe == 1.0
+
+
+def test_b1_gate_anchors_from_distribution() -> None:
+    dist = ReturnDistribution(
+        name="B1",
+        horizon=36,
+        returns=(0.1, 0.2),
+        n_windows=2,
+        n_effective=1,
+        quantiles={0.5: 0.15},
+        exceedance={0.3: 0.05, 0.4: 0.04},
+        cvar_05=-0.31,
+        right_tail_score=0.2,
+    )
+    p30, p40, cvar = b1_gate_anchors_from_distribution(dist)
+    assert abs(p30 - 0.05) < 1e-12
+    assert abs(p40 - 0.04) < 1e-12
+    assert abs(cvar - (-0.31)) < 1e-12
 
 
 def test_SCENARIO_10_09_preflight_span() -> None:
@@ -81,3 +111,4 @@ def test_SCENARIO_hyphen_wrapper(scenario_id: str) -> None:
     elif scenario_id == "SCENARIO-10-09":
         test_SCENARIO_10_09_measure_vehicle_activity()
         test_SCENARIO_10_09_preflight_span()
+        test_b1_gate_anchors_from_distribution()

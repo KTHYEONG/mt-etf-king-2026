@@ -102,3 +102,113 @@ def test_SCENARIO_07P_02_regime_gating() -> None:  # noqa: N802
     assert res_b5.trades.height == 0
     res_b4 = engine.run(BASELINES["B4"](), panel, config)
     assert res_b4.trades.height >= 1
+
+
+def test_engine_run_uses_cli_leverage_override() -> None:
+    from src.portfolio.policy import PortfolioPolicy
+    from src.portfolio.sizing import ConfidenceSizingConfig
+    from src.universe.instruments import InstrumentAttributes, InstrumentMaster
+    from src.universe.taxonomy import Taxonomy
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 1, 9))
+    rows = [
+        {
+            "date": d,
+            "ticker": "T1",
+            "name": "KODEX 200",
+            "close": 30000.0,
+            "open": 30000.0,
+            "high": 30300.0,
+            "low": 29700.0,
+            "is_tradable": True,
+            "trading_value": 5_000_000_000.0,
+            "underlying_index_name": "KOSPI 200",
+            "mom_20": 0.5,
+        }
+        for d in sessions
+    ] + [
+        {
+            "date": d,
+            "ticker": "T2",
+            "name": "KODEX 레버리지",
+            "close": 20000.0,
+            "open": 20000.0,
+            "high": 20200.0,
+            "low": 19800.0,
+            "is_tradable": True,
+            "trading_value": 5_000_000_000.0,
+            "underlying_index_name": "KOSPI 200",
+            "mom_20": 0.1,
+        }
+        for d in sessions
+    ]
+    panel = pl.DataFrame(rows)
+    taxonomy = Taxonomy(rules=[])
+    master = InstrumentMaster.build(panel, taxonomy, {})
+    a = master.attributes["T1"]
+    b = master.attributes["T2"]
+    fk = a.leverage_family_key
+    master2 = InstrumentMaster(
+        attributes={
+            "T1": a,
+            "T2": InstrumentAttributes(
+                ticker=b.ticker,
+                name=b.name,
+                issuer=b.issuer,
+                leverage_multiple=2,
+                leverage_family_key=fk,
+                is_synthetic=False,
+                is_hedged=False,
+                is_active=True,
+                index_key=a.index_key,
+                theme=a.theme,
+                first_seen=a.first_seen,
+                last_seen=a.last_seen,
+                left_censored=a.left_censored,
+                confidence=a.confidence,
+            ),
+        },
+        panel_start=master.panel_start,
+    )
+    from src.universe.provider import PointInTimeUniverse
+
+    engine, cal2, filt = build_engine(panel, warmup_sessions=1, max_order_to_adv=1.0)
+    universe2 = PointInTimeUniverse(panel, master2, cal2, adv_window=1, brand_map={})
+    filt2 = replace(filt, max_order_to_adv=1.0)
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1e9,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt2,
+        costs=CostConfig(0, 0, 0),
+    )
+    regimes = {d: RegimeSnapshot(as_of=d, state=RegimeState.RISK_ON, score=0.9, components={}) for d in sessions}
+    policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig(), master=master2, state_enabled=False)
+    policy.name = "P11"  # type: ignore[attr-defined]
+
+    def _score(snapshot, ctx):  # type: ignore[no-untyped-def]
+        out: dict[str, float] = {}
+        for row in snapshot.iter_rows(named=True):
+            t = str(row.get("ticker"))
+            v = row.get("mom_20")
+            if v is None:
+                continue
+            out[t] = float(v)
+        return out
+
+    policy.score = _score  # type: ignore[attr-defined]
+    engine_lev = BacktestEngine(
+        cal2,
+        universe2,
+        engine.features,
+        engine.execution,
+        regimes=regimes,
+        leverage_allowed=True,
+        inverse_allowed=False,
+    )
+    result = engine_lev.run(policy, panel, config)
+    traded = {str(t) for t in result.trades.select("ticker").to_series().to_list()} if result.trades.height > 0 else set()
+    assert "T2" in traded
