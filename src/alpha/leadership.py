@@ -39,6 +39,31 @@ class SectorScoreWeights:
         return cls(rs=rs, accel=accel, breadth=breadth)
 
 
+TRADABLE_THEME_STATES: frozenset[ThemeState] = frozenset({ThemeState.LEADING, ThemeState.RECOVERY})
+
+
+def filter_scores_by_theme_state(
+    scores: Mapping[str, float],
+    theme_states: Mapping[str, str],
+    tradable: frozenset[str] | None = None,
+) -> dict[str, float]:
+    if not scores:
+        return {}
+    if tradable is None:
+        tradable = frozenset({s.value for s in TRADABLE_THEME_STATES})
+    else:
+        tradable = frozenset(str(x) for x in tradable)
+    result: dict[str, float] = {}
+    for ticker, val in scores.items():
+        state = theme_states.get(ticker) if isinstance(theme_states, Mapping) else None
+        if state is None:
+            continue
+        state_str = str(state)
+        if state_str in tradable:
+            result[ticker] = float(val)
+    return result
+
+
 class SectorLeadershipModel:
     name: str = "M07"
 
@@ -58,6 +83,15 @@ class SectorLeadershipModel:
         self._theme_state: dict[str, ThemeState] = {}
         self._patience: dict[str, int] = {}
         self._metrics_history: dict[str, list[StateMetrics]] = {}
+        self._rep_by_theme: dict[str, str] = {}
+
+    def theme_states_by_representative(self) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for theme, state in self._theme_state.items():
+            rep = self._rep_by_theme.get(theme)
+            if rep is not None:
+                out[rep] = state.value if hasattr(state, "value") else str(state)
+        return out
 
     def replay_theme_state(self, theme: str) -> list[ThemeState]:
         return run_state_machine(self._metrics_history.get(theme, []), self._config, initial=ThemeState.DISCOVERY)
@@ -114,7 +148,9 @@ class SectorLeadershipModel:
             nxt, nxt_pat = transition(cur_state, state_metrics, self._config, patience_counter=cur_pat, validate=False)
             self._theme_state[theme] = nxt
             self._patience[theme] = nxt_pat
+            self._rep_by_theme[theme] = metrics.representative
             self._metrics_history.setdefault(theme, []).append(state_metrics)
             score_val = self._weights.sector_score(metrics.rs, metrics.accel, metrics.breadth)
             result[metrics.representative] = float(score_val)
-        return result
+        # INV-13-6: filter via theme state before return
+        return filter_scores_by_theme_state(result, self.theme_states_by_representative())
