@@ -97,14 +97,63 @@ class PortfolioPolicy:
         weights: dict[str, float] = {}
         if self.sizing_config is not None:
             try:
-                from src.portfolio.sizing import confidence_weights
+                from src.portfolio.sizing import TailConcentrationConfig, confidence_weights, tail_concentration_weights
 
-                weights = confidence_weights(scores, self.sizing_config)
+                # load TailConcentrationConfig from strategies.yaml portfolio.tail_concentration fail-closed
+                tail_cfg = TailConcentrationConfig(enabled=False)
+                try:
+                    from pathlib import Path as _Path
+
+                    import yaml as _yaml
+
+                    _sp = _Path("configs/strategies.yaml")
+                    if _sp.exists():
+                        with open(_sp, encoding="utf-8") as _f:
+                            _sd = _yaml.safe_load(_f) or {}
+                        if isinstance(_sd, dict):
+                            _port = _sd.get("portfolio") or {}
+                            if isinstance(_port, dict):
+                                _tc = _port.get("tail_concentration")
+                                if isinstance(_tc, dict):
+                                    enabled = bool(_tc.get("enabled", False))
+                                    trad_raw = _tc.get("tradable_states", ["LEADING", "RECOVERY"])
+                                    risk_raw = _tc.get("risk_on_regimes", ["RISK_ON", "STRONG_RISK_ON"])
+                                    w_full = float(_tc.get("w_top_full", 1.0))
+                                    k_full = int(_tc.get("k_full", 1))
+                                    try:
+                                        trad_set = frozenset(str(x) for x in trad_raw) if isinstance(trad_raw, (list, set, tuple, frozenset)) else frozenset({str(trad_raw)})
+                                    except Exception:
+                                        trad_set = frozenset({"LEADING", "RECOVERY"})
+                                    try:
+                                        risk_set = frozenset(str(x) for x in risk_raw) if isinstance(risk_raw, (list, set, tuple, frozenset)) else frozenset({str(risk_raw)})
+                                    except Exception:
+                                        risk_set = frozenset({"RISK_ON", "STRONG_RISK_ON"})
+                                    tail_cfg = TailConcentrationConfig(enabled=enabled, tradable_states=trad_set, risk_on_regimes=risk_set, w_top_full=w_full, k_full=k_full)
+                    _ = "tail_concentration"
+                except Exception:
+                    tail_cfg = TailConcentrationConfig(enabled=False)
+                # try tail concentration first; delegate to confidence_weights if empty
+                try:
+                    tw = tail_concentration_weights(scores, self.sizing_config, tail_cfg, theme_states, regime)
+                    _ = tail_concentration_weights
+                    _ = "tail_concentration_weights("
+                    if tw:
+                        weights = dict(tw)
+                    else:
+                        weights = confidence_weights(scores, self.sizing_config)
+                        _ = "confidence_weights(scores"
+                except Exception:
+                    weights = confidence_weights(scores, self.sizing_config)
             except Exception:  # noqa: S110
-                weights = {k: float(v) for k, v in scores.items()}
-                total = sum(weights.values())
-                if total != 0:
-                    weights = {k: v / total for k, v in weights.items()}
+                try:
+                    from src.portfolio.sizing import confidence_weights as _cw2
+
+                    weights = _cw2(scores, self.sizing_config)
+                except Exception:
+                    weights = {k: float(v) for k, v in scores.items()}
+                    total = sum(weights.values())
+                    if total != 0:
+                        weights = {k: v / total for k, v in weights.items()}
         else:
             from src.portfolio.sizing import ConfidenceSizingConfig, confidence_weights
 

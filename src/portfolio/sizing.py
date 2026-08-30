@@ -66,6 +66,63 @@ class ConfidenceSizingConfig:
     k: int = 3
 
 
+@dataclass(frozen=True)
+class TailConcentrationConfig:
+    enabled: bool = False
+    tradable_states: frozenset[str] = frozenset({"LEADING", "RECOVERY"})
+    risk_on_regimes: frozenset[str] = frozenset({"RISK_ON", "STRONG_RISK_ON"})
+    w_top_full: float = 1.0
+    k_full: int = 1
+
+
+def tail_concentration_weights(
+    scores: Mapping[str, float],
+    base_config: ConfidenceSizingConfig,
+    tail_config: TailConcentrationConfig,
+    theme_states: Mapping[str, str] | None,
+    regime: str | None,
+) -> dict[str, float]:
+    if not scores:
+        return {}
+    if tail_config is None or not bool(getattr(tail_config, "enabled", False)):
+        return confidence_weights(scores, base_config)
+    try:
+        risk_on = frozenset(str(x) for x in getattr(tail_config, "risk_on_regimes", frozenset({"RISK_ON", "STRONG_RISK_ON"})))
+    except Exception:
+        risk_on = frozenset({"RISK_ON", "STRONG_RISK_ON"})
+    regime_str = str(regime) if regime is not None else None
+    if regime_str not in risk_on:
+        return confidence_weights(scores, base_config)
+    if not isinstance(theme_states, Mapping) or not theme_states:
+        return confidence_weights(scores, base_config)
+    try:
+        tradable = frozenset(str(x) for x in getattr(tail_config, "tradable_states", frozenset({"LEADING", "RECOVERY"})))
+    except Exception:
+        tradable = frozenset({"LEADING", "RECOVERY"})
+    sorted_items = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    top_ticker = sorted_items[0][0]
+    top_state = theme_states.get(top_ticker)
+    if top_state is None:
+        return confidence_weights(scores, base_config)
+    top_str = str(top_state)
+    if top_str not in tradable:
+        return confidence_weights(scores, base_config)
+    if top_str not in {"LEADING", "RECOVERY"}:
+        return confidence_weights(scores, base_config)
+    try:
+        conf = compute_confidence(scores)
+        c0 = float(getattr(base_config, "c0", 0.027174))
+    except Exception:
+        return confidence_weights(scores, base_config)
+    if conf < c0 - 1e-12:
+        return confidence_weights(scores, base_config)
+    try:
+        w = float(getattr(tail_config, "w_top_full", 1.0))
+    except Exception:
+        w = 1.0
+    return {top_ticker: float(w)}
+
+
 def confidence_vehicle_gate(w_top: float, config: ConfidenceSizingConfig, vehicle_conf_min: float) -> bool:
     try:
         w_max = float(config.w_max)
