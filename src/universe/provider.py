@@ -222,6 +222,10 @@ class PointInTimeUniverse:
         self._adv_map: dict[str, dict[date, float]] = {}
         self._build_adv()
 
+    @property
+    def master(self) -> InstrumentMaster:
+        return self._master
+
     def _build_adv(self) -> None:
         if self._panel.height == 0:
             return

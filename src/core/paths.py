@@ -54,3 +54,9 @@ class DataPaths:
         rel = Path("state") / f"{name}.json"
         candidate = self.root / rel
         return self._guard(candidate)
+
+    def trace(self, run_id: str) -> Path:
+        self._check_part(run_id)
+        rel = Path("results") / run_id / "trace"
+        candidate = self.root / rel
+        return self._guard(candidate)
