@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_13_P12_LEADERSHIP_TAIL_UPLIFT",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_13_P12_LEADERSHIP_TAIL_UPLIFT",
+      "domain": "tournament",
+      "title": "P12 Leadership Tail Uplift — M07 alpha · theme-state filter · tail concentration",
+      "why": "P11 adoption FAIL on tail (P>30%=2.0% vs B1 4.1%) despite CVaR/giveback edge; M07 leadership implemented but not stacked with P11 portfolio path.",
+      "resolution": "Implemented P12 (M07+canonical+P11 policy), filter_scores_by_theme_state, theme_states_by_representative engine wiring, tail_concentration_weights, BASELINES/CLI adoption gates; SCENARIO-13 pass lean_check; KRX 2018-2026 P12 P>30%=2.39% median=0% CVaR=-10.0% giveback=0.16%; adoption gate FAIL (tail); vehicle_activity false-negative from post-rolling probe (session-path mult2 ~20%).",
+      "impact": "L4/L5: P12 operational in harness; tail +0.38pp vs P11 but below B1; downside preserved; vehicle gate measurement needs session-path fix; tournament fallback remains B1."
+    },
+    {
       "task_id": "TASK_12_TOURNAMENT_ADOPTION_ALIGN",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_12_TOURNAMENT_ADOPTION_ALIGN",
