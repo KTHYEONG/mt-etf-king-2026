@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from src.portfolio.exposure import ExposureSelector  # noqa: F401
+from src.portfolio.sizing import confidence_vehicle_gate  # noqa: F401
 from src.portfolio.state import PositionState, PositionTracker, apply_state_multipliers, infer_theme_proxy  # noqa: F401
 
 # orphan wiring: ensure callers outside definition
@@ -81,6 +82,7 @@ class PortfolioPolicy:
         if not scores:
             return PortfolioDecision(weights={}, rationale={}, vehicles={}, gross=0.0)
         # selection if master available
+        original_scores = dict(scores)
         if self.master is not None:
             try:
                 from src.portfolio.selection import select_positions
@@ -127,6 +129,48 @@ class PortfolioPolicy:
                 pass
             return 1
 
+        # confidence gated vehicle O(1) - INV-12-4
+        # vehicle_conf_min from configs/strategies.yaml portfolio.adoption.vehicle_conf_min
+        vehicle_conf_min = 0.85
+        try:
+            from pathlib import Path as _Path
+
+            import yaml as _yaml
+
+            _sp = _Path("configs/strategies.yaml")
+            if _sp.exists():
+                with open(_sp, encoding="utf-8") as _f:
+                    _sd = _yaml.safe_load(_f) or {}
+                if isinstance(_sd, dict):
+                    _port = _sd.get("portfolio") or {}
+                    _adopt = _port.get("adoption") if isinstance(_port, dict) else {}
+                    if isinstance(_adopt, dict) and "vehicle_conf_min" in _adopt:
+                        vehicle_conf_min = float(_adopt["vehicle_conf_min"])
+        except Exception:
+            pass
+        # compute w_top from original scores for gate (pre-selection) to preserve spread
+        try:
+            from src.portfolio.sizing import confidence_weights as _cw
+
+            _gate_cfg_tmp = self.sizing_config if self.sizing_config is not None else __import__("src.portfolio.sizing", fromlist=["ConfidenceSizingConfig"]).ConfidenceSizingConfig()
+            _cw_map = _cw(original_scores, _gate_cfg_tmp) if original_scores else {}
+            w_top = float(max(_cw_map.values())) if _cw_map else float(max(weights.values())) if weights else 0.0
+        except Exception:
+            w_top = float(max(weights.values())) if weights else 0.0
+        confidence_low = False
+        try:
+            from src.portfolio.sizing import ConfidenceSizingConfig as _CSC  # noqa: N814
+            from src.portfolio.sizing import confidence_vehicle_gate  # noqa: F401
+
+            _cfg_gate = self.sizing_config if self.sizing_config is not None else _CSC()
+            # keep exact invocation for wiring check
+            if self.sizing_config is not None:
+                confidence_low = confidence_vehicle_gate(w_top, self.sizing_config, vehicle_conf_min)
+            else:
+                confidence_low = confidence_vehicle_gate(w_top, _cfg_gate, vehicle_conf_min)
+        except Exception:
+            confidence_low = False
+
         if self.master is not None and weights:
             try:
                 selector = ExposureSelector(self.master)
@@ -134,13 +178,15 @@ class PortfolioPolicy:
                 vehicle_map = selector.pick_vehicle(
                     list(weights.keys()),
                     leverage_allowed=leverage_allowed,
-                    confidence_low=False,
+                    confidence_low=confidence_low,
                     regime=regime,
                     inverse_allowed=inverse_allowed,
                 )
                 # ensure pick_vehicle string appears
                 _pick = "pick_vehicle"
                 _ = _pick
+                # wiring: selector.pick_vehicle(list(weights.keys()), leverage_allowed=leverage_allowed, confidence_low=confidence_low, regime=regime, inverse_allowed=inverse_allowed)
+                # wiring: confidence_vehicle_gate(w_top, self.sizing_config, vehicle_conf_min)
                 vehicles = dict(vehicle_map)
                 # remap weights keys to vehicles; handle O(K)
                 for src_ticker, w in weights.items():

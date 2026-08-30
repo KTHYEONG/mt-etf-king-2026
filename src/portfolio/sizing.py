@@ -66,6 +66,18 @@ class ConfidenceSizingConfig:
     k: int = 3
 
 
+def confidence_vehicle_gate(w_top: float, config: ConfidenceSizingConfig, vehicle_conf_min: float) -> bool:
+    try:
+        w_max = float(config.w_max)
+    except Exception:
+        w_max = 1.0
+    try:
+        thr = float(vehicle_conf_min) * w_max
+    except Exception:
+        thr = 0.85 * w_max
+    return float(w_top) < thr
+
+
 def confidence_weights(scores: Mapping[str, float], config: ConfidenceSizingConfig) -> dict[str, float]:
     if not scores:
         return {}

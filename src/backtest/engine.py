@@ -19,6 +19,7 @@ from src.portfolio.constraints import normalize_weights
 from src.portfolio.policy import PortfolioPolicy
 from src.portfolio.sizing import SizingScheme, weights_from_scores
 from src.universe.provider import PointInTimeUniverse, UniverseFilters
+from src.universe.tournament import TournamentRules
 
 _build_close_map_ref = build_close_map  # noqa: F401
 
@@ -56,12 +57,75 @@ class BacktestEngine:
         features: FeatureBuilder,
         execution: NextOpenExecution,
         regimes: Mapping[date, RegimeSnapshot] | None = None,
+        leverage_allowed: bool | None = None,
+        inverse_allowed: bool | None = None,
     ) -> None:
         self.calendar = calendar
         self.universe = universe
         self.features = features
         self.execution = execution
         self.regimes: Mapping[date, RegimeSnapshot] | None = regimes
+        self.leverage_allowed = leverage_allowed
+        self.inverse_allowed = inverse_allowed
+
+    def _resolve_allocate_leverage(
+        self,
+        rules: object,
+    ) -> tuple[bool | None, bool | None]:
+        lev_allowed: bool | None = None
+        inv_allowed: bool | None = None
+        if self.leverage_allowed is not None:
+            lev_allowed = bool(self.leverage_allowed)
+        if self.inverse_allowed is not None:
+            inv_allowed = bool(self.inverse_allowed)
+        if lev_allowed is not None and inv_allowed is not None:
+            return lev_allowed, inv_allowed
+        try:
+            from src.universe.tournament import UNKNOWN as _UNK
+
+            if lev_allowed is None:
+                la = getattr(rules, "leverage_allowed", None)
+                if la is _UNK or (isinstance(la, str) and la.lower() == "unknown"):
+                    lev_allowed = None
+                elif isinstance(la, bool):
+                    lev_allowed = bool(la)
+                elif la is None:
+                    lev_allowed = None
+                else:
+                    try:
+                        lev_allowed = None if str(la) == "UNKNOWN" else bool(la)
+                    except Exception:
+                        lev_allowed = None
+            if inv_allowed is None:
+                ia = getattr(rules, "inverse_allowed", None)
+                if ia is _UNK or (isinstance(ia, str) and ia.lower() == "unknown"):
+                    inv_allowed = None
+                elif isinstance(ia, bool):
+                    inv_allowed = bool(ia)
+                elif ia is None:
+                    inv_allowed = None
+                else:
+                    inv_allowed = None if str(ia) == "UNKNOWN" else bool(ia)
+        except Exception:
+            pass
+        return lev_allowed, inv_allowed
+
+    def _patch_rules_leverage(self, rules: TournamentRules) -> TournamentRules:
+        if self.leverage_allowed is None and self.inverse_allowed is None:
+            return rules
+        try:
+            from dataclasses import replace as _replace
+
+            patches: dict[str, bool] = {}
+            if self.leverage_allowed is not None:
+                patches["leverage_allowed"] = bool(self.leverage_allowed)
+            if self.inverse_allowed is not None:
+                patches["inverse_allowed"] = bool(self.inverse_allowed)
+            if not patches:
+                return rules
+            return _replace(rules, **patches)  # type: ignore[arg-type]
+        except Exception:
+            return rules
 
     def run(
         self,
@@ -150,8 +214,6 @@ class BacktestEngine:
             except Exception:
                 snapshot = panel.filter(pl.col("date") == decision_date) if "date" in panel.columns else panel
 
-            from src.universe.tournament import TournamentRules
-
             try:
                 rules = TournamentRules.from_yaml(__import__("pathlib").Path("configs/tournament.yaml"))
             except Exception:
@@ -175,6 +237,7 @@ class BacktestEngine:
                     max_order_to_adv=filt.max_order_to_adv,
                     stress_grid=(0.01, 0.02, 0.05, 0.10),
                 )
+            rules = self._patch_rules_leverage(rules)
             regime_snap = None
             if self.regimes is not None:
                 regime_snap = self.regimes.get(decision_date)
@@ -204,36 +267,7 @@ class BacktestEngine:
                                 regime_str = str(getattr(rs, "value", str(rs)))
                     except Exception:
                         regime_str = None
-                    lev_allowed = None
-                    inv_allowed = None
-                    try:
-                        from src.universe.tournament import UNKNOWN as _UNK
-
-                        la = getattr(rules, "leverage_allowed", None)
-                        if la is _UNK or (isinstance(la, str) and la.lower() == "unknown"):
-                            lev_allowed = None
-                        elif isinstance(la, bool):
-                            lev_allowed = bool(la)
-                        elif la is None:
-                            lev_allowed = None
-                        else:
-                            # treat unknown-like objects via string check
-                            try:
-                                lev_allowed = None if str(la) == "UNKNOWN" else bool(la)
-                            except Exception:
-                                lev_allowed = None
-                        ia = getattr(rules, "inverse_allowed", None)
-                        if ia is _UNK or (isinstance(ia, str) and ia.lower() == "unknown"):
-                            inv_allowed = None
-                        elif isinstance(ia, bool):
-                            inv_allowed = bool(ia)
-                        elif ia is None:
-                            inv_allowed = None
-                        else:
-                            inv_allowed = None if str(ia) == "UNKNOWN" else bool(ia)
-                    except Exception:
-                        lev_allowed = None
-                        inv_allowed = None
+                    lev_allowed, inv_allowed = self._resolve_allocate_leverage(rules)
                     # PortfolioPolicy path: model.allocate with regime and leverage_allowed
                     try:
                         alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)
