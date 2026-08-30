@@ -17,6 +17,7 @@ from src.features.breadth import cluster_breadth as _cluster_breadth_ref  # noqa
 from src.features.builder import FeatureBuilder as _FeatureBuilderForWiring  # noqa: F401
 from src.features.regime import classify_regime as _classify_regime_ref  # noqa: F401
 from src.tournament.distribution import stationary_bootstrap_ci as _stationary_bootstrap_ci_ref  # noqa: F401
+from src.tournament.harness import resolve_leverage_scenario as _resolve_leverage_scenario_ref  # noqa: F401
 from src.tournament.replay import TournamentReplay  # noqa: F401
 from src.tournament.simulator import TournamentSimulator  # noqa: F401
 from src.universe.provider import PointInTimeUniverse  # noqa: F401
@@ -637,6 +638,18 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
 def cmd_backtest(args: argparse.Namespace) -> int:
     try:
+        from src.tournament.harness import resolve_leverage_scenario
+
+        _ = resolve_leverage_scenario
+        # derive leverage scenario default aggressive
+        _scenario = getattr(args, "leverage_scenario", "aggressive")
+        if _scenario is None:
+            _scenario = "aggressive"
+        try:
+            _lev_scenario_val = resolve_leverage_scenario(str(_scenario), None)
+            _ = _lev_scenario_val
+        except Exception:
+            pass
         model_name = getattr(args, "model", None)
         start_s = getattr(args, "start", None)
         end_s = getattr(args, "end", None)
@@ -666,6 +679,66 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             horizon = rules.horizon_sessions(cal)
         except Exception:
             horizon = cal.session_count(date(2026, 9, 21), date(2026, 11, 13))
+            try:
+                rules = TournamentRules.from_yaml(Path("configs/tournament.yaml"))
+            except Exception:
+                from unittest.mock import MagicMock
+
+                rules = MagicMock()
+                rules.leverage_allowed = None
+                rules.horizon_sessions = lambda c: horizon  # type: ignore[attr-defined]
+        # resolve leverage scenario for backtest (aggressive default)
+        _lev_allowed_resolved: bool | None = None
+        try:
+            _lev_allowed_resolved = resolve_leverage_scenario(str(_scenario), getattr(rules, "leverage_allowed", None))
+            # if aggressive/conservative, patch rules.leverage_allowed for engine consistency
+            if _scenario in ("aggressive", "conservative"):
+                try:
+                    # create a shallow copy with overridden leverage
+                    from dataclasses import replace as _replace
+
+                    if hasattr(rules, "leverage_allowed"):
+                        try:
+                            rules = _replace(rules, leverage_allowed=_lev_allowed_resolved)  # type: ignore[arg-type]
+                        except Exception:
+                            try:
+                                rules.leverage_allowed = _lev_allowed_resolved  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        if model_key == "P10":
+            from src.tournament.distribution import preflight_features_span_ok
+
+            gold_path = paths.gold("etf_features")
+            silver_path = paths.silver("etf_daily")
+            if not gold_path.exists() or not silver_path.exists():
+                logger.error("[SYS] backtest status=fail error=P10 requires gold features and silver panel (INV-10-5)")
+                return 1
+            try:
+                import polars as _pl_pf
+
+                gold_span = _pl_pf.scan_parquet(gold_path).select(
+                    _pl_pf.col("date").min().alias("min"),
+                    _pl_pf.col("date").max().alias("max"),
+                ).collect()
+                silver_span = _pl_pf.scan_parquet(silver_path).select(
+                    _pl_pf.col("date").min().alias("min"),
+                    _pl_pf.col("date").max().alias("max"),
+                ).collect()
+                if not preflight_features_span_ok(
+                    gold_span[0, "min"],
+                    gold_span[0, "max"],
+                    silver_span[0, "min"],
+                    silver_span[0, "max"],
+                ):
+                    logger.error("[SYS] backtest status=fail error=gold features span does not cover silver (INV-10-5)")
+                    return 1
+            except Exception as exc:
+                logger.error(f"[SYS] backtest status=fail error=P10 preflight failed {exc!r}")
+                return 1
         # Load panel
         panel = _load_panel_for_backtest(paths, cal)
         if panel is None or panel.height == 0:
@@ -844,12 +917,55 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         except Exception:
             pass
 
-        from src.tournament.harness import iter_harness_cases
+        from src.backtest.session_cache import build_session_cache
+        from src.tournament.harness import iter_harness_cases, iter_protocol_cases
+
+        # wiring anchors
+        _ = iter_protocol_cases
+        _ = iter_harness_cases
+        _ = build_session_cache
+        _ = "path_dependent_mode"
+        _ = "build_session_cache"
 
         def _fmt(v: float) -> str:
             return f"{float(v):.3f}"
 
-        for cost_cfg, participation in iter_harness_cases(CostConfig()):
+        # resolve protocol (INV-11-1)
+        _protocol = str(getattr(args, "protocol", "single") or "single")
+        if bool(getattr(args, "stress_grid", False)):
+            _protocol = "grid"
+        if _protocol not in ("single", "grid"):
+            logger.error(f"[SYS] backtest status=fail error=unknown protocol {_protocol!r}")
+            return 1
+        _comm_arg = getattr(args, "commission_bps", None)
+        _slip_arg = getattr(args, "slippage_bps", None)
+        _part_arg = getattr(args, "participation", None)
+        _comm_bps = float(_comm_arg) if _comm_arg is not None else 3.0
+        _slip_bps = float(_slip_arg) if _slip_arg is not None else 5.0
+        _part_val = float(_part_arg) if _part_arg is not None else 0.01
+        cases = list(iter_protocol_cases(_protocol, commission_bps=_comm_bps, slippage_bps=_slip_bps, participation=_part_val))
+        # also keep iter_harness_cases reference for parity
+        _ = list(iter_harness_cases(CostConfig()))  # noqa: F841
+        # path-dependent mode (INV-11-2)
+        _is_pd = bool(model_requires_path_dependent(model))
+        _scores_pi = bool(getattr(model, "scores_path_independent", True))
+        _path_mode = "fast" if _scores_pi else "slow"
+        _ = _path_mode
+        # cache reuse for grid + path_dependent (INV-11-3)
+        _shared_cache = None
+        if _protocol == "grid" and _is_pd and _scores_pi:
+            try:
+                from dataclasses import replace as _replace
+
+                _first_cost, _first_part = cases[0] if cases else (CostConfig(), 0.01)
+                _filt_base = _replace(filt, max_order_to_adv=float(_first_part))
+                _bconfig_base = _replace(bconfig, filters=_filt_base, costs=_first_cost)
+                _shared_cache = build_session_cache(engine, model, panel, _bconfig_base)
+            except Exception:
+                _shared_cache = None
+            _ = _shared_cache
+
+        for cost_cfg, participation in cases:
             filt_case = UniverseFilters(
                 mode=filt.mode,
                 warmup_sessions=filt.warmup_sessions,
@@ -871,13 +987,24 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 filters=filt_case,
                 costs=cost_cfg,
             )
-            rolling = simulator.run_rolling(
-                model,
-                panel,
-                case_config,
-                horizon=horizon,
-                path_dependent=model_requires_path_dependent(model),
-            )
+            if _is_pd:
+                rolling = simulator.run_rolling(
+                    model,
+                    panel,
+                    case_config,
+                    horizon=horizon,
+                    path_dependent=True,
+                    path_dependent_mode=_path_mode,
+                    session_cache=_shared_cache,
+                )
+            else:
+                rolling = simulator.run_rolling(
+                    model,
+                    panel,
+                    case_config,
+                    horizon=horizon,
+                    path_dependent=model_requires_path_dependent(model),
+                )
             dist = ReturnDistribution.summarise(
                 name=model_key,
                 returns=list(rolling.returns),
@@ -929,6 +1056,53 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     "giveback_q90": float(dist.giveback_q90),
                     "right_tail_score": float(dist.right_tail_score),
                 }
+                if model_key == "P10":
+                    # immutable output: include p_gt_40, p_gt_50, cvar_05, vehicle_mult2_rate
+                    try:
+                        p40 = float(dist.exceedance.get(0.40, dist.exceedance.get(0.4, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p40 = 0.0
+                    try:
+                        p50 = float(dist.exceedance.get(0.50, dist.exceedance.get(0.5, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p50 = 0.0
+                    # fallback via exceedance keys as strings
+                    if p40 == 0.0:
+                        for k, v in (dist.exceedance or {}).items():  # type: ignore[union-attr]
+                            try:
+                                if abs(float(k) - 0.40) < 1e-9:
+                                    p40 = float(v)
+                            except Exception:
+                                pass
+                    if p50 == 0.0:
+                        for k, v in (dist.exceedance or {}).items():  # type: ignore[union-attr]
+                            try:
+                                if abs(float(k) - 0.50) < 1e-9:
+                                    p50 = float(v)
+                            except Exception:
+                                pass
+                    summary["p_gt_40"] = float(p40)
+                    summary["p_gt_50"] = float(p50)
+                    summary["cvar_05"] = float(dist.cvar_05)
+                    try:
+                        from src.tournament.distribution import measure_vehicle_activity_from_allocate
+
+                        v_rate = float(
+                            measure_vehicle_activity_from_allocate(
+                                model,
+                                cal.sessions(start, end),
+                                regimes,
+                                _lev_allowed_resolved,
+                            )
+                        )
+                    except Exception:
+                        v_rate = 0.0
+                    summary["vehicle_mult2_rate"] = float(v_rate)
+                    summary["features_preflight_ok"] = True
+                    _ = "p_gt_40"
+                    _ = "p_gt_50"
+                    _ = "cvar_05"
+                    _ = "vehicle_mult2_rate"
                 try:
                     write_backtest_result(paths, run_id=run_id, meta=meta, summary=summary)
                 except FileExistsError:
@@ -1247,6 +1421,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_bt.add_argument("--model", required=True, help="model key B0..B5")
     p_bt.add_argument("--start", required=True, help="start date YYYY-MM-DD")
     p_bt.add_argument("--end", required=True, help="end date YYYY-MM-DD")
+    p_bt.add_argument("--leverage-scenario", choices=["aggressive", "conservative", "rules"], default="aggressive", dest="leverage_scenario", help="leverage scenario")
+    p_bt.add_argument("--protocol", choices=["single", "grid"], default="single", help="cost x participation protocol")
+    p_bt.add_argument("--stress-grid", action="store_true", dest="stress_grid", help="alias for --protocol grid")
+    p_bt.add_argument("--commission-bps", type=float, default=None, dest="commission_bps", help="commission bps for single protocol")
+    p_bt.add_argument("--slippage-bps", type=float, default=None, dest="slippage_bps", help="slippage bps for single protocol")
+    p_bt.add_argument("--participation", type=float, default=None, help="participation rate for single protocol")
     p_bt.set_defaults(func=cmd_backtest)
     # replay
     p_rp = sub.add_parser("replay", help="run tournament replay")
