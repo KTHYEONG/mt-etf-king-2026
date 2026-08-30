@@ -175,5 +175,8 @@
   },
   "src/tournament/eval_cache.py": {
     "testing": "tests/unit/tournament/test_eval_cache.py"
+  },
+  "src/portfolio/convexity.py": {
+    "testing": "tests/unit/portfolio/test_convexity.py"
   }
 }

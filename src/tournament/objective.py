@@ -251,3 +251,79 @@ def evaluate_p15_adoption_report(
         )
         return P15AdoptionReport(status=status, failures=tuple(failures), objective=objective)
     return P15AdoptionReport(status="PASS", failures=(), objective=objective)
+
+
+@dataclass(frozen=True)
+class P16AdoptionReport:
+    status: str
+    failures: tuple[str, ...]
+    objective: ObjectiveGateResult | None = None
+
+
+def evaluate_p16_adoption_report(
+    *,
+    p16: ReturnDistribution,
+    b1: ReturnDistribution,
+    b0: ReturnDistribution,
+    p14: ReturnDistribution,
+    config: ObjectiveGateConfig,
+    artifacts_complete: bool,
+    leverage_scenarios: Sequence[str],
+    skip_capacity_violations: int,
+    vehicle_mult2_rate: float,
+) -> P16AdoptionReport:
+    failures: list[str] = []
+    if not artifacts_complete:
+        failures.append("MISSING_ARTIFACT")
+    if (
+        p16.n_effective < 1
+        or b1.n_effective < 1
+        or b0.n_effective < 1
+        or p14.n_effective < 1
+        or not p16.returns
+        or not b1.returns
+        or not b0.returns
+        or not p14.returns
+    ):
+        return P16AdoptionReport(
+            status="INSUFFICIENT_EVIDENCE",
+            failures=tuple(failures or ("INSUFFICIENT_SAMPLE",)),
+            objective=None,
+        )
+    if not {"aggressive", "conservative"} <= set(leverage_scenarios):
+        failures.append("LEVERAGE_SCENARIOS")
+    p30_p16 = _dist_exceedance(p16, 0.30)
+    p40_p16 = _dist_exceedance(p16, 0.40)
+    p50_p16 = _dist_exceedance(p16, 0.50)
+    p30_b1 = _dist_exceedance(b1, 0.30)
+    p40_b1 = _dist_exceedance(b1, 0.40)
+    p50_b1 = _dist_exceedance(b1, 0.50)
+    if p30_p16 < p30_b1 - 1e-12:
+        failures.append("P30_VS_B1")
+    if p40_p16 < p40_b1 - 1e-12:
+        failures.append("P40_VS_B1")
+    if p50_p16 < p50_b1 - 1e-12:
+        failures.append("P50_VS_B1")
+    ruin_p16 = ruin_probability(p16.returns, config.g2a_ruin_threshold)
+    ruin_p14 = ruin_probability(p14.returns, config.g2a_ruin_threshold)
+    if ruin_p16 > float(config.g2a_max_prob) + 1e-12:
+        failures.append("G2A_RUIN")
+    if ruin_p16 > ruin_p14 + 0.01 + 1e-12:
+        failures.append("RUIN_VS_P14")
+    if int(skip_capacity_violations) > 0:
+        failures.append("CAPACITY_ON_CONVEXITY")
+    if float(vehicle_mult2_rate) < 0.25 - 1e-12:
+        failures.append("VEHICLE_ACTIVITY")
+    objective = evaluate_objective_gates(p16, b0, config)
+    if objective.status == "INSUFFICIENT_EVIDENCE":
+        failures.append("INSUFFICIENT_SAMPLE")
+    elif objective.status == "FAIL":
+        failures.extend(list(objective.failures))
+    if failures:
+        status = (
+            "INSUFFICIENT_EVIDENCE"
+            if all(f in {"MISSING_ARTIFACT", "INSUFFICIENT_SAMPLE"} for f in failures)
+            else "FAIL"
+        )
+        return P16AdoptionReport(status=status, failures=tuple(failures), objective=objective)
+    return P16AdoptionReport(status="PASS", failures=(), objective=objective)
