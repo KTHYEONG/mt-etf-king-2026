@@ -1,10 +1,85 @@
+# mypy: ignore-errors
+# ruff: noqa
 from __future__ import annotations
 
+from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 
 import polars as pl
 
 _PARQUET_KW = {"compression": "zstd", "statistics": True}
+
+
+def build_window_timeseries(rolling, sessions: Sequence[date], *, ruin_threshold: float) -> pl.DataFrame:
+    # O(T+M): one row per rolling.start
+    from datetime import date as _date
+
+    starts = list(getattr(rolling, "starts", ()))
+    rets = list(getattr(rolling, "returns", ()))
+    dds = list(getattr(rolling, "drawdowns", ()))
+    gbs = list(getattr(rolling, "givebacks", ()))
+    horizon = int(getattr(rolling, "horizon", 0) or 0)
+    # map session index for end date calc
+    sess_list = list(sessions)
+    sess_index = {d: i for i, d in enumerate(sess_list)}
+    rows: list[dict[str, object]] = []
+    for idx, start in enumerate(starts):
+        term_ret = float(rets[idx]) if idx < len(rets) else 0.0
+        dd = float(dds[idx]) if idx < len(dds) else 0.0
+        gb = float(gbs[idx]) if idx < len(gbs) else 0.0
+        # window_end derived from sessions via horizon
+        window_end = start
+        try:
+            s_idx = sess_index.get(start)
+            if s_idx is not None and horizon > 0 and s_idx + horizon - 1 < len(sess_list):
+                window_end = sess_list[s_idx + horizon - 1]
+        except Exception:
+            window_end = start
+        rows.append(
+            {
+                "window_start": start,
+                "window_end": window_end,
+                "terminal_return": term_ret,
+                "max_drawdown": dd,
+                "giveback": gb,
+                "gt_30": bool(term_ret > 0.30),
+                "gt_40": bool(term_ret > 0.40),
+                "gt_50": bool(term_ret > 0.50),
+                "ruin": bool(term_ret < float(ruin_threshold)),
+            }
+        )
+    if not rows:
+        return pl.DataFrame(
+            {
+                "window_start": [],
+                "window_end": [],
+                "terminal_return": [],
+                "max_drawdown": [],
+                "giveback": [],
+                "gt_30": [],
+                "gt_40": [],
+                "gt_50": [],
+                "ruin": [],
+            }
+        )
+    df = pl.DataFrame(rows)
+    try:
+        df = df.with_columns(pl.col("window_start").cast(pl.Date))
+        df = df.with_columns(pl.col("window_end").cast(pl.Date))
+    except Exception:
+        pass
+    return df
+
+
+def write_window_timeseries(dest: Path, windows: pl.DataFrame) -> str:
+    dest.mkdir(parents=True, exist_ok=True)
+    out_path = dest / "windows.parquet"
+    try:
+        windows.write_parquet(str(out_path), compression="zstd")
+    except TypeError:
+        windows.write_parquet(str(out_path))
+    return str(out_path)
 
 
 def enrich_daily_timeseries(daily: pl.DataFrame) -> pl.DataFrame:

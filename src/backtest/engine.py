@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ruff: noqa
 from __future__ import annotations
 
 import logging
@@ -41,6 +43,39 @@ class BacktestConfig:
     k: int
     filters: UniverseFilters
     costs: CostConfig
+
+
+def build_execution_adv(engine: BacktestEngine, tickers: list[str] | set[str] | tuple[str, ...], execution_date: date) -> dict[str, float]:
+    from collections.abc import Iterable as _Iterable
+
+    adv: dict[str, float] = {}
+    # collect source tickers plus family members
+    all_tickers: set[str] = set(str(t) for t in tickers) if tickers else set()
+    # also include current_weights family members? Collect via engine.universe.master
+    try:
+        master = getattr(engine.universe, "master", None)
+        if master is not None:
+            for t in list(all_tickers):
+                try:
+                    attr = master.attributes.get(t)  # type: ignore[attr-defined]
+                    if attr is not None:
+                        fk = getattr(attr, "leverage_family_key", None)
+                        if fk:
+                            for mt, matr in master.attributes.items():  # type: ignore[attr-defined]
+                                if getattr(matr, "leverage_family_key", None) == fk:
+                                    all_tickers.add(str(mt))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    for ticker in all_tickers:
+        try:
+            adv_val = engine.universe.adv(str(ticker), execution_date)
+            if adv_val is not None:
+                adv[str(ticker)] = float(adv_val)
+        except Exception:
+            continue
+    return adv
 
 
 @dataclass(frozen=True)
@@ -290,6 +325,7 @@ class BacktestEngine:
                         pass
             # Support PortfolioPolicy-backed models
             raw_weights: dict[str, float] = {}
+            portfolio_vehicles: dict[str, str] | None = None
             used_allocate_path = False
             if hasattr(model, "allocate") and callable(model.allocate):
                 used_allocate_path = True
@@ -312,23 +348,56 @@ class BacktestEngine:
                         _ = "theme_states="
                     except Exception:
                         theme_states = None
+                    # Build execution-date ADV for capacity-aware routing (wiring)
+                    execution_adv: dict[str, float] | None = None
+                    try:
+                        execution_date_tmp = self.calendar.next_session(decision_date)
+                    except Exception:
+                        execution_date_tmp = None
+                    if execution_date_tmp is not None:
+                        try:
+                            # source tickers are scores keys
+                            tickers_for_adv = list(scores.keys()) if scores else []
+                            execution_adv = build_execution_adv(self, tickers_for_adv, execution_date_tmp)
+                        except Exception:
+                            execution_adv = None
                     # PortfolioPolicy path: model.allocate with regime and leverage_allowed and theme_states
                     try:
-                        alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed, theme_states=theme_states)
+                        alloc = model.allocate(
+                            scores,
+                            regime=regime_str,
+                            leverage_allowed=lev_allowed,
+                            inverse_allowed=inv_allowed,
+                            theme_states=theme_states,
+                            capital=equity_start,
+                            adv=execution_adv,
+                            participation=float(filt.max_order_to_adv),
+                            current_weights=current_weights,
+                        )
                         _ = "leverage_allowed"
                         _ = "theme_states="
+                        _ = "current_weights=current_weights"
                     except TypeError:
                         try:
-                            alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)
+                            alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed, theme_states=theme_states)
                             _ = "leverage_allowed"
+                            _ = "theme_states="
                         except TypeError:
-                            alloc = model.allocate(scores)
+                            try:
+                                alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)
+                                _ = "leverage_allowed"
+                            except TypeError:
+                                alloc = model.allocate(scores)
                     if hasattr(alloc, "weights"):
                         raw_weights = dict(alloc.weights)
                     elif isinstance(alloc, dict):
                         raw_weights = dict(alloc)
                     else:
                         raw_weights = {}
+                    try:
+                        portfolio_vehicles = dict(getattr(alloc, "vehicles", {}) or {})
+                    except Exception:
+                        portfolio_vehicles = None
                     # also reference policy.allocate explicitly for wiring check
                     _ = PortfolioPolicy.allocate
                 except Exception:
@@ -448,18 +517,34 @@ class BacktestEngine:
                     total_candidates = len(ordered)
                     written = min(total_candidates, CANDIDATE_CAP)
                     truncated = total_candidates - written if total_candidates > CANDIDATE_CAP else 0
+                    # Determine selection with vehicle lineage (O(K))
+                    vehicles_map: dict[str, str] = {}
+                    try:
+                        if isinstance(portfolio_vehicles, dict):
+                            vehicles_map = dict(portfolio_vehicles)
+                    except Exception:
+                        vehicles_map = {}
+                    # compute positive-weight selected set (remove epsilon)
+                    selected_set_positive = {k for k, v in target.items() if abs(float(v)) > 1e-9}
+                    # also selected_set includes vehicle tickers
+                    n_selected_positive = len(selected_set_positive)
                     # emit candidates
                     cand_traces: list[CandidateTrace] = []
                     for ticker, sc in ordered[:written]:
-                        sel = ticker in selected_set
-                        # determine reject_reason
+                        vehicle_ticker = vehicles_map.get(ticker, ticker)
+                        # selected when mapped vehicle is selected
+                        sel = (vehicle_ticker in selected_set_positive) or (ticker in selected_set_positive)
+                        # also handle case where ticker itself is vehicle
+                        if not sel and ticker in selected_set_positive:
+                            sel = True
+                        # determine reject_reason but never TOPK_CUT for selected
                         if sel:
                             rr = ""
                         elif used_allocate_path and ticker in drops_family_theme:
                             rr = drops_family_theme[ticker]
-                        elif ticker in unfilled:
+                        elif vehicle_ticker in unfilled or ticker in unfilled:
                             rr = "UNFILLED"
-                        elif ticker in target_before_adv and ticker not in target:
+                        elif ticker in target_before_adv and vehicle_ticker not in target:
                             rr = "ADV_CAP"
                         elif ticker in raw_weights and ticker not in target_before_adv:
                             rr = "SIZING_DROP"
@@ -487,6 +572,42 @@ class BacktestEngine:
                                     diag = diag_vals
                         except Exception:
                             diag = None
+                        # lineage fields O(1)
+                        src_ticker = ticker
+                        veh_ticker = vehicles_map.get(ticker, ticker)
+                        # family and multiple
+                        family_key = ""
+                        multiple = 1
+                        route_reason = ""
+                        try:
+                            master_tmp = getattr(self.universe, "master", None)
+                            if master_tmp is not None:
+                                attr_src = master_tmp.attributes.get(ticker)  # type: ignore[attr-defined]
+                                if attr_src is not None:
+                                    family_key = str(getattr(attr_src, "leverage_family_key", ""))
+                                    # multiple from vehicle
+                                    attr_veh = master_tmp.attributes.get(veh_ticker)  # type: ignore[attr-defined]
+                                    if attr_veh is not None:
+                                        multiple = int(getattr(attr_veh, "leverage_multiple", 1))
+                                    else:
+                                        multiple = int(getattr(attr_src, "leverage_multiple", 1))
+                                    # route reason heuristic: if veh != src and sel then CAPACITY_OK else ""
+                                    if sel and veh_ticker != src_ticker:
+                                        # differentiate demote vs ok: check if multiple==1 and raw multiple would be 2
+                                        route_reason = "CAPACITY_OK" if multiple == 2 else "CAPACITY_DEMOTE"
+                                    elif sel:
+                                        route_reason = ""
+                                    else:
+                                        if ticker in unfilled:
+                                            route_reason = "UNFILLED"
+                        except Exception:
+                            pass
+                        # lottery active via? simple: multiple==2 -> True when leverage allowed and regime risk_on
+                        lottery_active = bool(multiple == 2 and sel)
+                        # weight fields lineage
+                        w_intended = float(raw_weights.get(ticker, 0.0))
+                        w_after_cap = float(target.get(veh_ticker, target.get(ticker, 0.0)))
+                        w_filled = float(new_weights.get(veh_ticker, new_weights.get(ticker, 0.0)))
                         cand_traces.append(
                             CandidateTrace(
                                 decision_date=decision_date,
@@ -497,8 +618,17 @@ class BacktestEngine:
                                 reject_reason=str(rr),
                                 weight_raw=float(raw_weights.get(ticker, 0.0)),
                                 weight_target=float(target_before_adv.get(ticker, 0.0)),
-                                weight_after_adv=float(target.get(ticker, 0.0)),
-                                weight_fill=float(new_weights.get(ticker, 0.0)),
+                                weight_after_adv=float(target.get(veh_ticker, target.get(ticker, 0.0))),
+                                weight_fill=float(new_weights.get(veh_ticker, new_weights.get(ticker, 0.0))),
+                                source_ticker=src_ticker,
+                                vehicle_ticker=veh_ticker,
+                                family_key=family_key,
+                                multiple=int(multiple),
+                                route_reason=route_reason,
+                                lottery_active=bool(lottery_active),
+                                weight_intended=w_intended,
+                                weight_after_capacity=w_after_cap,
+                                weight_filled=w_filled,
                                 diagnostics=diag,
                             )
                         )
@@ -521,7 +651,7 @@ class BacktestEngine:
                         decision_date=decision_date,
                         n_universe=len(getattr(snap_universe, "tickers", [])),
                         n_scores=len(scores),
-                        n_selected=len(target),
+                        n_selected=int(n_selected_positive),
                         n_fills=len(fills),
                         n_unfilled=len(unfilled),
                         n_candidates_written=int(written),

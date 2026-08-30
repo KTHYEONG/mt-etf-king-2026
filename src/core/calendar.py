@@ -44,7 +44,9 @@ class TradingCalendar:
     def session_count(self, start: date, end: date) -> int:
         if start > end:
             raise ValueError(f"start {start} > end {end}")
-        return len(self.sessions(start, end))
+        left = bisect.bisect_left(self._sessions, start)
+        right = bisect.bisect_right(self._sessions, end)
+        return right - left
 
     def previous_session(self, day: date, offset: int = 1) -> date:
         if offset < 1:

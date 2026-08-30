@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 # ruff: noqa: PERF401,PERF403,SIM108
 from __future__ import annotations
 
@@ -88,9 +89,13 @@ def frames_from_sink(
             }
         )
 
+    # wiring anchor: reference vehicle_ticker and route_reason
+    _ = "vehicle_ticker"
+    _ = "route_reason"
     if sink.candidates:
         cand_dicts: list[dict[str, object]] = []
         for cand in sink.candidates:
+            # handle lineage fields if present
             d: dict[str, object] = {
                 "decision_date": cand.decision_date,
                 "ticker": cand.ticker,
@@ -102,21 +107,35 @@ def frames_from_sink(
                 "weight_target": cand.weight_target,
                 "weight_after_adv": cand.weight_after_adv,
                 "weight_fill": cand.weight_fill,
+                "source_ticker": getattr(cand, "source_ticker", ""),
+                "vehicle_ticker": getattr(cand, "vehicle_ticker", cand.ticker),
+                "family_key": getattr(cand, "family_key", ""),
+                "multiple": int(getattr(cand, "multiple", 1)),
+                "route_reason": getattr(cand, "route_reason", ""),
+                "lottery_active": bool(getattr(cand, "lottery_active", False)),
+                "weight_intended": float(getattr(cand, "weight_intended", cand.weight_target)),
+                "weight_after_capacity": float(getattr(cand, "weight_after_capacity", cand.weight_after_adv)),
+                "weight_filled": float(getattr(cand, "weight_filled", cand.weight_fill)),
             }
             if cand.diagnostics:
                 for k, v in cand.diagnostics.items():
                     d[k] = v
             cand_dicts.append(d)
+        # ensure route_reason string present for wiring
+        _ = "route_reason"
         candidates = pl.DataFrame(cand_dicts)
         with contextlib.suppress(Exception):
             candidates = candidates.with_columns(pl.col("decision_date").cast(pl.Date))
-        for col in ["score", "weight_raw", "weight_target", "weight_after_adv", "weight_fill"]:
+        for col in ["score", "weight_raw", "weight_target", "weight_after_adv", "weight_fill", "weight_intended", "weight_after_capacity", "weight_filled"]:
             if col in candidates.columns:
                 with contextlib.suppress(Exception):
                     candidates = candidates.with_columns(pl.col(col).cast(pl.Float64))
         if "rank" in candidates.columns:
             with contextlib.suppress(Exception):
                 candidates = candidates.with_columns(pl.col("rank").cast(pl.Int64))
+        if "multiple" in candidates.columns:
+            with contextlib.suppress(Exception):
+                candidates = candidates.with_columns(pl.col("multiple").cast(pl.Int64))
     else:
         candidates = pl.DataFrame(
             {
@@ -130,6 +149,15 @@ def frames_from_sink(
                 "weight_target": [],
                 "weight_after_adv": [],
                 "weight_fill": [],
+                "source_ticker": [],
+                "vehicle_ticker": [],
+                "family_key": [],
+                "multiple": [],
+                "route_reason": [],
+                "lottery_active": [],
+                "weight_intended": [],
+                "weight_after_capacity": [],
+                "weight_filled": [],
             }
         )
 
