@@ -50,6 +50,27 @@ def test_SCENARIO_PERF_02_close_map_once() -> None:  # noqa: N802
         assert mocked.call_count == 1, f"rebuild count {mocked.call_count}"
 
 
+def test_build_close_map_preserves_ticker_float_mapping() -> None:
+    from datetime import date
+    import polars as pl
+    from src.backtest.session_cache import build_close_map
+    d0 = date(2026, 1, 2)
+    d1 = date(2026, 1, 5)
+    panel = pl.DataFrame(
+        [
+            {"date": d0, "ticker": "069500", "close": 100.0},
+            {"date": d0, "ticker": "114800", "close": 50.5},
+            {"date": d1, "ticker": "069500", "close": None},
+            {"date": d1, "ticker": "114800", "close": 51.0},
+        ]
+    )
+    cmap = build_close_map(panel)
+    assert cmap[d0]["069500"] == 100.0
+    assert cmap[d0]["114800"] == 50.5
+    assert "069500" not in cmap.get(d1, {})
+    assert cmap[d1]["114800"] == 51.0
+
+
 @pytest.mark.parametrize("scenario_id", ["SCENARIO-PERF-02"])
 def test_SCENARIO_PERF_wrapper_cache(scenario_id: str) -> None:  # noqa: N802
     if scenario_id == "SCENARIO-PERF-02":
