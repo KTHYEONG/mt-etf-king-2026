@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_15_LOTTERY_EXPOSURE",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_15_LOTTERY_EXPOSURE",
+      "domain": "portfolio",
+      "title": "P14 Lottery Exposure Overlay — Top1 +2x gross 2.0 · adoption tail lift",
+      "why": "P13 adoption FAIL on p_gt_30/p_gt_40: portfolio confidence k=3 dilution, vehicle_conf_min +1x gate, and gross cap 1.60 scaled w=0.80 on +2x days despite M13 family-intensity alpha.",
+      "resolution": "Implemented LotteryExposureConfig/lottery_active/lottery_concentration_weights; PortfolioPolicy lottery branch (suppress vehicle gate, max_gross=2.0); P14=M13 score+canonical+P11 policy+lottery overlay; BASELINES/CLI/configs; lean_check PASS; KRX 2018-2026 P14 P>30%=4.83% vs B1 4.07% (gate PASS), P>40%=2.20% vs B1+2pp 4.82% (gate FAIL), vehicle_mult2_rate=96.7%, adoption FAIL p_gt_40 only.",
+      "impact": "L5 portfolio: P>30 adoption gate cleared vs B1; p_gt_40 sole remaining blocker; B1 tournament fallback retained; P13 unchanged as control."
+    },
+    {
       "task_id": "TASK_14_ADOPTION_VEHICLE_SESSION",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_14_ADOPTION_VEHICLE_SESSION",
