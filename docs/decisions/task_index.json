@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_16_BACKTEST_TIMESERIES",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_16_BACKTEST_TIMESERIES",
+      "domain": "reporting",
+      "title": "Backtest Timeseries Parquet — daily/trades export · trade side/weight delta",
+      "why": "Full-run P14 trade analysis needed compact machine-readable daily returns and per-trade logs; summary.json alone insufficient for ranking-window and lottery entry forensics.",
+      "resolution": "Added reporting/timeseries (enrich_daily_timeseries, normalize_trades_timeseries, write_timeseries_parquet zstd); write_backtest_result writes daily.parquet+trades.parquet; BacktestEngine trades include side/weight_before/after/delta_weight/price; RollingResult.backtest on path_dependent=False fast path; CLI wires rolling.backtest into results; unit tests pass.",
+      "impact": "L7 reporting: adoption backtest runs emit analysis-friendly parquet under data/results/<run_id>/; operational path_dependent runs skip parquet (no extra engine pass)."
+    },
+    {
       "task_id": "TASK_15_LOTTERY_EXPOSURE",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_15_LOTTERY_EXPOSURE",

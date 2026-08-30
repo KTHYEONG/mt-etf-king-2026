@@ -163,5 +163,8 @@
   },
   "src/alpha/intensity.py": {
     "testing": "tests/unit/alpha/test_intensity.py"
+  },
+  "src/reporting/timeseries.py": {
+    "testing": "tests/unit/reporting/test_timeseries.py"
   }
 }

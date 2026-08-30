@@ -8,7 +8,7 @@ import polars as pl
 
 from src.alpha.base import AlphaModel
 from src.backtest.costs import CostConfig, CostModel
-from src.backtest.engine import BacktestConfig, BacktestEngine
+from src.backtest.engine import BacktestConfig, BacktestEngine, BacktestResult
 from src.backtest.liquidity import cap_target_weights_by_adv
 from src.backtest.metrics import compound_returns, max_drawdown, peak_to_final_giveback, window_returns
 from src.core.calendar import TradingCalendar
@@ -317,6 +317,7 @@ class RollingResult:
     returns: tuple[float, ...]
     drawdowns: tuple[float, ...]
     givebacks: tuple[float, ...] = ()
+    backtest: BacktestResult | None = None
 
 
 class TournamentSimulator:
@@ -403,6 +404,7 @@ class TournamentSimulator:
                 returns=tuple(float(x) for x in win_rets),
                 drawdowns=tuple(float(x) for x in dds),
                 givebacks=tuple(float(x) for x in givebacks),
+                backtest=result,
             )
         else:
             # path_dependent=True: choose fast vs slow

@@ -331,17 +331,34 @@ class BacktestEngine:
             fills, unfilled = self.execution.resolve(target, panel, decision_date)
             for tkr in unfilled:
                 unfilled_records.append((decision_date, tkr))
-            for f in fills:
-                trades_records.append(
-                    {
-                        "decision_date": decision_date,
-                        "execution_date": f.execution_date,
-                        "ticker": f.ticker,
-                        "price": f.price,
-                        "weight": f.target_weight,
-                    }
-                )
             new_weights = {f.ticker: f.target_weight for f in fills}
+            post_weights = dict(new_weights)
+            for tkr in current_weights:
+                if tkr not in post_weights:
+                    post_weights[tkr] = 0.0
+            price_by_ticker = {f.ticker: float(f.price) for f in fills}
+            exec_date_by_ticker = {f.ticker: f.execution_date for f in fills}
+            if fills:
+                for ticker in sorted(set(current_weights.keys()) | set(post_weights.keys())):
+                    w_before = float(current_weights.get(ticker, 0.0))
+                    w_after = float(post_weights.get(ticker, 0.0))
+                    delta = w_after - w_before
+                    if abs(delta) < 1e-12:
+                        continue
+                    side = "BUY" if delta > 0.0 else "SELL"
+                    trades_records.append(
+                        {
+                            "decision_date": decision_date,
+                            "execution_date": exec_date_by_ticker.get(ticker, execution_date),
+                            "ticker": ticker,
+                            "side": side,
+                            "weight_before": w_before,
+                            "weight_after": w_after,
+                            "delta_weight": delta,
+                            "weight": w_after,
+                            "price": price_by_ticker.get(ticker),
+                        }
+                    )
             all_tickers = set(current_weights.keys()) | set(new_weights.keys())
             turnover_weight = sum(abs(new_weights.get(t, 0.0) - current_weights.get(t, 0.0)) for t in all_tickers)
             if fills:
@@ -363,8 +380,12 @@ class BacktestEngine:
                     "decision_date": [],
                     "execution_date": [],
                     "ticker": [],
-                    "price": [],
+                    "side": [],
+                    "weight_before": [],
+                    "weight_after": [],
+                    "delta_weight": [],
                     "weight": [],
+                    "price": [],
                 }
             )
         return BacktestResult(
