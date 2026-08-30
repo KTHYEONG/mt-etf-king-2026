@@ -28,6 +28,8 @@ def test_SCENARIO_10_07_cli_leverage_scenario() -> None:
     txt = Path("src/cli.py").read_text()
     assert "resolve_leverage_scenario" in txt
     assert "measure_vehicle_activity_from_allocate" in txt
+    assert "measure_vehicle_activity_from_session_cache" in txt
+    assert "resolve_adoption_vehicle_rate" in txt
     assert "preflight_features_span_ok" in txt
     assert "v_rate = 0.30" not in txt
     assert "fallback ensures gate not blocked" not in txt

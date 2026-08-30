@@ -7,6 +7,7 @@ from src.tournament.distribution import (
     ReturnDistribution,
     b1_gate_anchors_from_distribution,
     measure_vehicle_activity_from_allocate,
+    measure_vehicle_activity_from_session_cache,
     preflight_features_span_ok,
     score_seed_for_vehicle_probe,
     vehicle_activity_rate,
@@ -79,6 +80,76 @@ def test_SCENARIO_10_09_measure_vehicle_activity() -> None:
         True,
     )
     assert rate_probe == 1.0
+
+
+def test_measure_vehicle_activity_from_session_cache() -> None:
+    from src.backtest.session_cache import SessionInputs
+    from src.features.regime import RegimeSnapshot, RegimeState
+
+    panel = pl.DataFrame([
+        {"date": date(2026, 1, 2), "ticker": "A1", "name": "KODEX 200", "underlying_index_name": "KOSPI 200"},
+        {"date": date(2026, 1, 3), "ticker": "A1", "name": "KODEX 200", "underlying_index_name": "KOSPI 200"},
+        {"date": date(2026, 1, 2), "ticker": "A2", "name": "KODEX 레버리지", "underlying_index_name": "KOSPI 200"},
+        {"date": date(2026, 1, 3), "ticker": "A2", "name": "KODEX 레버리지", "underlying_index_name": "KOSPI 200"},
+    ])
+    master = InstrumentMaster.build(panel, Taxonomy(rules=[]), {})
+    a1 = master.attributes["A1"]
+    a2 = master.attributes["A2"]
+    fk = a1.leverage_family_key
+    master2 = InstrumentMaster(
+        attributes={
+            "A1": a1,
+            "A2": InstrumentAttributes(
+                ticker=a2.ticker,
+                name=a2.name,
+                issuer=a2.issuer,
+                leverage_multiple=2,
+                leverage_family_key=fk,
+                is_synthetic=False,
+                is_hedged=False,
+                is_active=True,
+                index_key=a2.index_key,
+                theme=a2.theme,
+                first_seen=a1.first_seen,
+                last_seen=a1.last_seen,
+                left_censored=False,
+                confidence=a1.confidence,
+            ),
+        },
+        panel_start=master.panel_start,
+    )
+    from src.portfolio.policy import PortfolioPolicy
+    from src.portfolio.sizing import ConfidenceSizingConfig
+
+    policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig(), master=master2, state_enabled=False)
+
+    class _Dec:
+        def __init__(self, weights: dict[str, float]) -> None:
+            self.weights = weights
+
+    def _allocate(scores: dict[str, float], regime: object | None = None, leverage_allowed: object | None = None, theme_states: object | None = None) -> _Dec:
+        top = max(scores, key=scores.get)
+        return _Dec({top: 1.0})
+
+    policy.allocate = _allocate  # type: ignore[method-assign]
+
+    sessions = (date(2026, 1, 2), date(2026, 1, 3))
+    regimes = {
+        date(2026, 1, 2): RegimeSnapshot(as_of=date(2026, 1, 2), state=RegimeState.RISK_ON, score=0.9, components={}),
+        date(2026, 1, 3): RegimeSnapshot(as_of=date(2026, 1, 3), state=RegimeState.RISK_ON, score=0.9, components={}),
+    }
+    cache = SessionInputs(
+        dates=sessions,
+        close_map={},
+        scores={
+            date(2026, 1, 2): {"A1": 1.0, "A2": 0.1},
+            date(2026, 1, 3): {"A2": 1.0, "A1": 0.1},
+        },
+        universes={},
+        snapshots={d: panel.filter(pl.col("date") == d) for d in sessions},
+    )
+    rate = measure_vehicle_activity_from_session_cache(policy, cache, regimes, True)
+    assert abs(rate - 0.5) < 1e-9
 
 
 def test_b1_gate_anchors_from_distribution() -> None:
