@@ -702,6 +702,214 @@ def _make_p12() -> object:
     return policy
 
 
+def _make_m13() -> object:
+    from pathlib import Path as _P
+
+    import yaml as _yaml
+
+    from src.alpha.intensity import FamilyIntensityConfig, FamilyIntensityModel
+
+    _ = FamilyIntensityModel
+    _ = FamilyIntensityConfig
+    cfg = FamilyIntensityConfig()
+    try:
+        fp = _P("configs/strategies.yaml")
+        if fp.exists():
+            with open(fp, encoding="utf-8") as f:
+                raw = _yaml.safe_load(f) or {}
+            int_raw = (raw.get("intensity") or {}) if isinstance(raw, dict) else {}
+            if isinstance(int_raw, dict) and int_raw:
+                cfg = FamilyIntensityConfig.from_yaml(int_raw)
+    except Exception:
+        cfg = FamilyIntensityConfig()
+    # InstrumentMaster built like _make_p11 (gold/silver panel) with empty-master fallback
+    _master = None
+    try:
+        import datetime as _dt
+
+        import polars as _pl
+
+        from src.core.paths import DataPaths
+        from src.universe.taxonomy import Taxonomy
+
+        try:
+            from src.universe.instruments import InstrumentMaster as _IM  # noqa: N806
+
+            _ = _IM
+        except Exception:
+            _IM = None  # type: ignore[assignment,misc]  # noqa: N806
+        try:
+            from src.universe.instruments import load_sponsor_brand_map
+
+            try:
+                _brand = load_sponsor_brand_map(_P("configs/sponsor_brands.yaml"))
+            except Exception:
+                _brand = {}
+        except Exception:
+            _brand = {}
+        try:
+            _tax = Taxonomy.from_yaml(_P("configs/taxonomy.yaml"))
+        except Exception:
+            _tax = Taxonomy(rules=[])
+        _panel = None
+        try:
+            _paths = DataPaths(root=_P("data"))
+            for _cand in [_paths.gold("etf_features"), _paths.silver("etf_daily")]:
+                if _cand.exists():
+                    try:
+                        _panel = _pl.read_parquet(str(_cand))
+                        if _panel is not None and _panel.height > 0:
+                            break
+                    except Exception:
+                        _panel = None
+            if _panel is None or _panel.height == 0:
+                for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+                    if _cand.exists():
+                        try:
+                            _panel = _pl.read_parquet(str(_cand))
+                            if _panel is not None and _panel.height > 0:
+                                break
+                        except Exception:
+                            _panel = None
+        except Exception:
+            for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+                if _cand.exists():
+                    try:
+                        _panel = _pl.read_parquet(str(_cand))
+                        if _panel is not None and _panel.height > 0:
+                            break
+                    except Exception:
+                        _panel = None
+        if _panel is not None and _panel.height > 0:
+            try:
+                from src.universe.instruments import InstrumentMaster as _IM2  # noqa: N806
+
+                _master = _IM2.build(_panel, _tax, _brand)
+            except Exception:
+                _master = InstrumentMaster(attributes={}, panel_start=_dt.date(2020, 1, 1))
+        else:
+            _master = InstrumentMaster(attributes={}, panel_start=_dt.date(2020, 1, 1))
+    except Exception:
+        import datetime as _dt2
+
+        _master = InstrumentMaster(attributes={}, panel_start=_dt2.date(2020, 1, 1))
+    return FamilyIntensityModel(master=_master, config=cfg)
+
+
+def _make_p13() -> object:
+    from pathlib import Path as _P
+
+    import yaml as _yaml
+
+    from src.alpha.intensity import FamilyIntensityConfig, FamilyIntensityModel, family_intensity_scores
+    from src.core.paths import DataPaths
+    from src.portfolio.policy import PortfolioPolicy
+    from src.portfolio.selection import family_canonical_scores
+    from src.portfolio.sizing import ConfidenceSizingConfig
+    from src.universe.instruments import InstrumentMaster
+
+    _ = family_intensity_scores
+    _ = family_canonical_scores
+    _ = InstrumentMaster
+    _ = DataPaths
+    _ = FamilyIntensityModel
+    # load intensity config from configs/strategies.yaml (fallback defaults)
+    cfg_int = FamilyIntensityConfig()
+    try:
+        fp2 = _P("configs/strategies.yaml")
+        if fp2.exists():
+            with open(fp2, encoding="utf-8") as f:
+                raw2 = _yaml.safe_load(f) or {}
+            int_raw2 = (raw2.get("intensity") or {}) if isinstance(raw2, dict) else {}
+            if isinstance(int_raw2, dict) and int_raw2:
+                cfg_int = FamilyIntensityConfig.from_yaml(int_raw2)
+    except Exception:
+        cfg_int = FamilyIntensityConfig()
+    # InstrumentMaster built like _make_p11 (gold/silver panel) with empty-master fallback
+    _master = None
+    try:
+        import datetime as _dt
+
+        import polars as _pl
+
+        from src.universe.taxonomy import Taxonomy
+
+        try:
+            from src.universe.instruments import load_sponsor_brand_map
+
+            try:
+                _brand = load_sponsor_brand_map(_P("configs/sponsor_brands.yaml"))
+            except Exception:
+                _brand = {}
+        except Exception:
+            _brand = {}
+        try:
+            _tax = Taxonomy.from_yaml(_P("configs/taxonomy.yaml"))
+        except Exception:
+            _tax = Taxonomy(rules=[])
+        _panel = None
+        try:
+            _paths = DataPaths(root=_P("data"))
+            for _cand in [_paths.gold("etf_features"), _paths.silver("etf_daily")]:
+                if _cand.exists():
+                    try:
+                        _panel = _pl.read_parquet(str(_cand))
+                        if _panel is not None and _panel.height > 0:
+                            break
+                    except Exception:
+                        _panel = None
+            if _panel is None or _panel.height == 0:
+                for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+                    if _cand.exists():
+                        try:
+                            _panel = _pl.read_parquet(str(_cand))
+                            if _panel is not None and _panel.height > 0:
+                                break
+                        except Exception:
+                            _panel = None
+        except Exception:
+            for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+                if _cand.exists():
+                    try:
+                        _panel = _pl.read_parquet(str(_cand))
+                        if _panel is not None and _panel.height > 0:
+                            break
+                    except Exception:
+                        _panel = None
+        if _panel is not None and _panel.height > 0:
+            try:
+                _master = InstrumentMaster.build(_panel, _tax, _brand)
+            except Exception:
+                _master = InstrumentMaster(attributes={}, panel_start=_dt.date(2020, 1, 1))
+        else:
+            _master = InstrumentMaster(attributes={}, panel_start=_dt.date(2020, 1, 1))
+    except Exception:
+        import datetime as _dt2
+
+        _master = InstrumentMaster(attributes={}, panel_start=_dt2.date(2020, 1, 1))
+    family_model = FamilyIntensityModel(master=_master, config=cfg_int)
+    cfg = ConfidenceSizingConfig()
+    policy = PortfolioPolicy(sizing_config=cfg, master=_master, max_per_theme=2, max_per_family=1)
+    policy.name = "P13"  # type: ignore[attr-defined]
+    policy.scores_path_independent = True
+    _ = policy.allocate
+    _ = policy.scores_path_independent
+
+    def _score(snapshot, context):  # type: ignore[no-untyped-def]
+        raw = family_model.score(snapshot, context)
+        if not raw:
+            return {}
+        try:
+            return family_canonical_scores(raw, _master)
+        except Exception:
+            return {}
+
+    policy.score = _score  # type: ignore[attr-defined]
+    _ = PortfolioPolicy
+    _p13_anchor = "P13"  # noqa: F401
+    return policy
+
+
 def _make_m07() -> SectorLeadershipModel:
     # lazy wiring for M07; requires master and configs - fallback to empty master for registry test
     from pathlib import Path
@@ -757,8 +965,10 @@ BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "B4": _make_b4,
     "B5": _make_b5,
     "M07": _make_m07,
+    "M13": _make_m13,
     "P08": _make_p08,
     "P10": _make_p10,
     "P11": _make_p11,
     "P12": _make_p12,
+    "P13": _make_p13,
 }

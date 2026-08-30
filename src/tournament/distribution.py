@@ -282,6 +282,117 @@ def measure_vehicle_activity_from_allocate(
     return vehicle_activity_rate(multiples, risks)
 
 
+def measure_vehicle_activity_from_session_cache(
+    model: object,
+    cache: object,
+    regimes: Mapping[date, object] | None,
+    leverage_allowed: bool | None,
+    *,
+    rescore_each_session: bool = True,
+) -> float:
+    allocate = getattr(model, "allocate", None)
+    if not callable(allocate):
+        return 0.0
+    dates = getattr(cache, "dates", ())
+    scores_map = getattr(cache, "scores", {})
+    snapshots = getattr(cache, "snapshots", {})
+    rules = getattr(cache, "rules", None)
+    master = getattr(model, "master", None)
+    attrs = getattr(master, "attributes", None) if master is not None else None
+    multiples: list[int] = []
+    risks: list[bool] = []
+    for sess in dates:
+        regime_snap = regimes.get(sess) if regimes is not None else None
+        regime_label = _regime_label(regime_snap)
+        risk_on = regime_label in _RISK_ON_LABELS if regime_label is not None else False
+        risks.append(risk_on)
+        if rescore_each_session:
+            snap = snapshots.get(sess)
+            score_fn = getattr(model, "score", None)
+            if snap is not None and callable(score_fn):
+                try:
+                    from src.alpha.base import DecisionContext
+
+                    ctx = DecisionContext(
+                        decision_date=sess,
+                        regime=regime_snap,
+                        capital=1_000_000_000.0,
+                        held={},
+                        rules=rules,  # type: ignore[arg-type]
+                    )
+                    score_fn(snap, ctx)
+                except Exception:
+                    pass
+        scores = scores_map.get(sess, {})
+        theme_states = None
+        try:
+            fn = getattr(model, "theme_states_by_representative", None)
+            if callable(fn):
+                theme_states = fn()
+        except Exception:
+            theme_states = None
+        mult = 1
+        try:
+            dec = allocate(
+                scores,
+                regime=regime_label,
+                leverage_allowed=leverage_allowed,
+                theme_states=theme_states,
+            )
+            weights = getattr(dec, "weights", {}) or {}
+            for dst, w in weights.items():
+                if float(w) <= 1e-9:
+                    continue
+                if attrs is not None and hasattr(attrs, "get"):
+                    attr = attrs.get(dst)
+                    if attr is not None:
+                        mult = int(getattr(attr, "leverage_multiple", 1))
+                        break
+        except Exception:
+            mult = 1
+        multiples.append(mult)
+    return vehicle_activity_rate(multiples, risks)
+
+
+def resolve_adoption_vehicle_rate(
+    model: object,
+    engine: object,
+    panel: object,
+    config: object,
+    regimes: Mapping[date, object] | None,
+    leverage_allowed: bool | None,
+    inverse_allowed: bool | None = None,
+) -> float:
+    allocate = getattr(model, "allocate", None)
+    if not callable(allocate):
+        return 0.0
+    reset = getattr(model, "reset_trackers", None)
+    if callable(reset):
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            reset()
+    try:
+        from src.backtest.session_cache import build_session_cache
+
+        cache = build_session_cache(
+            engine,
+            model,
+            panel,  # type: ignore[arg-type]
+            config,
+            leverage_allowed=leverage_allowed,
+            inverse_allowed=inverse_allowed,
+        )
+    except Exception:
+        return 0.0
+    return measure_vehicle_activity_from_session_cache(
+        model,
+        cache,
+        regimes,
+        leverage_allowed,
+    )
+
+
 @dataclass(frozen=True)
 class ReturnDistribution:
     name: str
