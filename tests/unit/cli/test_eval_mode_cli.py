@@ -34,6 +34,26 @@ def test_cli_accepts_p13_model() -> None:
     assert "measure_vehicle_activity_from_session_cache" in cli_text
 
 
-@pytest.mark.parametrize("scenario_id", ["test_cli_eval_mode_default_adoption_for_portfolio"])
+def test_cli_accepts_p14_model() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["backtest", "--model", "P14", "--start", "2026-01-02", "--end", "2026-01-08"])
+    assert args.model == "P14"
+    assert args.eval_mode == "adoption"
+    import pathlib
+
+    cli_text = pathlib.Path("src/cli.py").read_text(encoding="utf-8")
+    assert 'model_key == "P14"' in cli_text
+    assert "resolve_adoption_vehicle_rate" in cli_text
+    assert "evaluate_adoption_gates" in cli_text
+    assert "adoption_gate model=P14" in cli_text
+
+
+@pytest.mark.parametrize(
+    "scenario_id",
+    ["test_cli_eval_mode_default_adoption_for_portfolio", "test_cli_accepts_p14_model"],
+)
 def test_scenario_wrapper(scenario_id: str) -> None:
-    test_cli_eval_mode_default_adoption_for_portfolio()
+    if scenario_id == "test_cli_eval_mode_default_adoption_for_portfolio":
+        test_cli_eval_mode_default_adoption_for_portfolio()
+    elif scenario_id == "test_cli_accepts_p14_model":
+        test_cli_accepts_p14_model()
