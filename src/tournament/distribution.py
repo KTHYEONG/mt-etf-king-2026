@@ -4,6 +4,7 @@ import math
 import random
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 
 
 def effective_sample_size(n_windows: int, horizon: int) -> int:
@@ -112,6 +113,126 @@ def stationary_bootstrap_ci(
     if lower > upper:
         lower, upper = upper, lower
     return (lower, upper)
+
+def vehicle_activity_rate(session_multiples: Sequence[int], risk_on_mask: Sequence[bool]) -> float:
+    if not session_multiples or not risk_on_mask:
+        return 0.0
+    n = min(len(session_multiples), len(risk_on_mask))
+    risk_count = 0
+    active = 0
+    for i in range(n):
+        if bool(risk_on_mask[i]):
+            risk_count += 1
+            try:
+                if int(session_multiples[i]) == 2:
+                    active += 1
+            except Exception:
+                continue
+    if risk_count == 0:
+        return 0.0
+    return float(active) / float(risk_count)
+
+
+def evaluate_tail_gates(
+    p_gt_40: float,
+    b1_p_gt_40: float,
+    p_gt_50: float,
+    b1_p_gt_50: float,
+    cvar: float,
+    b1_cvar: float,
+    activity_rate: float,
+) -> tuple[str, list[str]]:
+    fails: list[str] = []
+    if not (float(p_gt_40) >= float(b1_p_gt_40) + 0.02 - 1e-12):
+        fails.append("p_gt_40")
+    if not (float(p_gt_50) >= float(b1_p_gt_50) + 0.01 - 1e-12):
+        fails.append("p_gt_50")
+    if not (float(cvar) >= float(b1_cvar) - 0.05 - 1e-12):
+        fails.append("cvar_05")
+    if not (float(activity_rate) >= 0.25 - 1e-12):
+        fails.append("vehicle_activity")
+    if not fails:
+        return ("PASS", [])
+    return ("FAIL", fails)
+
+
+def preflight_features_span_ok(gold_min: object, gold_max: object, silver_min: object, silver_max: object) -> bool:
+    try:
+        ok = gold_min <= silver_min and gold_max >= silver_max  # type: ignore[operator]
+        return bool(ok)
+    except Exception:
+        return False
+
+
+_RISK_ON_LABELS = frozenset({"RISK_ON", "STRONG_RISK_ON"})
+
+
+def _regime_label(regime_snap: object | None) -> str | None:
+    if regime_snap is None:
+        return None
+    st = getattr(regime_snap, "state", regime_snap)
+    val = getattr(st, "value", st)
+    return str(val)
+
+
+def score_seed_for_vehicle_probe(master: object | None) -> dict[str, float]:
+    if master is None:
+        return {"069500": 1.0}
+    attrs = getattr(master, "attributes", None)
+    if not isinstance(attrs, Mapping):
+        return {"069500": 1.0}
+    by_family: dict[str, list[tuple[str, int]]] = {}
+    for ticker, attr in attrs.items():
+        fk = str(getattr(attr, "leverage_family_key", ticker))
+        try:
+            mult = int(getattr(attr, "leverage_multiple", 1))
+        except Exception:
+            mult = 1
+        by_family.setdefault(fk, []).append((str(ticker), mult))
+    for members in by_family.values():
+        plus1 = [t for t, m in members if m == 1]
+        has2 = any(m == 2 for _, m in members)
+        if plus1 and has2:
+            return {plus1[0]: 1.0}
+    first = next(iter(attrs.keys()), "069500")
+    return {str(first): 1.0}
+
+
+def measure_vehicle_activity_from_allocate(
+    model: object,
+    sessions: Sequence[date],
+    regimes: Mapping[date, object] | None,
+    leverage_allowed: bool | None,
+    score_seed: Mapping[str, float] | None = None,
+) -> float:
+    allocate = getattr(model, "allocate", None)
+    if not callable(allocate):
+        return 0.0
+    seed = dict(score_seed) if score_seed else score_seed_for_vehicle_probe(getattr(model, "master", None))
+    master = getattr(model, "master", None)
+    attrs = getattr(master, "attributes", None) if master is not None else None
+    multiples: list[int] = []
+    risks: list[bool] = []
+    for sess in sessions:
+        regime_snap = regimes.get(sess) if regimes is not None else None
+        regime_label = _regime_label(regime_snap)
+        risk_on = regime_label in _RISK_ON_LABELS if regime_label is not None else False
+        risks.append(risk_on)
+        mult = 1
+        try:
+            dec = allocate(seed, regime=regime_label, leverage_allowed=leverage_allowed)
+            weights = getattr(dec, "weights", {}) or {}
+            for dst in weights:
+                if attrs is not None and hasattr(attrs, "get"):
+                    attr = attrs.get(dst)
+                    if attr is not None:
+                        mult = int(getattr(attr, "leverage_multiple", 1))
+                        break
+                mult = 1
+        except Exception:
+            mult = 1
+        multiples.append(mult)
+    return vehicle_activity_rate(multiples, risks)
 
 
 @dataclass(frozen=True)

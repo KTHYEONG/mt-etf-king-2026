@@ -28,6 +28,7 @@ class PortfolioDecision:
 
 class PortfolioPolicy:
     path_dependent: bool = True
+    scores_path_independent: bool = True
 
     def __init__(
         self,
@@ -50,6 +51,7 @@ class PortfolioPolicy:
         self.aggression = aggression
         # instance attribute as well
         self.path_dependent = True
+        self.scores_path_independent = True
         self._trackers: dict[str, PositionTracker] = {}
         self._peaks: dict[str, float] = {}
 

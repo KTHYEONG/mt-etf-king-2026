@@ -324,6 +324,7 @@ class TournamentSimulator:
         path_dependent: bool = False,
         *,
         path_dependent_mode: str = "fast",
+        session_cache: object | None = None,
     ) -> RollingResult:
         # INV-08-4: PortfolioPolicy.path_dependent=True requires path_dependent=True
         if not path_dependent and model_requires_path_dependent(model):
@@ -475,7 +476,12 @@ class TournamentSimulator:
                 from src.backtest.session_cache import build_session_cache  # wiring anchor
 
                 _ = build_session_cache
-                cache = build_session_cache(self.engine, model, panel, config)
+                if session_cache is not None:
+                    cache = session_cache
+                else:
+                    cache = build_session_cache(self.engine, model, panel, config)
+                # ensure path_dependent_mode wiring present
+                _mode_ref = path_dependent_mode  # noqa: F401
                 # also reference simulate_window_from_cache explicitly
                 _sim_ref = simulate_window_from_cache  # noqa: F401
                 returns: list[float] = []

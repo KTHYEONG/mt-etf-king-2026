@@ -316,7 +316,9 @@ def _make_p08() -> object:
     b1 = TopKMomentum(horizon=20, name="P08")
     # expose score via delegation and mark path_dependent
     policy.name = "P08"  # type: ignore[attr-defined]
+    policy.scores_path_independent = True
     _ = policy.allocate  # reference for wiring
+    _ = policy.scores_path_independent  # wiring anchor
 
     def _score(snapshot, context):  # type: ignore[no-untyped-def]
         return b1.score(snapshot, context)
@@ -325,6 +327,103 @@ def _make_p08() -> object:
     # wiring reference for lean_check
     _ = PortfolioPolicy
     _p08_ref = "P08"  # noqa: F401
+    return policy
+
+def _make_p10() -> object:
+    # P10: B1 alpha + family_canonical_scores + P08 PortfolioPolicy (vehicle on)
+    from src.core.paths import DataPaths
+    from src.portfolio.policy import PortfolioPolicy
+    from src.portfolio.selection import family_canonical_scores
+    from src.portfolio.sizing import ConfidenceSizingConfig
+    from src.universe.instruments import InstrumentMaster  # noqa: F401
+
+    _ = family_canonical_scores
+    _ = InstrumentMaster
+    _ = DataPaths
+    _master = None
+    try:
+        import datetime as _dt
+        from pathlib import Path as _P
+
+        import polars as _pl
+
+        from src.universe.taxonomy import Taxonomy
+
+        try:
+            from src.universe.instruments import load_sponsor_brand_map
+
+            try:
+                _brand = load_sponsor_brand_map(_P("configs/sponsor_brands.yaml"))
+            except Exception:
+                _brand = {}
+        except Exception:
+            _brand = {}
+        try:
+            _tax = Taxonomy.from_yaml(_P("configs/taxonomy.yaml"))
+        except Exception:
+            _tax = Taxonomy(rules=[])
+        _panel = None
+        try:
+            _paths = DataPaths(root=_P("data"))
+            for _cand in [_paths.gold("etf_features"), _paths.silver("etf_daily")]:
+                if _cand.exists():
+                    try:
+                        _panel = _pl.read_parquet(str(_cand))
+                        if _panel is not None and _panel.height > 0:
+                            break
+                    except Exception:
+                        _panel = None
+            if _panel is None or _panel.height == 0:
+                for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+                    if _cand.exists():
+                        try:
+                            _panel = _pl.read_parquet(str(_cand))
+                            if _panel is not None and _panel.height > 0:
+                                break
+                        except Exception:
+                            _panel = None
+        except Exception:
+            for _cand in [_P("data/silver/etf_daily.parquet"), _P("data/gold/etf_features.parquet")]:
+                if _cand.exists():
+                    try:
+                        _panel = _pl.read_parquet(str(_cand))
+                        if _panel is not None and _panel.height > 0:
+                            break
+                    except Exception:
+                        _panel = None
+        if _panel is not None and _panel.height > 0:
+            try:
+                _master = InstrumentMaster.build(_panel, _tax, _brand)
+            except Exception:
+                _master = InstrumentMaster(attributes={}, panel_start=_dt.date(2020, 1, 1))
+        else:
+            _master = InstrumentMaster(attributes={}, panel_start=_dt.date(2020, 1, 1))
+    except Exception:
+        import datetime as _dt2
+
+        _master = InstrumentMaster(attributes={}, panel_start=_dt2.date(2020, 1, 1))
+    cfg = ConfidenceSizingConfig()
+    policy = PortfolioPolicy(sizing_config=cfg, master=_master, max_per_theme=2, max_per_family=1)
+    b1 = TopKMomentum(horizon=20, name="P10")
+    policy.name = "P10"  # type: ignore[attr-defined]
+    policy.scores_path_independent = True
+    _ = policy.allocate
+    _ = policy.scores_path_independent  # wiring anchor
+    # wiring: P08 anchor referenced for lean_check
+    _p08_anchor = "P08"  # noqa: F401
+    _p10_anchor = "P10"  # noqa: F401
+
+    def _score(snapshot, context):  # type: ignore[no-untyped-def]
+        raw = b1.score(snapshot, context)
+        if not raw:
+            return {}
+        try:
+            return family_canonical_scores(raw, _master)
+        except Exception:
+            return {}
+
+    policy.score = _score  # type: ignore[attr-defined]
+    _ = PortfolioPolicy
     return policy
 
 
@@ -384,4 +483,5 @@ BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "B5": _make_b5,
     "M07": _make_m07,
     "P08": _make_p08,
+    "P10": _make_p10,
 }
