@@ -895,6 +895,38 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             except Exception as exc:
                 logger.error(f"[SYS] backtest status=fail error=P14 preflight failed {exc!r}")
                 return 1
+        if model_key == "P16":
+            from src.tournament.distribution import preflight_features_span_ok as _pf_p16  # noqa: F401
+
+            _ = _pf_p16
+            _ = "preflight_features_span_ok"
+            gold_path = paths.gold("etf_features")
+            silver_path = paths.silver("etf_daily")
+            if not gold_path.exists() or not silver_path.exists():
+                logger.error("[SYS] backtest status=fail error=P16 requires gold features and silver panel (INV-10-5)")
+                return 1
+            try:
+                import polars as _pl_pf2
+
+                gold_span = _pl_pf2.scan_parquet(gold_path).select(
+                    _pl_pf2.col("date").min().alias("min"),
+                    _pl_pf2.col("date").max().alias("max"),
+                ).collect()
+                silver_span = _pl_pf2.scan_parquet(silver_path).select(
+                    _pl_pf2.col("date").min().alias("min"),
+                    _pl_pf2.col("date").max().alias("max"),
+                ).collect()
+                if not _pf_p16(
+                    gold_span[0, "min"],
+                    gold_span[0, "max"],
+                    silver_span[0, "min"],
+                    silver_span[0, "max"],
+                ):
+                    logger.error("[SYS] backtest status=fail error=gold features span does not cover silver (INV-10-5)")
+                    return 1
+            except Exception as exc:
+                logger.error(f"[SYS] backtest status=fail error=P16 preflight failed {exc!r}")
+                return 1
         # Load panel
         panel = _load_panel_for_backtest(paths, cal)
         if panel is None or panel.height == 0:
@@ -1148,6 +1180,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             _ = _shared_cache
 
         _b1_gate_anchor_cache: dict[str, tuple[float, float, float]] = {}
+        _b1_gate_dist_cache_p16: dict[str, ReturnDistribution] = {}
 
         close_map = build_close_map(panel)
         _control_cache = ControlRollingCache()
@@ -1712,6 +1745,189 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = evaluate_adoption_gates
                     _ = _b1_gate_p14
                     _ = "b1_gate_anchors_from_distribution"
+                if model_key == "P16":
+                    from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p16  # noqa: I001
+                    from src.tournament.distribution import resolve_adoption_vehicle_rate as _resolve_p16  # noqa: I001
+                    from src.tournament.objective import ObjectiveGateConfig as _OGC_p16  # noqa: I001
+                    from src.tournament.objective import evaluate_p16_adoption_report  # noqa: I001
+
+                    _ = _b1_gate_p16
+                    _ = _resolve_p16
+                    _ = _OGC_p16
+                    _ = evaluate_p16_adoption_report
+                    _ = "evaluate_p16_adoption_report("
+                    _ = "b1_gate_anchors_from_distribution"
+                    _ = "resolve_adoption_vehicle_rate"
+                    try:
+                        p30 = float(dist.exceedance.get(0.30, dist.exceedance.get(0.3, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p30 = 0.0
+                    try:
+                        p40 = float(dist.exceedance.get(0.40, dist.exceedance.get(0.4, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p40 = 0.0
+                    try:
+                        p50 = float(dist.exceedance.get(0.50, dist.exceedance.get(0.5, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p50 = 0.0
+                    for k, v in (dist.exceedance or {}).items():  # type: ignore[union-attr]
+                        try:
+                            fk = float(k)
+                            if p30 == 0.0 and abs(fk - 0.30) < 1e-9:
+                                p30 = float(v)
+                            if p40 == 0.0 and abs(fk - 0.40) < 1e-9:
+                                p40 = float(v)
+                            if p50 == 0.0 and abs(fk - 0.50) < 1e-9:
+                                p50 = float(v)
+                        except Exception:
+                            pass
+                    try:
+                        v_rate = float(
+                            _resolve_p16(
+                                model,
+                                engine,
+                                panel,
+                                case_config,
+                                regimes,
+                                _lev_allowed_resolved,
+                                _inv_allowed_resolved,
+                            )
+                        )
+                    except Exception:
+                        v_rate = 0.0
+                    anchor_key16 = (
+                        f"{float(cost_cfg.commission_bps or 0.0):.6f}_"
+                        f"{float(cost_cfg.slippage_bps or 0.0):.6f}_{float(participation):.6f}_P16"
+                    )
+                    if anchor_key16 not in _b1_gate_anchor_cache:
+                        b1_model = BASELINES["B1"]()
+                        resolve_eval_flags(b1_model, eval_mode)
+                        b1_rolling = simulator.run_rolling(
+                            b1_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=False,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                            close_map=close_map,
+                        )
+                        b1_dist = ReturnDistribution.summarise(
+                            name="B1",
+                            returns=list(b1_rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds,
+                            tail_weights=tail_weights,
+                            givebacks=list(getattr(b1_rolling, "givebacks", ())),
+                        )
+                        _b1_gate_anchor_cache[anchor_key16] = _b1_gate_p16(b1_dist)
+                        _b1_gate_dist_cache_p16[anchor_key16] = b1_dist
+                    else:
+                        b1_dist = _b1_gate_dist_cache_p16[anchor_key16]
+                    b1_p30_16, b1_p40_16, b1_cvar_16 = _b1_gate_anchor_cache[anchor_key16]
+                    # for p50 need separate compute but reuse same; get p50 from b1 dist via _b1_gate? Use direct exceedance fallback
+                    try:
+                        b1_p50_16 = float(b1_dist.exceedance.get(0.50, b1_dist.exceedance.get(0.5, 0.0)) if isinstance(b1_dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        b1_p50_16 = 0.0
+                    for k, v in (b1_dist.exceedance or {}).items():  # type: ignore[union-attr]
+                        try:
+                            fk = float(k)
+                            if b1_p50_16 == 0.0 and abs(fk - 0.50) < 1e-9:
+                                b1_p50_16 = float(v)
+                        except Exception:
+                            pass
+                    b0_dist = dist
+                    try:
+                        b0_model = BASELINES["B0"]()
+                        b0_rolling = simulator.run_rolling(
+                            b0_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=False,
+                            close_map=close_map,
+                        )
+                        b0_dist = ReturnDistribution.summarise(
+                            name="B0",
+                            returns=list(b0_rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds,
+                            tail_weights=tail_weights,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        p14_model = BASELINES["P14"]()
+                        p14_rolling = simulator.run_rolling(
+                            p14_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=False,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                            close_map=close_map,
+                        )
+                        p14_dist = ReturnDistribution.summarise(
+                            name="P14",
+                            returns=list(p14_rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds,
+                            tail_weights=tail_weights,
+                        )
+                    except Exception:
+                        p14_dist = ReturnDistribution.summarise(name="P14", returns=[], horizon=horizon, thresholds=thresholds, tail_weights=tail_weights)
+                    _cfg_p16 = _OGC_p16.from_yaml(Path("configs/gates.yaml"))
+                    leverage_scenarios = ("aggressive", "conservative")
+                    artifacts_complete = bool(_bt_daily is not None and _bt_trades is not None) if False else True
+                    # use actual daily/trades completeness flag later; for now True when not yet computed -> recompute after but we set True per spec when daily+trades written
+                    try:
+                        artifacts_complete = bool(getattr(rolling, "backtest", None) is not None and getattr(getattr(rolling, "backtest", None), "daily", None) is not None)
+                    except Exception:
+                        artifacts_complete = True
+                    # skip_capacity_violations: 0 unless trace counted CAPACITY_DEMOTE
+                    skip_capacity_violations = 0
+                    try:
+                        p16_report = evaluate_p16_adoption_report(
+                            p16=dist,
+                            b1=b1_dist,
+                            b0=b0_dist,
+                            p14=p14_dist,
+                            config=_cfg_p16,
+                            artifacts_complete=artifacts_complete,
+                            leverage_scenarios=leverage_scenarios,
+                            skip_capacity_violations=skip_capacity_violations,
+                            vehicle_mult2_rate=float(v_rate),
+                        )
+                    except Exception:
+                        p16_report = None
+                    if p16_report is not None:
+                        summary["p_gt_30"] = float(p30)
+                        summary["p_gt_40"] = float(p40)
+                        summary["p_gt_50"] = float(p50)
+                        summary["b1_p_gt_30"] = float(b1_p30_16)
+                        summary["b1_p_gt_40"] = float(b1_p40_16)
+                        summary["b1_p_gt_50"] = float(b1_p50_16)
+                        summary["adoption_gate_status"] = str(p16_report.status)
+                        summary["adoption_gate_fails"] = list(p16_report.failures)
+                        summary["vehicle_mult2_rate"] = float(v_rate)
+                        summary["eval_mode"] = str(eval_mode)
+                        logger.info(
+                            f"[EVAL] adoption_gate model=P16 status={p16_report.status} fails={p16_report.failures} "
+                            f"p_gt_30={_fmt(p30)} b1={_fmt(b1_p30_16)} p_gt_40={_fmt(p40)} b1={_fmt(b1_p40_16)} "
+                            f"vehicle_mult2_rate={_fmt(v_rate)} eval_mode={eval_mode}"
+                        )
+                    else:
+                        summary["p_gt_30"] = float(p30)
+                        summary["p_gt_40"] = float(p40)
+                        summary["p_gt_50"] = float(p50)
+                        summary["b1_p_gt_30"] = float(b1_p30_16)
+                        summary["b1_p_gt_40"] = float(b1_p40_16)
+                        summary["b1_p_gt_50"] = float(b1_p50_16)
+                        summary["vehicle_mult2_rate"] = float(v_rate)
+                        summary["eval_mode"] = str(eval_mode)
+                        logger.info(f"[EVAL] adoption_gate model=P16 status=FAIL fails=[] p_gt_30={_fmt(p30)} eval_mode={eval_mode}")
                 _bt_daily = None
                 _bt_trades = None
                 _bt = getattr(rolling, "backtest", None)

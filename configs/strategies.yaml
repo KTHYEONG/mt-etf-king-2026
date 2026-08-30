@@ -45,6 +45,14 @@ portfolio:
     max_gross: 2.0
     suppress_vehicle_gate: true
     suppress_trim: true
+  convexity_hold:
+    enabled: true
+    min_gap: 0.0
+    score_drop_pct: 0.30
+    crisis_regimes: [STRONG_RISK_OFF]
+    w_top: 1.0
+    max_gross: 2.0
+    skip_capacity_route: true
 
 right_tail_weights:
   0.75: 0.2

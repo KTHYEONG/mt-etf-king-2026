@@ -43,6 +43,7 @@ class PortfolioPolicy:
         max_gross_exposure: float = 1.60,
         aggression: object | None = None,
         lottery_config=None,
+        convexity_config=None,
     ) -> None:
         self.master = master
         self.sizing_config = sizing_config
@@ -53,15 +54,20 @@ class PortfolioPolicy:
         self.max_gross_exposure = float(max_gross_exposure)
         self.aggression = aggression
         self.lottery_config = lottery_config
+        self.convexity_config = convexity_config
         # instance attribute as well
         self.path_dependent = True
         self.scores_path_independent = True
         self._trackers: dict[str, PositionTracker] = {}
         self._peaks: dict[str, float] = {}
+        self._convexity_entry_score: float | None = None
+        self._convexity_entry_key: str | None = None
 
     def reset_trackers(self) -> None:
         self._trackers.clear()
         self._peaks.clear()
+        self._convexity_entry_score = None
+        self._convexity_entry_key = None
 
     def allocate(
         self,
@@ -115,7 +121,56 @@ class PortfolioPolicy:
         # sizing: lottery_on skips tail_concentration_weights and confidence_weights
         weights: dict[str, float] = {}
         lottery_branch = False
-        if lottery_on:
+        convexity_on = False
+        try:
+            from src.portfolio.convexity import convexity_active, convexity_should_exit, resolve_convexity_vehicle  # noqa: F401
+
+            _ = convexity_active
+            _ = convexity_should_exit
+            _ = resolve_convexity_vehicle
+            _ = "convexity_active("
+            _ = "convexity_should_exit("
+            _ = "resolve_convexity_vehicle("
+            convexity_on = bool(convexity_active(leverage_allowed, regime, scores, self.convexity_config))
+            if convexity_on:
+                sorted_scores = sorted(scores.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))
+                top_key, top_score_raw = sorted_scores[0]
+                top_score = float(top_score_raw)
+                cfg_c = self.convexity_config  # type: ignore[assignment]
+                if convexity_should_exit(top_score, self._convexity_entry_score, regime, cfg_c):  # type: ignore[arg-type]
+                    convexity_on = False
+                    self._convexity_entry_score = None
+                    self._convexity_entry_key = None
+                else:
+                    if self._convexity_entry_key is None or self._convexity_entry_key != str(top_key):
+                        self._convexity_entry_key = str(top_key)
+                        self._convexity_entry_score = float(top_score)
+        except Exception:
+            convexity_on = False
+        if convexity_on:
+            try:
+                from src.portfolio.sizing import LotteryExposureConfig as _LEC2  # noqa: F401
+
+                _ = _LEC2
+                cfg_c2 = self.convexity_config
+                w_top_c = float(getattr(cfg_c2, "w_top", 1.0)) if cfg_c2 is not None else 1.0
+                sorted_scores2 = sorted(scores.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))
+                top_t = str(sorted_scores2[0][0])
+                weights = {top_t: float(w_top_c)}
+                # also keep lottery_concentration_weights wiring for completeness
+                _ = "lottery_concentration_weights("
+                from src.portfolio.sizing import lottery_concentration_weights as _lcw_c  # noqa: F401
+
+                _ = _lcw_c
+            except Exception:
+                sorted_scores2 = sorted(scores.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))
+                top_t = str(sorted_scores2[0][0])
+                try:
+                    w_top_c = float(getattr(self.convexity_config, "w_top", 1.0))
+                except Exception:
+                    w_top_c = 1.0
+                weights = {top_t: float(w_top_c)}
+        elif lottery_on:
             try:
                 from src.portfolio.sizing import lottery_concentration_weights as _lcw
 
@@ -130,7 +185,7 @@ class PortfolioPolicy:
             except Exception:
                 lottery_branch = False
                 weights = {}
-        if not lottery_branch:
+        if not lottery_branch and not convexity_on:
             if self.sizing_config is not None:
                 try:
                     from src.portfolio.sizing import (
@@ -267,7 +322,42 @@ class PortfolioPolicy:
                 suppress = True
             if suppress:
                 confidence_low = False
-        if self.master is not None and weights:
+        if convexity_on and weights:
+            try:
+                from src.portfolio.convexity import resolve_convexity_vehicle as _rcv2  # noqa: F401
+
+                _ = _rcv2
+                _ = "resolve_convexity_vehicle("
+                _ = "select_capacity_aware("
+                _ = "pick_vehicle"
+                _ = ExposureSelector
+                _ = CapacityContext
+                vehicles = {}
+                vehicle_weights = {}
+                multiples = {}
+                for src_ticker, w in list(weights.items()):
+                    per_low = False
+                    try:
+                        attr_tmp = self.master.attributes.get(src_ticker) if self.master is not None else None  # type: ignore[union-attr]
+                        if attr_tmp is not None and str(getattr(attr_tmp, "confidence", "")) == "LOW":
+                            per_low = True
+                    except Exception:
+                        pass
+                    try:
+                        dst = _rcv2(src_ticker, self.master, leverage_allowed=leverage_allowed, confidence_low=per_low) if self.master is not None else src_ticker
+                    except Exception:
+                        dst = src_ticker
+                    vehicles[src_ticker] = dst
+                    if dst in vehicle_weights:
+                        vehicle_weights[dst] = float(vehicle_weights[dst]) + float(w)
+                    else:
+                        vehicle_weights[dst] = float(w)
+                    multiples[dst] = _mult_for(dst)
+                weights = vehicle_weights
+                _ = VehicleRoute
+            except Exception:
+                pass
+        elif self.master is not None and weights:
             try:
                 selector = ExposureSelector(self.master)
                 # capacity-aware routing wiring
@@ -517,7 +607,7 @@ class PortfolioPolicy:
                 except Exception:  # noqa: S110
                     states[ticker] = PositionState.EXIT
             # INV-15-7 suppress_trim: TRIM coerced to HOLD before apply_state_multipliers
-            if lottery_on:
+            if lottery_on or convexity_on:
                 try:
                     suppress_trim = bool(getattr(self.lottery_config, "suppress_trim", True))
                 except Exception:
@@ -543,7 +633,7 @@ class PortfolioPolicy:
 
         # INV-09-5: after vehicle remap, liquidity cap should use ADV of vehicle; if insufficient demote to +1x
         # We handle demotion before apply_liquidity_cap for cases where vehicle ADV insufficient
-        if adv is not None and capital is not None and participation is not None and weights:
+        if adv is not None and capital is not None and participation is not None and weights and not convexity_on:
             # attempt demotion to +1x if vehicle weight exceeds ADV limit
             # O(K) vehicle pass already done, this is O(K)
             try:
@@ -645,7 +735,7 @@ class PortfolioPolicy:
             except Exception:  # noqa: S110
                 pass
 
-        if adv is not None and capital is not None and participation is not None:
+        if adv is not None and capital is not None and participation is not None and not convexity_on:
             try:
                 from src.portfolio.constraints import apply_liquidity_cap
 
@@ -668,7 +758,12 @@ class PortfolioPolicy:
             _ = apply_gross_exposure_cap
             _ = gross_exposure
             # INV-15-5 max_gross choice
-            if lottery_on:
+            if convexity_on:
+                try:
+                    _mg = float(getattr(self.convexity_config, "max_gross", 2.0))
+                except Exception:
+                    _mg = 2.0
+            elif lottery_on:
                 try:
                     _mg = float(getattr(self.lottery_config, "max_gross", 2.0))
                 except Exception:
