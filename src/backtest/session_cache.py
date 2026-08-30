@@ -11,15 +11,19 @@ def build_close_map(panel: pl.DataFrame) -> dict[date, dict[str, float]]:
     out: dict[date, dict[str, float]] = {}
     if panel.height == 0 or not {"date", "ticker", "close"} <= set(panel.columns):
         return out
-    for row in panel.iter_rows(named=True):
-        d = row.get("date")
-        t = row.get("ticker")
-        c = row.get("close")
+    dates = panel["date"].to_list()
+    tickers = panel["ticker"].to_list()
+    closes = panel["close"].to_list()
+    for d, t, c in zip(dates, tickers, closes, strict=False):
         if d is None or t is None or c is None:
             continue
         try:
             cf = float(c)
         except Exception:
+            continue
+        import math
+
+        if not math.isfinite(cf):
             continue
         t_str = str(t)
         out.setdefault(d, {})[t_str] = cf
