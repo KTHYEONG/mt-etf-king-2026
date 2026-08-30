@@ -5,6 +5,8 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import polars as pl
+
 from src.core.paths import DataPaths
 
 
@@ -31,17 +33,29 @@ def write_backtest_result(
     run_id: str,
     meta: Mapping[str, object],
     summary: Mapping[str, object],
+    daily: pl.DataFrame | None = None,
+    trades: pl.DataFrame | None = None,
 ) -> Path:
     dest = paths.results(run_id)
     if dest.exists():
         raise FileExistsError(f"results directory already exists: {dest}")
     dest.mkdir(parents=True, exist_ok=False)
+    meta_doc = dict(meta)
+    summary_doc = dict(summary)
+    if daily is not None and trades is not None:
+        from src.reporting.timeseries import write_timeseries_parquet
+
+        artifacts = write_timeseries_parquet(dest, daily, trades)
+        meta_doc["artifacts"] = artifacts
+        summary_doc["artifacts"] = artifacts
+        summary_doc["daily_rows"] = int(daily.height)
+        summary_doc["trade_rows"] = int(trades.height)
     meta_path = dest / "meta.json"
     summary_path = dest / "summary.json"
     with meta_path.open("w", encoding="utf-8") as f:
-        json.dump(dict(meta), f, ensure_ascii=False, indent=2)
+        json.dump(meta_doc, f, ensure_ascii=False, indent=2)
         f.write("\n")
     with summary_path.open("w", encoding="utf-8") as f:
-        json.dump(dict(summary), f, ensure_ascii=False, indent=2)
+        json.dump(summary_doc, f, ensure_ascii=False, indent=2)
         f.write("\n")
     return dest
