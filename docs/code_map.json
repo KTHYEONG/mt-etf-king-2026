@@ -169,5 +169,11 @@
   },
   "src/reporting/trace_store.py": {
     "testing": "tests/unit/reporting/test_trace_store.py"
+  },
+  "src/portfolio/exposure.py": {
+    "testing": "tests/unit/portfolio/test_exposure.py"
+  },
+  "src/tournament/eval_cache.py": {
+    "testing": "tests/unit/tournament/test_eval_cache.py"
   }
 }

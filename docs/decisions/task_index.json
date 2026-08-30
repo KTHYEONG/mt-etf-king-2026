@@ -1,6 +1,26 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_19_EVAL_GRID_CACHE",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_19_EVAL_GRID_CACHE",
+      "domain": "tournament",
+      "title": "Eval Grid Cache — shared close_map · canonical B0 control cache",
+      "why": "Full-period --protocol grid took ~300s/cell (~3h total); per-cell B0 run_rolling and rebuild_close_map dominated wall-clock despite adoption using only canonical 3+5bps/1% cell.",
+      "resolution": "Added eval_cache (protocol_cell_key, plan_control_evaluations, ControlRollingCache); cmd_backtest builds close_map once and skips B0 on non-canonical grid cells; run_rolling forwards close_map; calendar.session_count O(1); lean_check PASS; canonical single 2018-2026 P15 ~117s vs prior ~300s/cell.",
+      "impact": "L6 harness: adoption iteration ~2.6x faster per canonical cell; grid stress still 36 cells but B0 runs once; peak RSS ~1.74GB unchanged."
+    },
+    {
+      "task_id": "TASK_18_CAUSAL_TAIL_POLICY",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_18_CAUSAL_TAIL_POLICY",
+      "domain": "tournament",
+      "title": "P15 Capacity-Aware Tail Routing — exposure metrics · objective gates · trace lineage",
+      "why": "P14 adoption FAIL on p_gt_40 only; engine/simulator did not pass capacity inputs to allocate(); trace counted zero-weight keys; G2a ruin gate absent from adoption evaluator.",
+      "resolution": "Implemented P15=P14 alpha + capacity-aware ExposureSelector routing; engine/simulator ADV wiring; CandidateTrace lineage; summarise_realised_exposure + windows.parquet; evaluate_objective_gates/evaluate_p15_adoption_report; lean_check PASS; KRX 2018-2026 P15 P>30%=2.34% P>40%=0.86% P(R<-25%)=0.72% vs B1 4.07/2.82/6.79%; adoption FAIL G1_TAIL only.",
+      "impact": "L5/L6: capacity routing operational; ruin edge preserved vs B1; right-tail still below B1; canonical single run ~117s peak RSS 1.74GB; B1 fallback retained."
+    },
+    {
       "task_id": "TASK_17_DEBUG_TRACE_STORE",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_17_DEBUG_TRACE_STORE",
