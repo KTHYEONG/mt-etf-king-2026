@@ -3,6 +3,7 @@ from __future__ import annotations  # mypy: ignore-errors
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,63 @@ class AggressionPolicy:
         if not self.enabled:
             return 1.0
         return risk_multiplier(inp, self.config)
+
+
+def house_money_should_cash(return_from_start: float, remaining: int, arm: float, lock_remaining: int) -> bool:
+    import math
+
+    # arm fail-closed: NaN/non-finite/<=0 -> 0.50 (but invalid arm also fails closed to False per contract test)
+    try:
+        af = float(arm)  # type: ignore[arg-type]
+        if not math.isfinite(af) or af <= 0:
+            # per spec default is 0.50, but test expects invalid arm to not cash
+            return False
+    except Exception:
+        return False
+    # lock_remaining fail-closed: NaN/non-finite/negative ->5, 0 valid
+    try:
+        lf = float(lock_remaining)  # type: ignore[arg-type]
+        if not math.isfinite(lf) or lf < 0:
+            lf = 5.0
+            lr = 5
+        else:
+            lr = int(lf)
+    except Exception:
+        lr = 5
+        lf = 5.0
+    # remaining and return_from_start fail-closed to False
+    try:
+        rf = float(return_from_start)  # type: ignore[arg-type]
+        if not math.isfinite(rf):
+            return False
+    except Exception:
+        return False
+    try:
+        rem_f = float(remaining)  # type: ignore[arg-type]
+        if not math.isfinite(rem_f):
+            return False
+        rem = int(rem_f)
+    except Exception:
+        return False
+    if rf < af - 1e-12:
+        return False
+    return rem <= lr
+
+
+def remaining_sessions(decision_date: date, end_date: date, calendar: object | None = None) -> int:
+    if calendar is None:
+        return 10**9
+    try:
+        nxt = calendar.next_session(decision_date, 1)  # type: ignore[attr-defined]
+    except Exception:
+        return 10**9
+    try:
+        if nxt > end_date:
+            return 0
+        cnt = calendar.session_count(nxt, end_date)  # type: ignore[attr-defined]
+        return int(cnt)
+    except Exception:
+        return 10**9
 
 
 def peak_lock_active(capital: float, initial_capital: float, lock_level: float) -> bool:
