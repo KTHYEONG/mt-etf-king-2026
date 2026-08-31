@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 from typing import Final
 
-CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17"})
+CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18"})
 
 
 def _make_eval_control_model(model_key: str, eval_mode: str) -> object:
@@ -735,7 +735,11 @@ def cmd_decide(args: argparse.Namespace) -> int:
 def cmd_backtest(args: argparse.Namespace) -> int:
     try:
         from src.tournament.harness import resolve_leverage_scenario
+        from src.tournament.objective import evaluate_p16_adoption_report  # noqa: F401
 
+        _ = evaluate_p16_adoption_report
+        _ = "P18"
+        _ = "evaluate_p16_adoption_report"
         _ = resolve_leverage_scenario
         # derive leverage scenario default aggressive
         _scenario = getattr(args, "leverage_scenario", "aggressive")

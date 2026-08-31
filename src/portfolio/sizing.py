@@ -195,6 +195,7 @@ class LotteryExposureConfig:
     max_gross: float = 2.0
     suppress_vehicle_gate: bool = True
     suppress_trim: bool = True
+    min_gap: float = 0.0
 
     @classmethod
     def from_yaml(cls, raw: Mapping[str, object]) -> LotteryExposureConfig:
@@ -247,6 +248,17 @@ class LotteryExposureConfig:
                 suppress_trim = bool(raw["suppress_trim"])
         except Exception:
             suppress_trim = True
+        # min_gap
+        min_gap = 0.0
+        try:
+            if "min_gap" in raw:
+                min_gap = float(raw["min_gap"])  # type: ignore[arg-type]
+                if not math.isfinite(min_gap) or min_gap < 0:
+                    min_gap = 0.0
+        except Exception:
+            min_gap = 0.0
+        if min_gap < 0 or not math.isfinite(min_gap):
+            min_gap = 0.0
         return cls(
             enabled=enabled,
             risk_on_regimes=risk_on_regimes,
@@ -254,6 +266,7 @@ class LotteryExposureConfig:
             max_gross=max_gross,
             suppress_vehicle_gate=suppress_vehicle_gate,
             suppress_trim=suppress_trim,
+            min_gap=min_gap,
         )
 
 
@@ -261,6 +274,7 @@ def lottery_active(
     regime: str | None,
     leverage_allowed: bool | None,
     config: LotteryExposureConfig | None,
+    scores: Mapping[str, float] | None = None,
 ) -> bool:
     if config is None:
         return False
@@ -281,9 +295,26 @@ def lottery_active(
             regime_set = frozenset(str(x) for x in regimes)  # type: ignore[union-attr]
         except Exception:
             regime_set = frozenset({"RISK_ON", "STRONG_RISK_ON"})
-        return regime_str in regime_set
+        if regime_str not in regime_set:
+            return False
     except Exception:
         return False
+    # min_gap gate
+    try:
+        mg = float(getattr(config, "min_gap", 0.0))
+    except Exception:
+        mg = 0.0
+    if mg > 0:
+        # fail-closed when scores empty, len<2, or confidence gap below threshold
+        if not isinstance(scores, Mapping) or not scores or len(scores) < 2:
+            return False
+        try:
+            conf = float(compute_confidence(scores))
+        except Exception:
+            return False
+        if conf + 1e-12 < mg:
+            return False
+    return True
 
 
 def lottery_concentration_weights(
@@ -305,3 +336,47 @@ def lottery_concentration_weights(
     if w > 1:
         w = 1.0
     return {top_ticker: float(w)}
+
+
+def resolve_overlay_sizing_branch(
+    scores: Mapping[str, float],
+    *,
+    lottery_on: bool,
+    convexity_on: bool,
+    lottery_config: LotteryExposureConfig | None,
+    convexity_config: object | None,
+) -> tuple[dict[str, float], bool, bool]:
+    if not scores:
+        return {}, False, False
+    # lottery-first: when both active, lottery wins
+    if bool(lottery_on) and bool(convexity_on):
+        try:
+            cfg = lottery_config if lottery_config is not None else LotteryExposureConfig(enabled=True)
+            w = lottery_concentration_weights(scores, cfg)  # type: ignore[arg-type]
+        except Exception:
+            w = {}
+        return dict(w), True, False
+    if bool(lottery_on):
+        try:
+            cfg2 = lottery_config if lottery_config is not None else LotteryExposureConfig(enabled=True)
+            w2 = lottery_concentration_weights(scores, cfg2)  # type: ignore[arg-type]
+        except Exception:
+            w2 = {}
+        has = bool(w2)
+        return dict(w2), bool(has), False
+    if bool(convexity_on):
+        try:
+            w_top_c = float(getattr(convexity_config, "w_top", 1.0)) if convexity_config is not None else 1.0
+        except Exception:
+            w_top_c = 1.0
+        if w_top_c < 0:
+            w_top_c = 0.0
+        if w_top_c > 1:
+            w_top_c = 1.0
+        try:
+            sorted_items = sorted(scores.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))
+            top_t = str(sorted_items[0][0])
+        except Exception:
+            return {}, False, False
+        return {top_t: float(w_top_c)}, False, True
+    return {}, False, False
