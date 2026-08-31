@@ -182,5 +182,8 @@
   },
   "src/portfolio/convexity.py": {
     "testing": "tests/unit/portfolio/test_convexity.py"
+  },
+  "src/reporting/tail_forensics.py": {
+    "testing": "tests/unit/reporting/test_tail_forensics.py"
   }
 }

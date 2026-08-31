@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_23_P19_LOTTERY_DEADBAND",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_23_P19_LOTTERY_DEADBAND",
+      "domain": "portfolio",
+      "title": "P19 Lottery+Deadband — churn slim · tail lift FAIL · forensics wired",
+      "why": "P14 P>30%=4.83% PASS but 71% micro-resize churn; P18 convexity stack still below P14 on P>30%; untested path was P14 lottery + rebalance deadband without convexity.",
+      "resolution": "Implemented P19 (_make_p14+min_rebalance_delta, convexity_config=None), LOTTERY_ADOPTION_MODELS, tail_forensics (summarise_tail_miss_windows, write_tail_miss_report), CLI --forensics+P19 adoption with inline P14 control; lean_check PASS; KRX 2018-2026 P19 P>30%=2.63% P>40%=1.34% q99=42.5% trades=1626 vs P14 rerun 3.35/2.15/3484 vs B1 4.07/2.82; adoption FAIL p_gt_30/p_gt_40/G1_TAIL — churn spec PASS (≤1768) tail lift spec FAIL.",
+      "impact": "L5/L8: P19 operational + forensics infra; deadband-on-lottery hypothesis REJECTED; B1 tournament fallback retained — next: lottery_min_gap sweep + trace forensics on P14."
+    },
+    {
       "task_id": "TASK_22_P18_OVERLAY_STACK",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_22_P18_OVERLAY_STACK",
