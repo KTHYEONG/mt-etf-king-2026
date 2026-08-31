@@ -120,7 +120,8 @@
   "src/tournament/distribution.py": {
     "testing": [
       "tests/unit/tournament/test_distribution.py",
-      "tests/unit/tournament/test_distribution_tail.py"
+      "tests/unit/tournament/test_distribution_tail.py",
+      "tests/unit/tournament/test_p24_championship_lock.py"
     ]
   },
   "src/tournament/harness.py": {
