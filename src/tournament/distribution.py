@@ -604,3 +604,47 @@ class ReturnDistribution:
             giveback_median=float(gb_median),
             giveback_q90=float(gb_q90),
         )
+
+
+def locked_window_returns(
+    daily_rets: Sequence[float], horizon: int, lock_level: float
+) -> list[float]:
+    try:
+        h = int(horizon)
+    except Exception:
+        return []
+    if h <= 0:
+        return []
+    if not daily_rets:
+        return []
+    try:
+        ll = float(lock_level)
+    except Exception:
+        return []
+    if not math.isfinite(ll) or ll <= 0:
+        return []
+    try:
+        n = len(daily_rets)  # type: ignore[arg-type]
+    except Exception:
+        return []
+    if n < h:
+        return []
+    out: list[float] = []
+    for i in range(n - h + 1):
+        equity = 1.0
+        locked = False
+        for k in range(h):
+            if locked:
+                continue
+            try:
+                r = float(daily_rets[i + k])  # type: ignore[index]
+            except Exception:
+                r = 0.0
+            if not math.isfinite(r):
+                r = 0.0
+            # compound
+            equity *= 1.0 + r
+            if equity >= 1.0 + ll - 1e-12:
+                locked = True
+        out.append(float(equity - 1.0))
+    return out
