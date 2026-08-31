@@ -707,6 +707,208 @@ def championship_lock_returns(
     return out
 
 
+def house_money_ratchet_returns(
+    daily_rets: Sequence[float], horizon: int, arm: float, lock_remaining: int = 5
+) -> list[float]:
+    try:
+        h = int(horizon)
+    except Exception:
+        return []
+    if h <= 0:
+        return []
+    if not daily_rets:
+        return []
+    try:
+        n = len(daily_rets)  # type: ignore[arg-type]
+    except Exception:
+        return []
+    if n < h:
+        return []
+    try:
+        ll = float(arm)  # type: ignore[arg-type]
+    except Exception:
+        return []
+    if not math.isfinite(ll) or ll <= 0:
+        return []
+    try:
+        lf = float(lock_remaining)  # type: ignore[arg-type]
+        if not math.isfinite(lf) or lf < 0:
+            lr = 5
+        else:
+            lr = int(lf)
+    except Exception:
+        lr = 5
+    out: list[float] = []
+    for i in range(n - h + 1):
+        equity = 1.0
+        armed = False
+        locked = False
+        for k in range(h):
+            if locked:
+                break
+            try:
+                r = float(daily_rets[i + k])  # type: ignore[index]
+            except Exception:
+                r = 0.0
+            if not math.isfinite(r):
+                r = 0.0
+            equity *= 1.0 + r
+            if not armed and equity >= 1.0 + ll - 1e-12:
+                armed = True
+            if armed:
+                if equity < 1.0 + ll - 1e-12:
+                    equity = 1.0 + ll
+                    locked = True
+                else:
+                    remaining_after = h - 1 - k
+                    if remaining_after <= lr:
+                        locked = True
+        out.append(float(equity - 1.0))
+    return out
+
+
+def continuation_capture(
+    unlocked: Sequence[float],
+    freeze: Sequence[float],
+    ratchet: Sequence[float],
+    arm: float,
+    *,
+    eps: float = 0.10,
+) -> float:
+    try:
+        af = float(arm)  # type: ignore[arg-type]
+        if not math.isfinite(af):
+            return 0.0
+    except Exception:
+        return 0.0
+    try:
+        ef = float(eps)  # type: ignore[arg-type]
+        if not math.isfinite(ef):
+            ef = 0.10
+    except Exception:
+        ef = 0.10
+    threshold = af + ef
+    n = min(len(unlocked), len(freeze), len(ratchet))
+    if n == 0:
+        return 0.0
+    diffs: list[float] = []
+    for idx in range(n):
+        try:
+            uv = float(unlocked[idx])  # type: ignore[index]
+        except Exception:
+            continue
+        if not math.isfinite(uv):
+            continue
+        if uv > threshold:
+            try:
+                fv = float(freeze[idx])  # type: ignore[index]
+                rv = float(ratchet[idx])  # type: ignore[index]
+            except Exception:
+                continue
+            if not math.isfinite(fv) or not math.isfinite(rv):
+                continue
+            diffs.append(float(rv - fv))
+    if not diffs:
+        return 0.0
+    return float(sum(diffs) / len(diffs))
+
+
+def overlay_right_tail_stats(terminals: Sequence[float]) -> dict[str, float]:
+    if not terminals:
+        return {"q99": 0.0, "mean": 0.0, "p_gt_50": 0.0, "p_gt_60": 0.0, "p_gt_80": 0.0}
+    try:
+        vals = [float(x) for x in terminals]  # type: ignore[arg-type]
+        vals = [v for v in vals if math.isfinite(v)]
+    except Exception:
+        return {"q99": 0.0, "mean": 0.0, "p_gt_50": 0.0, "p_gt_60": 0.0, "p_gt_80": 0.0}
+    if not vals:
+        return {"q99": 0.0, "mean": 0.0, "p_gt_50": 0.0, "p_gt_60": 0.0, "p_gt_80": 0.0}
+    n = len(vals)
+    mean_v = float(sum(vals) / n) if n else 0.0
+    # q99 via linear interpolation pos = 0.99*(n-1)
+    sorted_v = sorted(vals)
+    if n == 1:
+        q99 = float(sorted_v[0])
+    else:
+        pos = 0.99 * (n - 1)
+        lo = int(math.floor(pos))
+        hi = int(math.ceil(pos))
+        if lo == hi:
+            q99 = float(sorted_v[lo])
+        else:
+            frac = pos - lo
+            q99 = float(sorted_v[lo]) * (1 - frac) + float(sorted_v[hi]) * frac
+    def _p(th: float) -> float:
+        cnt = sum(1 for v in vals if v > th)
+        return float(cnt) / float(n) if n else 0.0
+    return {
+        "q99": float(q99),
+        "mean": float(mean_v),
+        "p_gt_50": float(_p(0.50)),
+        "p_gt_60": float(_p(0.60)),
+        "p_gt_80": float(_p(0.80)),
+    }
+
+
+def evaluate_p25_adoption_gates(
+    q99_ratchet: float,
+    q99_freeze: float,
+    p_gt_60_ratchet: float,
+    p_gt_60_freeze: float,
+    p_gt_60_unlocked: float,
+    continuation_capture: float,
+    ruin: float,
+    vehicle_rate: float,
+    *,
+    ruin_max: float = 0.05,
+    min_vehicle_rate: float = 0.25,
+) -> tuple[str, list[str]]:
+    def _f(v: object) -> float:
+        try:
+            fv = float(v)  # type: ignore[arg-type]
+            if not math.isfinite(fv):
+                return 0.0
+            return float(fv)
+        except Exception:
+            return 0.0
+    q99_r = _f(q99_ratchet)
+    q99_f = _f(q99_freeze)
+    p60_r = _f(p_gt_60_ratchet)
+    p60_f = _f(p_gt_60_freeze)
+    p60_u = _f(p_gt_60_unlocked)
+    cc = _f(continuation_capture)
+    ru = _f(ruin)
+    vr = _f(vehicle_rate)
+    try:
+        rm = float(ruin_max)  # type: ignore[arg-type]
+        if not math.isfinite(rm):
+            rm = 0.05
+    except Exception:
+        rm = 0.05
+    try:
+        mv = float(min_vehicle_rate)  # type: ignore[arg-type]
+        if not math.isfinite(mv):
+            mv = 0.25
+    except Exception:
+        mv = 0.25
+    fails: list[str] = []
+    if q99_r + 1e-12 < q99_f:
+        fails.append("q99")
+    if p60_u > 1e-12 and p60_r <= 1e-12:
+        fails.append("right_tail_censored")
+    if p60_r + 1e-12 < p60_f:
+        fails.append("p_gt_60")
+    if p60_u > 1e-12 and cc <= 1e-12:
+        fails.append("continuation")
+    if ru > rm + 1e-12:
+        fails.append("ruin")
+    if vr + 1e-12 < mv:
+        fails.append("vehicle_activity")
+    if not fails:
+        return ("PASS", [])
+    return ("FAIL", fails)
+
+
 def evaluate_p24_adoption_gates(
     p_gt_30: float,
     b1_p_gt_30: float,

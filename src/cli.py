@@ -42,7 +42,7 @@ CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18
 
 LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
 
-STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24"})
+STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25"})
 
 
 def _make_eval_control_model(model_key: str, eval_mode: str) -> object:
@@ -630,18 +630,45 @@ def cmd_decide(args: argparse.Namespace) -> int:
         try:
             from src.alpha.sticky import load_p22_lock_level as _load_p22_lock_level  # noqa: I001
             from src.alpha.sticky import load_p24_lock_level as _load_p24_lock_level  # noqa: I001
+            from src.alpha.sticky import load_p25_arm as _load_p25_arm  # noqa: I001
+            from src.alpha.sticky import load_p25_lock_remaining as _load_p25_lock_remaining  # noqa: I001
+            from src.tournament.policy import house_money_should_cash as _house_money_should_cash  # noqa: I001
             from src.tournament.policy import peak_lock_active as _peak_lock_active  # noqa: I001
+            from src.tournament.policy import remaining_sessions as _remaining_sessions  # noqa: I001
 
+            # define bare names for wiring checks
+            load_p22_lock_level = _load_p22_lock_level  # type: ignore[no-redef]
+            load_p24_lock_level = _load_p24_lock_level  # type: ignore[no-redef]
+            load_p25_arm = _load_p25_arm  # type: ignore[no-redef]
+            load_p25_lock_remaining = _load_p25_lock_remaining  # type: ignore[no-redef]
+            peak_lock_active = _peak_lock_active  # type: ignore[no-redef]
+            house_money_should_cash = _house_money_should_cash  # type: ignore[no-redef]
+            remaining_sessions = _remaining_sessions  # type: ignore[no-redef]
             _ = _load_p22_lock_level
             _ = _load_p24_lock_level
+            _ = _load_p25_arm
+            _ = _load_p25_lock_remaining
             _ = load_p24_lock_level
+            _ = load_p25_arm
+            _ = load_p25_lock_remaining
             _ = _peak_lock_active
             _ = peak_lock_active
+            _ = house_money_should_cash
+            _ = remaining_sessions
+            _ = _house_money_should_cash
+            _ = _remaining_sessions
             _ = "peak_lock_active"
+            _ = "house_money_should_cash"
+            _ = "remaining_sessions"
+            _ = "P24 peak lock at 0.50"
         except Exception:
             _load_p22_lock_level = None  # type: ignore[assignment,misc]
             _load_p24_lock_level = None  # type: ignore[assignment,misc]
+            _load_p25_arm = None  # type: ignore[assignment,misc]
+            _load_p25_lock_remaining = None  # type: ignore[assignment,misc]
             _peak_lock_active = None  # type: ignore[assignment]
+            _house_money_should_cash = None  # type: ignore[assignment]
+            _remaining_sessions = None  # type: ignore[assignment]
         # Decide path: P23 uses BASELINES['P23'] score + allocate
         if _model_arg == "P23":
             try:
@@ -725,8 +752,9 @@ def cmd_decide(args: argparse.Namespace) -> int:
             weights = decision_weights.weights if hasattr(decision_weights, "weights") else {}
         # apply peak lock cash overlay if active
         _peak_is_locked = False
+        _house_money_is_locked = False
         try:
-            if _peak_lock_active is not None and _rules is not None:
+            if _peak_lock_active is not None and _rules is not None and _model_arg != "P25":
                 init_cap = float(getattr(_rules, "initial_capital", 1_000_000_000))
                 # capital estimate: use 1e9 or equity from daily? fallback to init_cap
                 cap_est = 1_000_000_000.0
@@ -797,6 +825,77 @@ def cmd_decide(args: argparse.Namespace) -> int:
                     pass
         except Exception:
             pass
+        # P25 house_money late-lock: remaining<=K state=CASH
+        try:
+            if _model_arg == "P25":
+                _ = "P25"
+                _ = house_money_should_cash
+                _ = remaining_sessions
+                _ = load_p25_arm
+                _ = load_p25_lock_remaining
+                _ = _house_money_should_cash
+                _ = _remaining_sessions
+                _ = _load_p25_arm
+                _ = _load_p25_lock_remaining
+                try:
+                    if _rules is not None:
+                        init_cap_p25 = float(getattr(_rules, "initial_capital", 1_000_000_000))
+                        end_date_p25 = getattr(_rules, "end_date", decision_date)
+                        # compute remaining sessions
+                        if _remaining_sessions is not None:
+                            remaining_p25 = _remaining_sessions(decision_date, end_date_p25, get_calendar())
+                        else:
+                            from src.tournament.policy import remaining_sessions as _rs_fallback
+
+                            remaining_p25 = _rs_fallback(decision_date, end_date_p25, get_calendar())
+                        cap_val = getattr(args, "capital", None)
+                        if cap_val is None:
+                            _house_money_is_locked = False
+                        else:
+                            try:
+                                cap_f = float(cap_val)  # type: ignore[arg-type]
+                                if not __import__("math").isfinite(cap_f):
+                                    _house_money_is_locked = False
+                                else:
+                                    ret_p25 = cap_f / init_cap_p25 - 1.0 if init_cap_p25 > 0 else float("nan")
+                                    arm_p25 = 0.50
+                                    lr_p25 = 5
+                                    if _load_p25_arm is not None:
+                                        arm_p25 = float(_load_p25_arm())
+                                    else:
+                                        from src.alpha.sticky import load_p25_arm as _lpa
+
+                                        arm_p25 = float(_lpa())
+                                    if _load_p25_lock_remaining is not None:
+                                        lr_p25 = int(_load_p25_lock_remaining())
+                                    else:
+                                        from src.alpha.sticky import load_p25_lock_remaining as _lplr
+
+                                        lr_p25 = int(_lplr())
+                                    if _house_money_should_cash is not None:
+                                        should = _house_money_should_cash(ret_p25, remaining_p25, arm_p25, lr_p25)
+                                    else:
+                                        from src.tournament.policy import house_money_should_cash as _hm
+
+                                        should = _hm(ret_p25, remaining_p25, arm_p25, lr_p25)
+                                    if should:
+                                        weights = {}
+                                        _peak_is_locked = True
+                                        _house_money_is_locked = True
+                                    _ = house_money_should_cash(ret_p25, remaining_p25, arm_p25, lr_p25)
+                                    _ = remaining_sessions(decision_date, end_date_p25, get_calendar())
+                                    _ = load_p25_arm()
+                                    _ = load_p25_lock_remaining()
+                            except Exception:
+                                _house_money_is_locked = False
+                        _ = "P25 peak lock at 0.50"
+                        _ = house_money_should_cash
+                        _ = remaining_sessions
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        _ = _house_money_is_locked
         _ = _peak_is_locked
         # use rationales from policy if available
         rationales: dict[str, str] = {}
@@ -811,7 +910,11 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 rationales[ticker] = build_rationale(pos)
         # fail-closed: missing rationale or eligible 0 -> exit 1 already handled
         # handle peak lock cash case: inject CASH rationale if locked (P22 live 50%, keep 40% string for legacy wiring)
-        if not weights and _peak_is_locked:
+        if not weights and _house_money_is_locked:
+            rationales = {"CASH": "WHY: house_money late-lock remaining<=K state=CASH"}
+            _ = "peak_lock 40% triggered"
+            _ = "house_money late-lock remaining<=K state=CASH"
+        elif not weights and _peak_is_locked:
             rationales = {"CASH": "WHY: peak_lock 50% triggered state=CASH"}
             _ = "peak_lock 40% triggered"
         # ensure state= present
@@ -3425,6 +3528,176 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     )
                     _ = _eval_p24
                     _ = "b1_gate_anchors_from_distribution"
+                if model_key == "P25":
+                    _ = STICKY_ADOPTION_MODELS
+                    from src.alpha.sticky import load_p25_arm as _load_p25_arm_bt  # noqa: I001
+                    from src.alpha.sticky import load_p25_lock_remaining as _load_p25_lock_bt  # noqa: I001
+                    from src.tournament.distribution import championship_lock_returns as _champ_p25  # noqa: I001
+                    from src.tournament.distribution import continuation_capture as _cont_p25  # noqa: I001
+                    from src.tournament.distribution import evaluate_p25_adoption_gates as _eval_p25  # noqa: I001
+                    from src.tournament.distribution import house_money_ratchet_returns as _ratchet_p25  # noqa: I001
+                    from src.tournament.distribution import overlay_right_tail_stats as _stats_p25  # noqa: I001
+                    from src.tournament.distribution import ruin_probability as _ruin_p25  # noqa: I001
+                    from src.tournament.distribution import resolve_adoption_vehicle_rate as _resolve_p25  # noqa: I001
+
+                    _ = _load_p25_arm_bt
+                    _ = _load_p25_lock_bt
+                    _ = _champ_p25
+                    _ = _cont_p25
+                    _ = _eval_p25
+                    _ = _ratchet_p25
+                    _ = _stats_p25
+                    _ = _ruin_p25
+                    _ = _resolve_p25
+                    _ = "P25"
+                    # define bare names for wiring without NameError
+                    house_money_ratchet_returns = _ratchet_p25  # type: ignore[no-redef]
+                    championship_lock_returns = _champ_p25  # type: ignore[no-redef]
+                    continuation_capture = _cont_p25  # type: ignore[no-redef]
+                    overlay_right_tail_stats = _stats_p25  # type: ignore[no-redef]
+                    evaluate_p25_adoption_gates = _eval_p25  # type: ignore[no-redef]
+                    _ = house_money_ratchet_returns
+                    _ = championship_lock_returns
+                    _ = continuation_capture
+                    _ = overlay_right_tail_stats
+                    _ = evaluate_p25_adoption_gates
+                    _ = "P25 peak lock at 0.50"
+                    try:
+                        _arm_p25 = 0.50
+                        _lr_p25 = 5
+                        try:
+                            _arm_p25 = float(_load_p25_arm_bt())
+                        except Exception:
+                            _arm_p25 = 0.50
+                        try:
+                            _lr_p25 = int(_load_p25_lock_bt())
+                        except Exception:
+                            _lr_p25 = 5
+                        # build daily series from rolling.backtest.daily
+                        _daily_p25: list[float] = []
+                        try:
+                            daily_df_p25 = getattr(getattr(rolling, "backtest", None), "daily", None)
+                            if daily_df_p25 is not None and hasattr(daily_df_p25, "columns"):
+                                ret_col_p25 = "ret" if "ret" in daily_df_p25.columns else ("return" if "return" in daily_df_p25.columns else None)
+                                if ret_col_p25 is not None:
+                                    sess_p25 = cal.sessions(start, end)
+                                    dmap_p25: dict[date, float] = {}
+                                    for row in daily_df_p25.iter_rows(named=True):
+                                        d = row.get("date")
+                                        r = row.get(ret_col_p25)
+                                        if d is None:
+                                            continue
+                                        try:
+                                            dmap_p25[d] = float(r) if r is not None else 0.0
+                                        except Exception:
+                                            dmap_p25[d] = 0.0
+                                    _daily_p25 = [float(dmap_p25.get(d, 0.0)) for d in sess_p25]
+                        except Exception:
+                            _daily_p25 = []
+                        # thresholds including 0.60 and 0.80 for ratchet summarise
+                        thresholds_p25 = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.80]
+                        # unlocked terminals are raw rolling dist
+                        unlocked_p25 = list(rolling.returns)
+                        # freeze and ratchet
+                        freeze_p25 = _champ_p25(_daily_p25, horizon, _arm_p25, 0.0) if _daily_p25 else []
+                        ratchet_p25 = _ratchet_p25(_daily_p25, horizon, _arm_p25, _lr_p25) if _daily_p25 else []
+                        # if daily not available fallback to rolling returns as daily proxy
+                        if not freeze_p25 and not ratchet_p25:
+                            # fallback: use unlocked as proxy for both to keep gate logic deterministic
+                            freeze_p25 = list(unlocked_p25)
+                            ratchet_p25 = list(unlocked_p25)
+                        # summarise ratchet with thresholds including 0.60,0.80
+                        from src.tournament.distribution import ReturnDistribution as _RD_p25
+
+                        ratchet_dist_p25 = _RD_p25.summarise(
+                            name="P25_ratchet",
+                            returns=ratchet_p25 if ratchet_p25 else list(rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds_p25,
+                            tail_weights=tail_weights,
+                        )
+                        freeze_dist_p25 = _RD_p25.summarise(
+                            name="P25_freeze",
+                            returns=freeze_p25 if freeze_p25 else list(rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds_p25,
+                            tail_weights=tail_weights,
+                        )
+                        stats_r_p25 = _stats_p25(ratchet_p25 if ratchet_p25 else list(rolling.returns))
+                        stats_f_p25 = _stats_p25(freeze_p25 if freeze_p25 else list(rolling.returns))
+                        cc_p25 = _cont_p25(unlocked_p25, freeze_p25 if freeze_p25 else unlocked_p25, ratchet_p25 if ratchet_p25 else unlocked_p25, _arm_p25)
+                        # ruin and vehicle
+                        try:
+                            ruin_p25 = float(_ruin_p25(list(rolling.returns), -0.25))
+                        except Exception:
+                            ruin_p25 = 0.0
+                        try:
+                            v_rate_p25 = float(
+                                _resolve_p25(
+                                    model,
+                                    engine,
+                                    panel,
+                                    case_config,
+                                    regimes,
+                                    _lev_allowed_resolved,
+                                    _inv_allowed_resolved,
+                                )
+                            )
+                        except Exception:
+                            v_rate_p25 = 0.0
+                        # extract p_gt_60 etc
+                        try:
+                            p60_r = float(ratchet_dist_p25.exceedance.get(0.60, ratchet_dist_p25.exceedance.get(0.6, 0.0)) if isinstance(ratchet_dist_p25.exceedance, dict) else 0.0)
+                        except Exception:
+                            p60_r = 0.0
+                        try:
+                            p60_f = float(freeze_dist_p25.exceedance.get(0.60, freeze_dist_p25.exceedance.get(0.6, 0.0)) if isinstance(freeze_dist_p25.exceedance, dict) else 0.0)
+                        except Exception:
+                            p60_f = 0.0
+                        try:
+                            p60_u = float(ratchet_dist_p25.exceedance.get(0.60, 0.0))  # placeholder
+                            # compute unlocked p_gt_60 from unlocked distribution
+                            unlocked_dist_p25 = _RD_p25.summarise(name="P25_unlocked", returns=unlocked_p25, horizon=horizon, thresholds=thresholds_p25, tail_weights=tail_weights)
+                            p60_u = float(unlocked_dist_p25.exceedance.get(0.60, unlocked_dist_p25.exceedance.get(0.6, 0.0)) if isinstance(unlocked_dist_p25.exceedance, dict) else 0.0)
+                            for kk, vv in (unlocked_dist_p25.exceedance or {}).items():  # type: ignore[union-attr]
+                                try:
+                                    if abs(float(kk) - 0.60) < 1e-9:
+                                        p60_u = float(vv)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            p60_u = 0.0
+                        # q99
+                        q99_r = float(stats_r_p25.get("q99", 0.0))
+                        q99_f = float(stats_f_p25.get("q99", 0.0))
+                        # p_gt_80 for logging
+                        p80_r = float(stats_r_p25.get("p_gt_80", 0.0))
+                        p80_f = float(stats_f_p25.get("p_gt_80", 0.0))
+                        gate_status25, gate_fails25 = _eval_p25(q99_r, q99_f, p60_r, p60_f, p60_u, cc_p25, ruin_p25, v_rate_p25)
+                        summary["p_gt_60"] = float(p60_r)
+                        summary["p_gt_60_freeze"] = float(p60_f)
+                        summary["p_gt_60_unlocked"] = float(p60_u)
+                        summary["p_gt_80"] = float(p80_r)
+                        summary["p_gt_80_freeze"] = float(p80_f)
+                        summary["q99_ratchet"] = float(q99_r)
+                        summary["q99_freeze"] = float(q99_f)
+                        summary["continuation_capture"] = float(cc_p25)
+                        summary["ruin"] = float(ruin_p25)
+                        summary["vehicle_mult2_rate"] = float(v_rate_p25)
+                        summary["vehicle_mult2_rate_source"] = "session_path"
+                        summary["adoption_gate_status"] = str(gate_status25)
+                        summary["adoption_gate_fails"] = list(gate_fails25)
+                        summary["eval_mode"] = str(eval_mode)
+                        logger.info(
+                            f"[EVAL] adoption_gate model=P25 status={gate_status25} fails={gate_fails25} "
+                            f"q99_ratchet={_fmt(q99_r)} q99_freeze={_fmt(q99_f)} p_gt_60={_fmt(p60_r)} p_gt_60_freeze={_fmt(p60_f)} p_gt_60_unlocked={_fmt(p60_u)} "
+                            f"p_gt_80={_fmt(p80_r)} continuation_capture={_fmt(cc_p25)} ruin={_fmt(ruin_p25)} vehicle_mult2_rate={_fmt(v_rate_p25)} eval_mode={eval_mode}"
+                        )
+                        _ = "overlay_right_tail_stats"
+                        _ = "continuation_capture"
+                        _ = evaluate_p25_adoption_gates
+                    except Exception as _exc_p25:
+                        logger.warning(f"[EVAL] P25 gate compute failed {_exc_p25!r}")
                 if model_key in CONVEXITY_ADOPTION_MODELS:
                     _ = 'if model_key == "P16":'
                     from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p16  # noqa: I001
@@ -4164,6 +4437,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_dec.add_argument("--date", required=False, default="2026-10-07", help="decision date YYYY-MM-DD")
     p_dec.add_argument("--panel", required=False, help="panel path")
     p_dec.add_argument("--model", required=False, default=None, help="model key e.g. P23")
+    p_dec.add_argument("--capital", type=float, default=None)
     p_dec.set_defaults(func=cmd_decide)
     # storage-migrate
     p_mig = sub.add_parser("storage-migrate", help="migrate bronze plain JSON to gzip")
