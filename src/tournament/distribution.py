@@ -648,3 +648,122 @@ def locked_window_returns(
                 locked = True
         out.append(float(equity - 1.0))
     return out
+
+
+def championship_lock_returns(
+    daily_rets: Sequence[float], horizon: int, arm: float, trail: float = 0.0
+) -> list[float]:
+    try:
+        h = int(horizon)
+    except Exception:
+        return []
+    if h <= 0:
+        return []
+    if not daily_rets:
+        return []
+    try:
+        n = len(daily_rets)  # type: ignore[arg-type]
+    except Exception:
+        return []
+    if n < h:
+        return []
+    try:
+        ll = float(arm)
+    except Exception:
+        return []
+    if not math.isfinite(ll) or ll <= 0:
+        return []
+    try:
+        tr = float(trail)
+    except Exception:
+        tr = float("nan")
+    if not math.isfinite(tr) or tr <= 0:
+        return locked_window_returns(daily_rets, horizon, arm)
+    # trail >0 hysteresis: floor-protected
+    out: list[float] = []
+    for i in range(n - h + 1):
+        equity = 1.0
+        peak = 1.0
+        locked = False
+        locked_equity = 1.0
+        for k in range(h):
+            if locked:
+                continue
+            try:
+                r = float(daily_rets[i + k])  # type: ignore[index]
+            except Exception:
+                r = 0.0
+            if not math.isfinite(r):
+                r = 0.0
+            equity *= 1.0 + r
+            if equity > peak:
+                peak = float(equity)
+            stop = max(1.0 + ll, float(peak) - float(tr))
+            if float(peak) > float(stop) and float(equity) < float(stop):
+                equity = float(stop)
+                locked = True
+                peak = float(stop)
+        out.append(float(equity - 1.0))
+    return out
+
+
+def evaluate_p24_adoption_gates(
+    p_gt_30: float,
+    b1_p_gt_30: float,
+    p_gt_40: float,
+    b1_p_gt_40: float,
+    p_gt_50: float,
+    b1_p_gt_50: float,
+    cvar: float,
+    b1_cvar: float,
+    vehicle_rate: float,
+    *,
+    min_vehicle_rate: float = 0.25,
+) -> tuple[str, list[str]]:
+    def _cand(v: object) -> float:
+        try:
+            fv = float(v)  # type: ignore[arg-type]
+        except Exception:
+            return 0.0
+        if not math.isfinite(fv):
+            return 0.0
+        return float(fv)
+
+    def _b1(v: object) -> float:
+        try:
+            fv = float(v)  # type: ignore[arg-type]
+        except Exception:
+            return float("inf")
+        if not math.isfinite(fv):
+            return float("inf")
+        return float(fv)
+
+    p30 = _cand(p_gt_30)
+    b30 = _b1(b1_p_gt_30)
+    p40 = _cand(p_gt_40)
+    b40 = _b1(b1_p_gt_40)
+    p50 = _cand(p_gt_50)
+    b50 = _b1(b1_p_gt_50)
+    cv = _cand(cvar)
+    bcv = _b1(b1_cvar)
+    vr = _cand(vehicle_rate)
+    try:
+        mv = float(min_vehicle_rate)  # type: ignore[arg-type]
+        if not math.isfinite(mv):
+            mv = float("inf")
+    except Exception:
+        mv = float("inf")
+    fails: list[str] = []
+    if not (float(p30) >= float(b30) - 1e-12):
+        fails.append("p_gt_30")
+    if not (float(p40) >= float(b40) + 0.02 - 1e-12):
+        fails.append("p_gt_40")
+    if not (float(p50) >= float(b50) + 0.02 - 1e-12):
+        fails.append("p_gt_50")
+    if not (float(cv) >= float(bcv) - 0.05 - 1e-12):
+        fails.append("cvar_05")
+    if not (float(vr) >= float(mv) - 1e-12):
+        fails.append("vehicle_activity")
+    if not fails:
+        return ("PASS", [])
+    return ("FAIL", fails)

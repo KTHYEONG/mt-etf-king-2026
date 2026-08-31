@@ -205,6 +205,113 @@ def load_p22_lock_level(*, default: float = 0.50) -> float:
         return float(default)
 
 
+def load_p24_lock_level(*, default: float = 0.50) -> float:
+    try:
+        from pathlib import Path
+
+        import yaml
+
+        fp = Path("configs/strategies.yaml")
+        if not fp.exists():
+            return float(default)
+        with open(fp, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        if not isinstance(raw, dict):
+            return float(default)
+        port = raw.get("portfolio")
+        if not isinstance(port, dict):
+            return float(default)
+        p24 = port.get("p24")
+        if not isinstance(p24, Mapping) or "lock_level" not in p24:
+            return float(default)
+        return resolve_lock_level(p24["lock_level"], default=default)
+    except Exception:
+        return float(default)
+
+
+def load_p24_trail(*, default: float = 0.0) -> float:
+    try:
+        from pathlib import Path
+
+        import yaml
+
+        fp = Path("configs/strategies.yaml")
+        if not fp.exists():
+            return float(default)
+        with open(fp, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        if not isinstance(raw, dict):
+            return float(default)
+        port = raw.get("portfolio")
+        if not isinstance(port, dict):
+            return float(default)
+        p24 = port.get("p24")
+        if not isinstance(p24, Mapping) or "trail" not in p24:
+            # also support trail_level alias
+            if isinstance(p24, Mapping) and "trail_level" in p24:
+                v = p24["trail_level"]
+                try:
+                    fv = float(v)  # type: ignore[arg-type]
+                    if not math.isfinite(fv) or fv < 0:
+                        return float(default)
+                    return float(fv)
+                except Exception:
+                    return float(default)
+            return float(default)
+        v = p24["trail"]
+        try:
+            fv = float(v)  # type: ignore[arg-type]
+            if not math.isfinite(fv) or fv < 0:
+                return float(default)
+            return float(fv)
+        except Exception:
+            return float(default)
+    except Exception:
+        return float(default)
+
+
+def load_p24_mom_col(*, default: str = "mom_60") -> str:
+    try:
+        from pathlib import Path
+
+        import yaml
+
+        fp = Path("configs/strategies.yaml")
+        if not fp.exists():
+            return str(default)
+        with open(fp, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        if not isinstance(raw, dict):
+            return str(default)
+        port = raw.get("portfolio")
+        if not isinstance(port, dict):
+            return str(default)
+        p24 = port.get("p24")
+        if not isinstance(p24, Mapping) or "mom_col" not in p24:
+            return str(default)
+        v = p24["mom_col"]
+        if not isinstance(v, str) or not v.strip():
+            return str(default)
+        s = str(v).strip()
+        # allow only mom_ prefixed? fallback for invalid names still allow but require non-empty
+        if not s:
+            return str(default)
+        try:
+            # if value is numeric-like string that is nan/inf, treat as invalid
+            fv = float(s)  # type: ignore[arg-type]
+            if math.isfinite(fv):
+                # if s is numeric it is invalid for mom_col
+                return str(default)
+        except Exception:
+            pass
+        # validate mom_col pattern: startswith mom_
+        if not s.startswith("mom_"):
+            return str(default)
+        return str(s)
+    except Exception:
+        return str(default)
+
+
 def collapse_plus2_by_family(scores: Mapping[str, float], snapshot: pl.DataFrame, adv_col: str = "trading_value") -> dict[str, float]:
     if not scores:
         return {}

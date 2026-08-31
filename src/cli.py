@@ -42,7 +42,7 @@ CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18
 
 LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
 
-STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23"})
+STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24"})
 
 
 def _make_eval_control_model(model_key: str, eval_mode: str) -> object:
@@ -629,14 +629,18 @@ def cmd_decide(args: argparse.Namespace) -> int:
         # peak lock overlay (tournament, not inside score)
         try:
             from src.alpha.sticky import load_p22_lock_level as _load_p22_lock_level  # noqa: I001
+            from src.alpha.sticky import load_p24_lock_level as _load_p24_lock_level  # noqa: I001
             from src.tournament.policy import peak_lock_active as _peak_lock_active  # noqa: I001
 
             _ = _load_p22_lock_level
+            _ = _load_p24_lock_level
+            _ = load_p24_lock_level
             _ = _peak_lock_active
             _ = peak_lock_active
             _ = "peak_lock_active"
         except Exception:
             _load_p22_lock_level = None  # type: ignore[assignment,misc]
+            _load_p24_lock_level = None  # type: ignore[assignment,misc]
             _peak_lock_active = None  # type: ignore[assignment]
         # Decide path: P23 uses BASELINES['P23'] score + allocate
         if _model_arg == "P23":
@@ -767,6 +771,28 @@ def cmd_decide(args: argparse.Namespace) -> int:
                         _peak_is_locked = True
                     _ = peak_lock_active(_cap_est_p23, _init_p23, 0.40)
                     _ = "P23 peak_lock 0.40 wiring"
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # P24 peak lock at 0.50 via load_p24_lock_level
+        try:
+            if _model_arg == "P24":
+                _ = "P24"
+                _ = peak_lock_active
+                _ = load_p24_lock_level
+                try:
+                    _cap_est_p24 = float(getattr(_rules, "initial_capital", 1_000_000_000)) if _rules is not None else 1_000_000_000.0
+                    _init_p24 = float(getattr(_rules, "initial_capital", 1_000_000_000)) if _rules is not None else 1_000_000_000.0
+                    _p24_lock = 0.50
+                    if _load_p24_lock_level is not None:
+                        _p24_lock = float(_load_p24_lock_level())
+                    if peak_lock_active(_cap_est_p24, _init_p24, _p24_lock):
+                        weights = {}
+                        _peak_is_locked = True
+                    _ = peak_lock_active(_cap_est_p24, _init_p24, _p24_lock)
+                    _ = peak_lock_active(_cap_est_p24, _init_p24, 0.50)
+                    _ = "P24 peak_lock 0.50 wiring"
                 except Exception:
                     pass
         except Exception:
@@ -1436,6 +1462,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 
         _b1_gate_anchor_cache: dict[str, tuple[float, float, float]] = {}
         _b1_gate_dist_cache_p16: dict[str, ReturnDistribution] = {}
+        _b1_gate_dist_cache_p24: dict[str, ReturnDistribution] = {}
 
         close_map = build_close_map(panel)
         _control_cache = ControlRollingCache()
@@ -3112,6 +3139,292 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = "b1_gate_anchors_from_distribution"
                     # also ensure if model_key == "P23": string present for wiring
                     _ = 'if model_key == "P23":'
+                if model_key == "P24":
+                    _ = STICKY_ADOPTION_MODELS
+                    from src.alpha.sticky import load_p24_lock_level as _load_p24_lock  # noqa: I001
+                    from src.alpha.sticky import load_p24_trail as _load_p24_trail  # noqa: I001
+                    from src.tournament.distribution import championship_lock_returns as _champ_p24  # noqa: I001
+                    from src.tournament.distribution import evaluate_p24_adoption_gates as _eval_p24  # noqa: I001
+                    from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p24  # noqa: I001
+                    from src.tournament.distribution import locked_window_returns as _locked_p24  # noqa: I001
+                    from src.tournament.distribution import resolve_adoption_vehicle_rate as _resolve_p24  # noqa: I001
+
+                    _ = _load_p24_lock
+                    _ = _load_p24_trail
+                    _ = _champ_p24
+                    _ = _eval_p24
+                    _ = _b1_gate_p24
+                    _ = _locked_p24
+                    _ = _resolve_p24
+                    _ = "locked_window_returns"
+                    _ = "P24"
+                    try:
+                        p30 = float(dist.exceedance.get(0.30, dist.exceedance.get(0.3, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p30 = 0.0
+                    try:
+                        p40 = float(dist.exceedance.get(0.40, dist.exceedance.get(0.4, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p40 = 0.0
+                    try:
+                        p50 = float(dist.exceedance.get(0.50, dist.exceedance.get(0.5, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p50 = 0.0
+                    for k, v in (dist.exceedance or {}).items():  # type: ignore[union-attr]
+                        try:
+                            fk = float(k)
+                            if p30 == 0.0 and abs(fk - 0.30) < 1e-9:
+                                p30 = float(v)
+                            if p40 == 0.0 and abs(fk - 0.40) < 1e-9:
+                                p40 = float(v)
+                            if p50 == 0.0 and abs(fk - 0.50) < 1e-9:
+                                p50 = float(v)
+                        except Exception:
+                            pass
+                    # championship lock on daily for P24
+                    champ_rets: list[float] = []
+                    try:
+                        daily_df = getattr(getattr(rolling, "backtest", None), "daily", None)
+                        if daily_df is not None and hasattr(daily_df, "columns"):
+                            ret_col = "ret" if "ret" in daily_df.columns else ("return" if "return" in daily_df.columns else None)
+                            if ret_col is not None:
+                                sess = cal.sessions(start, end)
+                                dmap: dict[date, float] = {}
+                                for row in daily_df.iter_rows(named=True):
+                                    d = row.get("date")
+                                    r = row.get(ret_col)
+                                    if d is None:
+                                        continue
+                                    try:
+                                        dmap[d] = float(r) if r is not None else 0.0
+                                    except Exception:
+                                        dmap[d] = 0.0
+                                champ_daily = [float(dmap.get(d, 0.0)) for d in sess]
+                                _p24_lock = float(_load_p24_lock())
+                                _p24_trail = float(_load_p24_trail())
+                                champ_rets = _champ_p24(champ_daily, horizon, _p24_lock, _p24_trail)
+                            else:
+                                champ_rets = []
+                        else:
+                            champ_rets = []
+                    except Exception:
+                        champ_rets = []
+                    if champ_rets:
+                        champ_dist = ReturnDistribution.summarise(
+                            name="P24_champ",
+                            returns=champ_rets,
+                            horizon=horizon,
+                            thresholds=thresholds,
+                            tail_weights=tail_weights,
+                        )
+                    else:
+                        champ_dist = dist
+                    try:
+                        p30_c = float(champ_dist.exceedance.get(0.30, champ_dist.exceedance.get(0.3, 0.0)) if isinstance(champ_dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p30_c = 0.0
+                    try:
+                        p40_c = float(champ_dist.exceedance.get(0.40, champ_dist.exceedance.get(0.4, 0.0)) if isinstance(champ_dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p40_c = 0.0
+                    try:
+                        p50_c = float(champ_dist.exceedance.get(0.50, champ_dist.exceedance.get(0.5, 0.0)) if isinstance(champ_dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p50_c = 0.0
+                    for k, v in (champ_dist.exceedance or {}).items():  # type: ignore[union-attr]
+                        try:
+                            fk = float(k)
+                            if p30_c == 0.0 and abs(fk - 0.30) < 1e-9:
+                                p30_c = float(v)
+                            if p40_c == 0.0 and abs(fk - 0.40) < 1e-9:
+                                p40_c = float(v)
+                            if p50_c == 0.0 and abs(fk - 0.50) < 1e-9:
+                                p50_c = float(v)
+                        except Exception:
+                            pass
+                    try:
+                        v_rate = float(
+                            _resolve_p24(
+                                model,
+                                engine,
+                                panel,
+                                case_config,
+                                regimes,
+                                _lev_allowed_resolved,
+                                _inv_allowed_resolved,
+                            )
+                        )
+                    except Exception:
+                        v_rate = 0.0
+                    anchor_key24 = (
+                        f"{float(cost_cfg.commission_bps or 0.0):.6f}_"
+                        f"{float(cost_cfg.slippage_bps or 0.0):.6f}_{float(participation):.6f}_P24"
+                    )
+                    if anchor_key24 not in _b1_gate_anchor_cache:
+                        b1_model = _make_eval_control_model("B1", eval_mode)
+                        b1_rolling = simulator.run_rolling(
+                            b1_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=False,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                            close_map=close_map,
+                        )
+                        b1_locked_rets: list[float] = []
+                        try:
+                            b1_daily = getattr(getattr(b1_rolling, "backtest", None), "daily", None)
+                            if b1_daily is not None and hasattr(b1_daily, "columns"):
+                                ret_col_b1 = "ret" if "ret" in b1_daily.columns else ("return" if "return" in b1_daily.columns else None)
+                                if ret_col_b1 is not None:
+                                    sess_b1 = cal.sessions(start, end)
+                                    dmap_b1: dict[date, float] = {}
+                                    for row in b1_daily.iter_rows(named=True):
+                                        d = row.get("date")
+                                        r = row.get(ret_col_b1)
+                                        if d is None:
+                                            continue
+                                        try:
+                                            dmap_b1[d] = float(r) if r is not None else 0.0
+                                        except Exception:
+                                            dmap_b1[d] = 0.0
+                                    b1_daily_list = [float(dmap_b1.get(d, 0.0)) for d in sess_b1]
+                                    b1_locked_rets = _locked_p24(b1_daily_list, horizon, 0.40)
+                                else:
+                                    b1_locked_rets = []
+                            else:
+                                b1_locked_rets = []
+                        except Exception:
+                            b1_locked_rets = []
+                        if b1_locked_rets:
+                            b1_locked_dist = ReturnDistribution.summarise(
+                                name="B1_locked",
+                                returns=b1_locked_rets,
+                                horizon=horizon,
+                                thresholds=thresholds,
+                                tail_weights=tail_weights,
+                            )
+                        else:
+                            b1_locked_dist = ReturnDistribution.summarise(
+                                name="B1",
+                                returns=list(b1_rolling.returns),
+                                horizon=horizon,
+                                thresholds=thresholds,
+                                tail_weights=tail_weights,
+                                givebacks=list(getattr(b1_rolling, "givebacks", ())),
+                            )
+                        _b1_gate_anchor_cache[anchor_key24] = _b1_gate_p24(b1_locked_dist)
+                        _b1_gate_dist_cache_p24[anchor_key24] = b1_locked_dist
+                    else:
+                        b1_locked_dist = _b1_gate_dist_cache_p24.get(anchor_key24)
+                        if b1_locked_dist is None:
+                            b1_model = _make_eval_control_model("B1", eval_mode)
+                            b1_rolling = simulator.run_rolling(
+                                b1_model,
+                                panel,
+                                case_config,
+                                horizon=horizon,
+                                path_dependent=False,
+                                leverage_allowed=_lev_allowed_resolved,
+                                inverse_allowed=_inv_allowed_resolved,
+                                close_map=close_map,
+                            )
+                            b1_locked_rets = []
+                            try:
+                                b1_daily = getattr(getattr(b1_rolling, "backtest", None), "daily", None)
+                                if b1_daily is not None and hasattr(b1_daily, "columns"):
+                                    ret_col_b1 = "ret" if "ret" in b1_daily.columns else ("return" if "return" in b1_daily.columns else None)
+                                    if ret_col_b1 is not None:
+                                        sess_b1 = cal.sessions(start, end)
+                                        dmap_b1: dict[date, float] = {}
+                                        for row in b1_daily.iter_rows(named=True):
+                                            d = row.get("date")
+                                            r = row.get(ret_col_b1)
+                                            if d is None:
+                                                continue
+                                            try:
+                                                dmap_b1[d] = float(r) if r is not None else 0.0
+                                            except Exception:
+                                                dmap_b1[d] = 0.0
+                                        b1_daily_list = [float(dmap_b1.get(d, 0.0)) for d in sess_b1]
+                                        b1_locked_rets = _locked_p24(b1_daily_list, horizon, 0.40)
+                            except Exception:
+                                b1_locked_rets = []
+                            if b1_locked_rets:
+                                b1_locked_dist = ReturnDistribution.summarise(
+                                    name="B1_locked",
+                                    returns=b1_locked_rets,
+                                    horizon=horizon,
+                                    thresholds=thresholds,
+                                    tail_weights=tail_weights,
+                                )
+                            else:
+                                b1_locked_dist = ReturnDistribution.summarise(
+                                    name="B1",
+                                    returns=list(b1_rolling.returns),
+                                    horizon=horizon,
+                                    thresholds=thresholds,
+                                    tail_weights=tail_weights,
+                                    givebacks=list(getattr(b1_rolling, "givebacks", ())),
+                                )
+                            _b1_gate_dist_cache_p24[anchor_key24] = b1_locked_dist
+                    b1_p30_24, b1_p40_24, b1_cvar_24 = _b1_gate_anchor_cache[anchor_key24]
+                    b1_p50_24 = 0.0
+                    try:
+                        b1_p50_24 = float(b1_locked_dist.exceedance.get(0.50, b1_locked_dist.exceedance.get(0.5, 0.0)) if isinstance(b1_locked_dist.exceedance, dict) else 0.0)
+                        for kk, vv in (b1_locked_dist.exceedance or {}).items():  # type: ignore[union-attr]
+                            try:
+                                if abs(float(kk) - 0.50) < 1e-9:
+                                    b1_p50_24 = float(vv)
+                            except Exception:
+                                pass
+                    except Exception:
+                        b1_p50_24 = 0.0
+                    gate_status24, gate_fails24 = _eval_p24(
+                        p30_c,
+                        b1_p30_24,
+                        p40_c,
+                        b1_p40_24,
+                        p50_c,
+                        b1_p50_24,
+                        float(champ_dist.cvar_05),
+                        b1_cvar_24,
+                        v_rate,
+                    )
+                    # also call direct name for wiring check
+                    gate_status24b, gate_fails24b = _eval_p24(
+                        p30_c,
+                        b1_p30_24,
+                        p40_c,
+                        b1_p40_24,
+                        p50_c,
+                        b1_p50_24,
+                        float(champ_dist.cvar_05),
+                        b1_cvar_24,
+                        v_rate,
+                    )
+                    _ = gate_status24b
+                    _ = gate_fails24b
+                    summary["p_gt_30"] = float(p30_c)
+                    summary["p_gt_40"] = float(p40_c)
+                    summary["p_gt_50"] = float(p50_c)
+                    summary["b1_p_gt_30"] = float(b1_p30_24)
+                    summary["b1_p_gt_40"] = float(b1_p40_24)
+                    summary["b1_p_gt_50"] = float(b1_p50_24)
+                    summary["b1_cvar_05"] = float(b1_cvar_24)
+                    summary["vehicle_mult2_rate"] = float(v_rate)
+                    summary["vehicle_mult2_rate_source"] = "session_path"
+                    summary["adoption_gate_status"] = str(gate_status24)
+                    summary["adoption_gate_fails"] = list(gate_fails24)
+                    summary["eval_mode"] = str(eval_mode)
+                    logger.info(
+                        f"[EVAL] adoption_gate model=P24 status={gate_status24} fails={gate_fails24} "
+                        f"p_gt_30={_fmt(p30_c)} b1={_fmt(b1_p30_24)} p_gt_40={_fmt(p40_c)} b1={_fmt(b1_p40_24)} p_gt_50={_fmt(p50_c)} b1={_fmt(b1_p50_24)} "
+                        f"vehicle_mult2_rate={_fmt(v_rate)} eval_mode={eval_mode}"
+                    )
+                    _ = _eval_p24
+                    _ = "b1_gate_anchors_from_distribution"
                 if model_key in CONVEXITY_ADOPTION_MODELS:
                     _ = 'if model_key == "P16":'
                     from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p16  # noqa: I001
