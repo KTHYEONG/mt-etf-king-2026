@@ -114,8 +114,12 @@ class PortfolioPolicy:
             _ = "lottery_active("
             # ensure import_symbol wiring
             from src.portfolio.sizing import lottery_active  # noqa: F401
+            from src.portfolio.sizing import resolve_overlay_sizing_branch  # noqa: F401
 
-            lottery_on = bool(_lottery_active(regime, leverage_allowed, self.lottery_config))
+            _ = resolve_overlay_sizing_branch
+            lottery_on = bool(_lottery_active(regime, leverage_allowed, self.lottery_config, scores))
+            _ = lottery_active(regime, leverage_allowed, self.lottery_config, scores)
+            _ = resolve_overlay_sizing_branch(scores, lottery_on=lottery_on, convexity_on=False, lottery_config=self.lottery_config, convexity_config=self.convexity_config)
         except Exception:
             lottery_on = False
         # sizing: lottery_on skips tail_concentration_weights and confidence_weights
@@ -147,44 +151,53 @@ class PortfolioPolicy:
                         self._convexity_entry_score = float(top_score)
         except Exception:
             convexity_on = False
-        if convexity_on:
+        # overlay arbitration: lottery-first
+        if lottery_on or convexity_on:
             try:
-                from src.portfolio.sizing import LotteryExposureConfig as _LEC2  # noqa: F401
+                from src.portfolio.sizing import resolve_overlay_sizing_branch as _rosb  # noqa: F401
 
-                _ = _LEC2
-                cfg_c2 = self.convexity_config
-                w_top_c = float(getattr(cfg_c2, "w_top", 1.0)) if cfg_c2 is not None else 1.0
-                sorted_scores2 = sorted(scores.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))
-                top_t = str(sorted_scores2[0][0])
-                weights = {top_t: float(w_top_c)}
-                # also keep lottery_concentration_weights wiring for completeness
+                _ = _rosb
                 _ = "lottery_concentration_weights("
-                from src.portfolio.sizing import lottery_concentration_weights as _lcw_c  # noqa: F401
+                _ = "resolve_overlay_sizing_branch("
+                weights, lottery_branch, convexity_sizing = _rosb(scores, lottery_on=lottery_on, convexity_on=convexity_on, lottery_config=self.lottery_config, convexity_config=self.convexity_config)
+                _ = resolve_overlay_sizing_branch(scores, lottery_on=lottery_on, convexity_on=convexity_on, lottery_config=self.lottery_config, convexity_config=self.convexity_config)
+                # keep legacy wiring refs
+                from src.portfolio.sizing import lottery_concentration_weights as _lcw_c2  # noqa: F401
 
-                _ = _lcw_c
+                _ = _lcw_c2
             except Exception:
-                sorted_scores2 = sorted(scores.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))
-                top_t = str(sorted_scores2[0][0])
-                try:
-                    w_top_c = float(getattr(self.convexity_config, "w_top", 1.0))
-                except Exception:
-                    w_top_c = 1.0
-                weights = {top_t: float(w_top_c)}
-        elif lottery_on:
-            try:
-                from src.portfolio.sizing import lottery_concentration_weights as _lcw
+                # fallback to legacy lottery/convexity branches
+                if convexity_on and lottery_on:
+                    try:
+                        from src.portfolio.sizing import lottery_concentration_weights as _lcw_f
 
-                _ = _lcw
-                _ = "lottery_concentration_weights("
-                from src.portfolio.sizing import lottery_concentration_weights  # noqa: F401
+                        weights = _lcw_f(scores, self.lottery_config)  # type: ignore[arg-type]
+                        lottery_branch = bool(weights)
+                    except Exception:
+                        weights = {}
+                        lottery_branch = False
+                elif convexity_on:
+                    try:
+                        cfg_c2 = self.convexity_config
+                        w_top_c = float(getattr(cfg_c2, "w_top", 1.0)) if cfg_c2 is not None else 1.0
+                        sorted_scores2 = sorted(scores.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))
+                        top_t = str(sorted_scores2[0][0])
+                        weights = {top_t: float(w_top_c)}
+                        convexity_sizing = True  # type: ignore[assignment]
+                    except Exception:
+                        weights = {}
+                elif lottery_on:
+                    try:
+                        from src.portfolio.sizing import lottery_concentration_weights as _lcw2
 
-                weights = _lcw(scores, self.lottery_config)  # type: ignore[arg-type]
-                if weights:
-                    lottery_branch = True
-                _ = lottery_concentration_weights
-            except Exception:
-                lottery_branch = False
-                weights = {}
+                        weights = _lcw2(scores, self.lottery_config)  # type: ignore[arg-type]
+                        lottery_branch = bool(weights)
+                    except Exception:
+                        lottery_branch = False
+                        weights = {}
+        else:
+            lottery_branch = False
+            convexity_sizing = False  # type: ignore[assignment]
         if not lottery_branch and not convexity_on:
             if self.sizing_config is not None:
                 try:
