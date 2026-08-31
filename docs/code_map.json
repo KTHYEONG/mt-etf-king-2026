@@ -192,5 +192,8 @@
       "tests/unit/alpha/test_p21.py",
       "tests/unit/alpha/test_p22.py"
     ]
+  },
+  "src/portfolio/split_fill.py": {
+    "testing": "tests/unit/portfolio/test_split_fill.py"
   }
 }

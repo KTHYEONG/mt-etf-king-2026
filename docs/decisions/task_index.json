@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_27_P23_SPLIT_FILL_CAPACITY",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_27_P23_SPLIT_FILL_CAPACITY",
+      "domain": "portfolio",
+      "title": "P23 Split-Fill Capacity — score universe loosen · theme leader sleeve",
+      "why": "P21 locked P>40%=9.6% but theme +2x (494310) fails adoption liquidity gate (required_adv=1e11 at participation=1%); residual stays cash. Decide already scores at max_order_to_adv=0.05 — backtest skew.",
+      "resolution": "Implemented split_fill (fillable_weight, pick_liquidity_sleeve, split_residual_plus2, SplitFillStickyModel), UniverseFilters.score_max_order_to_adv, P23 baseline+CLI adoption/decide wiring (lock@40, score gate 0.05); contract tests+lean_check PASS; KRX 2018-2026 P23 P>40%=6.2% (locked) ruin=4.0% tour_20250922=+60.3% trades=618 vs P21 9.6/2.5/+55.4%/414 — adoption FAIL (p_gt_40 margin, vehicle_mult2_rate=0 wiring).",
+      "impact": "L5 portfolio+universe: P23 operational with split-fill across families; P21 sticky params retained; multi_family_rate 3.8% and 494310 BUY 9x vs P21 3x; full path -47% and P>40% below P21 — adoption not promoted; vehicle_activity metric wiring fix pending."
+    },
+    {
       "task_id": "TASK_26_P22_THEME_VEHICLE_TRAIL",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_26_P22_THEME_VEHICLE_TRAIL",
