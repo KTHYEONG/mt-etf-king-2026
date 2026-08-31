@@ -85,3 +85,12 @@ def test_panel_fallback_to_silver(tmp_path) -> None:  # noqa: ANN001
     loaded = load_backtest_panel(paths, columns=["date", "ticker", "close"])
     assert loaded is not None
     assert loaded.height == 2
+
+
+def test_backtest_panel_includes_volume_expansion() -> None:
+    from src.data.panel import BACKTEST_PANEL_COLUMNS
+
+    assert "volume_expansion" in BACKTEST_PANEL_COLUMNS
+    assert "drawdown_20" in BACKTEST_PANEL_COLUMNS
+    assert "mom_5" in BACKTEST_PANEL_COLUMNS
+    assert "extra_col" not in BACKTEST_PANEL_COLUMNS
