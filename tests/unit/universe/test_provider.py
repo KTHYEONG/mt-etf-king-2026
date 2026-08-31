@@ -11,6 +11,21 @@ from src.universe.provider import UniverseFilters, UniverseMode
 from tests.unit.universe.conftest import build_universe, deploy_filters, make_panel, panel_row
 
 
+def test_universe_filters_score_max_order_to_adv_loosens_gate() -> None:
+    fill_only = UniverseFilters(capital=1_000_000_000, max_position_weight=1.0, max_order_to_adv=0.01)
+    assert fill_only.required_adv() == 1e11
+    scored = UniverseFilters(
+        capital=1_000_000_000,
+        max_position_weight=1.0,
+        max_order_to_adv=0.01,
+        score_max_order_to_adv=0.05,
+    )
+    assert scored.required_adv() == 2e10
+    assert scored.max_order_to_adv == 0.01
+    bad = UniverseFilters(capital=1_000_000_000, max_order_to_adv=0.01, score_max_order_to_adv=float("nan"))
+    assert bad.required_adv() == 1e11
+
+
 def test_scenario_04_06_required_adv_liquidity_filter() -> None:
     """SCENARIO-04-06"""
     filt = UniverseFilters(capital=1_000_000_000, max_position_weight=1.0, max_order_to_adv=0.01)
