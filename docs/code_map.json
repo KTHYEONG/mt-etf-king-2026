@@ -185,5 +185,8 @@
   },
   "src/reporting/tail_forensics.py": {
     "testing": "tests/unit/reporting/test_tail_forensics.py"
+  },
+  "src/alpha/sticky.py": {
+    "testing": "tests/unit/alpha/test_p20.py"
   }
 }
