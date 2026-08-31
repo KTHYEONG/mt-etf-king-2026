@@ -52,6 +52,12 @@ portfolio:
     no_inverse: true
     min_gap: 0.08
     min_hold: 3
+  p21:
+    impulse_gap: 0.04
+    impulse_require_volx: true
+    impulse_col: mom_5
+    cash_drawdown: -0.12
+    peak_lock: 0.40
   convexity_hold:
     enabled: true
     min_gap: 0.0
