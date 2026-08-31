@@ -36,7 +36,10 @@
     "testing": "tests/unit/backtest/test_metrics.py"
   },
   "src/cli.py": {
-    "testing": "tests/unit/test_cli.py"
+    "testing": [
+      "tests/unit/test_cli.py",
+      "tests/unit/cli/test_p17_adoption_wiring.py"
+    ]
   },
   "src/core/calendar.py": {
     "testing": "tests/unit/core/test_calendar.py"

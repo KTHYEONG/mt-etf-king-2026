@@ -29,3 +29,35 @@ def test_evaluate_p16_adoption_report_pass_and_fail() -> None:
     assert "MISSING_ARTIFACT" in missing.failures
     tiny = evaluate_p16_adoption_report(p16=_dist("P16", [0.1], horizon=10), b1=_dist("B1", b1), b0=_dist("B0", b0), p14=_dist("P14", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
     assert tiny.status == "INSUFFICIENT_EVIDENCE"
+
+
+def test_p16_objective_keeps_empty_p14_fail_closed() -> None:
+    from pathlib import Path
+
+    from src.tournament.distribution import ReturnDistribution
+    from src.tournament.objective import ObjectiveGateConfig, evaluate_p16_adoption_report
+
+    def dist(name: str, returns: list[float]) -> ReturnDistribution:
+        return ReturnDistribution.summarise(
+            name=name,
+            returns=returns,
+            horizon=2,
+            thresholds=[0.30, 0.40, 0.50],
+            tail_weights={0.9: 1.0},
+        )
+
+    report = evaluate_p16_adoption_report(
+        p16=dist("P16", [0.55] * 10 + [0.0] * 20),
+        b1=dist("B1", [0.40] * 8 + [0.0] * 22),
+        b0=dist("B0", [0.31] * 4 + [0.0] * 26),
+        p14=dist("P14", []),
+        config=ObjectiveGateConfig.from_yaml(Path("configs/gates.yaml")),
+        artifacts_complete=True,
+        leverage_scenarios=("aggressive", "conservative"),
+        skip_capacity_violations=0,
+        vehicle_mult2_rate=0.9,
+    )
+
+    assert report.status == "INSUFFICIENT_EVIDENCE"
+    assert report.objective is None
+    assert "INSUFFICIENT_SAMPLE" in report.failures

@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_21_EVAL_TURNOVER_SLIM",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_21_EVAL_TURNOVER_SLIM",
+      "domain": "tournament",
+      "title": "Eval Harness Fix + P17 Resize Deadband — fill slim vs B1",
+      "why": "P16 canonical adoption falsely returned INSUFFICIENT_SAMPLE (inline P14 missing resolve_eval_flags); P16 had 2.3x B1 fill count (2,693 vs 1,179) from micro-resizes eroding P>30% vs B1 4.07%.",
+      "resolution": "Fixed convexity adoption harness: _make_eval_control_model for B1/B0/P14, B0 fail-closed empty dist, model_key logging; added load_rebalance_threshold + entry/exit-safe rebalance_band; P17=P16+10% active-resize deadband; lean_check PASS; KRX 2018-2026 P16 adoption FAIL (real gates, no INSUFFICIENT_SAMPLE) P>30%=3.35% trades=2,405; P17 P>30%=3.54% trades=1,534 (1.30x B1) small-fill<=10% 408 vs 1,292 mult2=96.7% q99=65.1%.",
+      "impact": "L5/L6: harness false-negative removed; P17 fill-slim candidate operational; B1 fallback retained — P30/P40/P50 and G1_TAIL still FAIL."
+    },
+    {
       "task_id": "TASK_20_P16_CONVEXITY_RESTORE",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_20_P16_CONVEXITY_RESTORE",
