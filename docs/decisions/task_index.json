@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_25_P21_IMPULSE_PEAK_LOCK",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_25_P21_IMPULSE_PEAK_LOCK",
+      "domain": "alpha",
+      "title": "P21 Impulse + Peak Lock — mom_5 switch · crash cash · +40% window lock",
+      "why": "P20 adoption PASS but P>30%=9.28% P>40%=6.75% still low vs sponsor oracle; intra-window giveback and late mom_20 sticky entry identified as bottlenecks.",
+      "resolution": "Implemented P21 alpha overlay on P20 sticky: apply_impulse_switch (mom_5 gap 0.04 + volx), apply_crash_cash (drawdown_20<-0.12); tournament locked_window_returns + peak_lock_active @40%; CLI adoption wiring for P21; contract tests + lean_check PASS; KRX 2018-2026 P21 P>30%=10.76% P>40%=8.99% (locked) ruin=3.21% trades=267 vs P20 9.28/6.75/3.40/281 — adoption PASS.",
+      "impact": "L5 alpha+tournament: P21 operational adoption candidate; impulse/crash-cash in alpha layer, peak lock in tournament overlay (ARCH-1); P20 factory unchanged (impulse_gap=0); lock@30 hypothesis REJECTED (P>40% collapse in sim)."
+    },
+    {
       "task_id": "TASK_24_P20_STICKY_LEADER",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_24_P20_STICKY_LEADER",
