@@ -189,7 +189,8 @@
   "src/alpha/sticky.py": {
     "testing": [
       "tests/unit/alpha/test_p20.py",
-      "tests/unit/alpha/test_p21.py"
+      "tests/unit/alpha/test_p21.py",
+      "tests/unit/alpha/test_p22.py"
     ]
   }
 }
