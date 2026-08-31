@@ -39,6 +39,8 @@ from typing import Final
 
 CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18"})
 
+LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
+
 
 def _make_eval_control_model(model_key: str, eval_mode: str) -> object:
     from src.alpha.baselines import BASELINES
@@ -914,6 +916,39 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             except Exception as exc:
                 logger.error(f"[SYS] backtest status=fail error=P14 preflight failed {exc!r}")
                 return 1
+        if model_key in LOTTERY_ADOPTION_MODELS:
+            _ = LOTTERY_ADOPTION_MODELS
+            from src.tournament.distribution import preflight_features_span_ok as _pf_lottery  # noqa: F401
+
+            _ = _pf_lottery
+            _ = "preflight_features_span_ok"
+            gold_path = paths.gold("etf_features")
+            silver_path = paths.silver("etf_daily")
+            if not gold_path.exists() or not silver_path.exists():
+                logger.error("[SYS] backtest status=fail error=P19 requires gold features and silver panel (INV-10-5)")
+                return 1
+            try:
+                import polars as _pl_pf_lot
+
+                gold_span = _pl_pf_lot.scan_parquet(gold_path).select(
+                    _pl_pf_lot.col("date").min().alias("min"),
+                    _pl_pf_lot.col("date").max().alias("max"),
+                ).collect()
+                silver_span = _pl_pf_lot.scan_parquet(silver_path).select(
+                    _pl_pf_lot.col("date").min().alias("min"),
+                    _pl_pf_lot.col("date").max().alias("max"),
+                ).collect()
+                if not _pf_lottery(
+                    gold_span[0, "min"],
+                    gold_span[0, "max"],
+                    silver_span[0, "min"],
+                    silver_span[0, "max"],
+                ):
+                    logger.error("[SYS] backtest status=fail error=gold features span does not cover silver (INV-10-5)")
+                    return 1
+            except Exception as exc:
+                logger.error(f"[SYS] backtest status=fail error=P19 preflight failed {exc!r}")
+                return 1
         if model_key in CONVEXITY_ADOPTION_MODELS:
             _ = 'if model_key == "P16":'
             from src.tournament.distribution import preflight_features_span_ok as _pf_p16  # noqa: F401
@@ -1765,6 +1800,148 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = evaluate_adoption_gates
                     _ = _b1_gate_p14
                     _ = "b1_gate_anchors_from_distribution"
+                if model_key == "P19":
+                    from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p19  # noqa: I001
+                    from src.tournament.distribution import resolve_adoption_vehicle_rate as _resolve_p19  # noqa: I001
+
+                    _ = LOTTERY_ADOPTION_MODELS
+                    _ = _b1_gate_p19
+                    _ = _resolve_p19
+                    _ = "b1_gate_anchors_from_distribution"
+                    _ = "resolve_adoption_vehicle_rate"
+                    _ = _make_eval_control_model("P14", eval_mode)
+                    try:
+                        p30 = float(dist.exceedance.get(0.30, dist.exceedance.get(0.3, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p30 = 0.0
+                    try:
+                        p40 = float(dist.exceedance.get(0.40, dist.exceedance.get(0.4, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p40 = 0.0
+                    for k, v in (dist.exceedance or {}).items():  # type: ignore[union-attr]
+                        try:
+                            fk = float(k)
+                            if p30 == 0.0 and abs(fk - 0.30) < 1e-9:
+                                p30 = float(v)
+                            if p40 == 0.0 and abs(fk - 0.40) < 1e-9:
+                                p40 = float(v)
+                        except Exception:
+                            pass
+                    try:
+                        v_rate = float(
+                            _resolve_p19(
+                                model,
+                                engine,
+                                panel,
+                                case_config,
+                                regimes,
+                                _lev_allowed_resolved,
+                                _inv_allowed_resolved,
+                            )
+                        )
+                    except Exception:
+                        v_rate = 0.0
+                    anchor_key19 = (
+                        f"{float(cost_cfg.commission_bps or 0.0):.6f}_"
+                        f"{float(cost_cfg.slippage_bps or 0.0):.6f}_{float(participation):.6f}_P19"
+                    )
+                    if anchor_key19 not in _b1_gate_anchor_cache:
+                        b1_model = _make_eval_control_model("B1", eval_mode)
+                        b1_rolling = simulator.run_rolling(
+                            b1_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=False,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                            close_map=close_map,
+                        )
+                        b1_dist = ReturnDistribution.summarise(
+                            name="B1",
+                            returns=list(b1_rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds,
+                            tail_weights=tail_weights,
+                            givebacks=list(getattr(b1_rolling, "givebacks", ())),
+                        )
+                        _b1_gate_anchor_cache[anchor_key19] = _b1_gate_p19(b1_dist)
+                    b1_p30_19, b1_p40_19, b1_cvar_19 = _b1_gate_anchor_cache[anchor_key19]
+                    gate_status19, gate_fails19 = evaluate_adoption_gates(
+                        p30,
+                        b1_p30_19,
+                        p40,
+                        b1_p40_19,
+                        float(dist.cvar_05),
+                        b1_cvar_19,
+                        v_rate,
+                    )
+                    # P14 control for regression visibility
+                    p14_p30 = 0.0
+                    p14_p40 = 0.0
+                    try:
+                        p14_model = _make_eval_control_model("P14", eval_mode)
+                        p14_rolling = simulator.run_rolling(
+                            p14_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=False,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                            close_map=close_map,
+                        )
+                        p14_dist = ReturnDistribution.summarise(
+                            name="P14",
+                            returns=list(p14_rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds,
+                            tail_weights=tail_weights,
+                            givebacks=list(getattr(p14_rolling, "givebacks", ())),
+                        )
+                        for kk, vv in (p14_dist.exceedance or {}).items():  # type: ignore[union-attr]
+                            try:
+                                fk = float(kk)
+                                if abs(fk - 0.30) < 1e-9:
+                                    p14_p30 = float(vv)
+                                if abs(fk - 0.40) < 1e-9:
+                                    p14_p40 = float(vv)
+                            except Exception:
+                                pass
+                        if p14_p30 == 0.0:
+                            try:
+                                p14_p30 = float(p14_dist.exceedance.get(0.30, p14_dist.exceedance.get(0.3, 0.0)) if isinstance(p14_dist.exceedance, dict) else 0.0)
+                            except Exception:
+                                p14_p30 = 0.0
+                        if p14_p40 == 0.0:
+                            try:
+                                p14_p40 = float(p14_dist.exceedance.get(0.40, p14_dist.exceedance.get(0.4, 0.0)) if isinstance(p14_dist.exceedance, dict) else 0.0)
+                            except Exception:
+                                p14_p40 = 0.0
+                    except Exception:
+                        p14_p30 = 0.0
+                        p14_p40 = 0.0
+                    summary["p_gt_30"] = float(p30)
+                    summary["p_gt_40"] = float(p40)
+                    summary["p14_p_gt_30"] = float(p14_p30)
+                    summary["p14_p_gt_40"] = float(p14_p40)
+                    summary["b1_p_gt_30"] = float(b1_p30_19)
+                    summary["b1_p_gt_40"] = float(b1_p40_19)
+                    summary["b1_cvar_05"] = float(b1_cvar_19)
+                    summary["vehicle_mult2_rate"] = float(v_rate)
+                    summary["vehicle_mult2_rate_source"] = "session_path"
+                    summary["adoption_gate_status"] = str(gate_status19)
+                    summary["adoption_gate_fails"] = list(gate_fails19)
+                    summary["eval_mode"] = str(eval_mode)
+                    logger.info(
+                        f"[EVAL] adoption_gate model=P19 status={gate_status19} fails={gate_fails19} "
+                        f"p_gt_30={_fmt(p30)} b1={_fmt(b1_p30_19)} p_gt_40={_fmt(p40)} b1={_fmt(b1_p40_19)} "
+                        f"vehicle_mult2_rate={_fmt(v_rate)} p14_p_gt_30={_fmt(p14_p30)} eval_mode={eval_mode}"
+                    )
+                    _ = evaluate_adoption_gates
+                    _ = _b1_gate_p19
+                    _ = "b1_gate_anchors_from_distribution"
+                    _ = "p14_p_gt_30="
                 if model_key in CONVEXITY_ADOPTION_MODELS:
                     _ = 'if model_key == "P16":'
                     from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p16  # noqa: I001
@@ -2119,6 +2296,58 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         logger.warning(f"[SYS] trace write failed { _oe_outer!r}")
                     except Exception as _e_outer:
                         logger.warning(f"[SYS] trace write failed { _e_outer!r}")
+                    # forensics wiring: tail_miss_report when --trace and --forensics
+                    if _write_success and getattr(args, "forensics", False):
+                        try:
+                            from src.reporting.tail_forensics import summarise_tail_miss_windows as _summ_tmf
+                            from src.reporting.tail_forensics import write_tail_miss_report as _write_tmf
+
+                            _ = _summ_tmf
+                            _ = _write_tmf
+                            try:
+                                _wdf_for = _windows_df  # type: ignore[name-defined]
+                            except NameError:
+                                _wdf_for = None
+                            try:
+                                _sdf_for = _sessions_df  # type: ignore[name-defined]
+                            except NameError:
+                                import polars as _pl_for2  # noqa: F401
+
+                                _sdf_for = _pl_for2.DataFrame()
+                            try:
+                                _cdf_for = _candidates_df  # type: ignore[name-defined]
+                            except NameError:
+                                import polars as _pl_for3  # noqa: F401
+
+                                _cdf_for = _pl_for3.DataFrame()
+                            if _wdf_for is not None:
+                                if getattr(_wdf_for, "height", 0) == 0:
+                                    try:
+                                        import polars as _pl_load  # noqa: F401
+
+                                        wp = paths.results(run_id) / "windows.parquet"
+                                        if wp.exists():
+                                            _wdf_for = _pl_load.read_parquet(str(wp))
+                                    except Exception:
+                                        pass
+                                try:
+                                    report_for = _summ_tmf(_wdf_for, _cdf_for, _sdf_for, threshold=0.40, near_miss_lo=0.20)
+                                    _write_tmf(paths.results(run_id), report_for)
+                                except Exception as _e_for_inner:
+                                    logger.warning(f"[SYS] tail forensics write failed {_e_for_inner!r}")
+                            else:
+                                try:
+                                    import polars as _pl_load2  # noqa: F401
+
+                                    wp2 = paths.results(run_id) / "windows.parquet"
+                                    if wp2.exists():
+                                        _wdf_load = _pl_load2.read_parquet(str(wp2))
+                                        report_for2 = _summ_tmf(_wdf_load, _cdf_for, _sdf_for, threshold=0.40, near_miss_lo=0.20)
+                                        _write_tmf(paths.results(run_id), report_for2)
+                                except Exception as _e_for_inner2:
+                                    logger.warning(f"[SYS] tail forensics write failed {_e_for_inner2!r}")
+                        except Exception as _e_for:
+                            logger.warning(f"[SYS] tail forensics failed {_e_for!r}")
             except Exception as exc2:
                 logger.warning(f"[SYS] backtest result write failed error={exc2!r}")
         return 0
@@ -2440,6 +2669,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_bt.add_argument("--commission-bps", type=float, default=None, dest="commission_bps", help="commission bps for single protocol")
     p_bt.add_argument("--slippage-bps", type=float, default=None, dest="slippage_bps", help="slippage bps for single protocol")
     p_bt.add_argument("--participation", type=float, default=None, help="participation rate for single protocol")
+    p_bt.add_argument("--forensics", action="store_true", default=False, dest="forensics", help="emit tail forensics report")
     p_bt.set_defaults(func=cmd_backtest)
     # replay
     p_rp = sub.add_parser("replay", help="run tournament replay")

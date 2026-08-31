@@ -1443,6 +1443,24 @@ def _make_p18() -> object:
     return base
 
 
+def _make_p19() -> object:
+    from pathlib import Path as _P
+
+    from src.portfolio.constraints import load_rebalance_threshold
+
+    _ = load_rebalance_threshold
+    _ = load_rebalance_threshold(_P("configs/portfolio.yaml"))
+    threshold = load_rebalance_threshold(_P("configs/portfolio.yaml"))
+    if abs(float(threshold)) <= 1e-12:
+        raise ValueError("rebalance_threshold zero would duplicate P14")
+    base = _make_p14()
+    base.name = "P19"  # type: ignore[attr-defined]
+    base.min_rebalance_delta = float(threshold)  # type: ignore[attr-defined]
+    base.convexity_config = None  # type: ignore[attr-defined]
+    _ = _make_p14()
+    return base
+
+
 BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "B0": _make_b0,
     "B1": _make_b1,
@@ -1462,4 +1480,5 @@ BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "P16": _make_p16,
     "P17": _make_p17,
     "P18": _make_p18,
+    "P19": _make_p19,
 }
