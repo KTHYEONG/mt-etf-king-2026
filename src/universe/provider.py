@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -45,8 +46,17 @@ class UniverseFilters:
     allow_inverse: bool = True
     issuer_whitelist: tuple[str, ...] | None = None
     manifest: frozenset[str] | None = None
+    score_max_order_to_adv: float | None = None
 
     def required_adv(self) -> float:
+        try:
+            val = self.score_max_order_to_adv
+            if val is not None:
+                fv = float(val)
+                if math.isfinite(fv) and fv > 0:
+                    return float(self.capital) * float(self.max_position_weight) / float(fv)
+        except Exception:  # noqa: S110
+            pass
         return float(self.capital) * float(self.max_position_weight) / float(self.max_order_to_adv)
 
     @classmethod
@@ -151,6 +161,14 @@ class UniverseFilters:
         max_order_to_adv = float(kwargs.pop("max_order_to_adv", 0.05))  # type: ignore[arg-type]
         allow_leverage = bool(kwargs.pop("allow_leverage", True))
         allow_inverse = bool(kwargs.pop("allow_inverse", True))
+        score_max_order_to_adv = kwargs.pop("score_max_order_to_adv", None)
+        # normalize score_max_order_to_adv to float|None
+        if score_max_order_to_adv is not None:
+            try:
+                fv = float(score_max_order_to_adv)  # type: ignore[arg-type]
+                score_max_order_to_adv = float(fv)
+            except Exception:
+                score_max_order_to_adv = None
 
         # any remaining kwargs ignored
         return cls(
@@ -164,6 +182,7 @@ class UniverseFilters:
             allow_inverse=allow_inverse,
             issuer_whitelist=issuer_whitelist,
             manifest=final_manifest,
+            score_max_order_to_adv=score_max_order_to_adv,
         )
 
 
