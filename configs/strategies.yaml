@@ -67,6 +67,10 @@ portfolio:
     score_max_order_to_adv: 0.05
     lock_level: 0.40
     collapse_family: true
+  p24:
+    mom_col: mom_60
+    lock_level: 0.50
+    trail: 0.0
   convexity_hold:
     enabled: true
     min_gap: 0.0
