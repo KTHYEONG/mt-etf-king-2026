@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_28_P24_CHAMPIONSHIP_OVERLAY",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_28_P24_CHAMPIONSHIP_OVERLAY",
+      "domain": "tournament",
+      "title": "P24 Championship Overlay — mom_60 alpha · freeze@50 lock · P>50 gate",
+      "why": "P21 locked P>40%=9.6% near liquid +2x oracle ceiling (11.5%); freeze@40 collapses P>50% to 0.7%; mom_60 IC (+0.096) >> mom_20 on +2x universe; P22/P23 adoption paths failed to beat P21 on locked tail.",
+      "resolution": "Implemented championship_lock_returns (freeze@50 tournament overlay), evaluate_p24_adoption_gates (+P>50% vs B1+2pp), P24 StickyLeaderModel (P21 impulse/crash/sticky + mom_60), CLI adoption/decide wiring with locked B1@40 anchor (P21-aligned), portfolio.p24 in strategies.yaml; contract tests + lean_check PASS; KRX 2018-2026 P24 P>30%=11.0% P>40%=8.4% P>50%=6.4% (champ locked) ruin=3.7% tour diagnostic vs P21 11.4/9.6/2.6% — adoption PASS, P>40% -1.2pp vs P21.",
+      "impact": "L5 tournament+alpha: P24 operational adoption candidate; championship lock in tournament overlay, mom_60 in alpha (ARCH-1); P20-P23 factories unchanged; freeze@40 championship overlay and P22/P23 stacks REJECTED; P21 remains stronger on locked P>40%."
+    },
+    {
       "task_id": "TASK_27_P23_SPLIT_FILL_CAPACITY",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_27_P23_SPLIT_FILL_CAPACITY",
