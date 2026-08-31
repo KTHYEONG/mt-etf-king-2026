@@ -32,3 +32,45 @@ def test_SCENARIO_hyphen_wrapper(scenario_id: str) -> None:  # noqa: N802
         test_SCENARIO_08_15_rebalance_band()
     if scenario_id == "SCENARIO-09-04":
         test_SCENARIO_09_04_gross_exposure_cap()
+
+
+def test_rebalance_band_suppresses_only_small_active_resize() -> None:
+    from src.portfolio.constraints import rebalance_band
+
+    result = rebalance_band(
+        target={"KEEP": 0.55, "ENTER": 0.04},
+        current={"KEEP": 0.50, "EXIT": 0.04},
+        min_delta=0.10,
+    )
+
+    assert result == {"KEEP": 0.50, "ENTER": 0.04}
+
+
+def test_rebalance_band_rejects_invalid_threshold() -> None:
+    import pytest
+
+    from src.portfolio.constraints import rebalance_band
+
+    for threshold in (-0.01, float("nan")):
+        with pytest.raises(ValueError, match="min_delta"):
+            rebalance_band(target={"A": 0.5}, current={"A": 0.4}, min_delta=threshold)
+
+
+def test_load_rebalance_threshold_reads_nested_value_and_fails_closed(tmp_path) -> None:
+    import pytest
+
+    from src.portfolio.constraints import load_rebalance_threshold
+
+    valid = tmp_path / "valid.yaml"
+    valid.write_text("portfolio:\n  rebalance_threshold: 0.10\n", encoding="utf-8")
+    assert load_rebalance_threshold(valid) == pytest.approx(0.10)
+
+    missing = tmp_path / "missing.yaml"
+    missing.write_text("portfolio: {}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="rebalance_threshold"):
+        load_rebalance_threshold(missing)
+
+    invalid = tmp_path / "invalid.yaml"
+    invalid.write_text("portfolio:\n  rebalance_threshold: 1.10\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="rebalance_threshold"):
+        load_rebalance_threshold(invalid)

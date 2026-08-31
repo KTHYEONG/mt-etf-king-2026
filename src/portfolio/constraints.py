@@ -1,7 +1,9 @@
 # mypy: ignore-errors
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
+from pathlib import Path
 
 
 class WeightViolationError(ValueError):
@@ -62,30 +64,67 @@ def apply_liquidity_cap(
     return out
 
 
+def load_rebalance_threshold(path: Path) -> float:
+    import yaml
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except Exception as exc:
+        raise ValueError(f"rebalance_threshold read failed: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("rebalance_threshold missing: root not a mapping")
+    portfolio = raw.get("portfolio")
+    if not isinstance(portfolio, dict):
+        raise ValueError("rebalance_threshold missing: portfolio key not found")
+    if "rebalance_threshold" not in portfolio:
+        raise ValueError("rebalance_threshold missing: key not found")
+    val = portfolio["rebalance_threshold"]
+    if isinstance(val, bool):
+        raise ValueError("rebalance_threshold must be numeric, got bool")
+    if not isinstance(val, (int, float)):
+        raise ValueError(f"rebalance_threshold must be numeric, got {type(val).__name__}")
+    fv = float(val)
+    if not math.isfinite(fv):
+        raise ValueError("rebalance_threshold must be finite")
+    if fv < 0.0 - 1e-12 or fv > 1.0 + 1e-12:
+        raise ValueError(f"rebalance_threshold {fv} outside [0, 1]")
+    return float(fv)
+
+
 def rebalance_band(
     target: Mapping[str, float],
     current: Mapping[str, float],
     min_delta: float,
 ) -> dict[str, float]:
+    if isinstance(min_delta, bool):
+        raise ValueError("min_delta must be numeric, got bool")
+    if not isinstance(min_delta, (int, float)):
+        raise ValueError(f"min_delta {min_delta!r} must be numeric")
+    md = float(min_delta)
+    if not math.isfinite(md):
+        raise ValueError(f"min_delta {md!r} must be finite")
+    if md < 0.0 - 1e-12 or md > 1.0 + 1e-12:
+        raise ValueError(f"min_delta {md} outside [0, 1]")
     tickers = set(target.keys()) | set(current.keys())
     out: dict[str, float] = {}
-    for t in tickers:
+    for t in sorted(tickers):
         tv = float(target.get(t, 0.0))
         cv = float(current.get(t, 0.0))
-        delta = abs(tv - cv)
-        if delta < float(min_delta) - 1e-12:
-            out[t] = cv
+        tv_zero = abs(tv) <= 1e-12
+        cv_zero = abs(cv) <= 1e-12
+        is_entry = cv_zero and not tv_zero
+        is_exit = tv_zero and not cv_zero
+        if is_entry or is_exit:
+            out_val = tv
         else:
-            out[t] = tv
-    # optional: remove zero weights? Keep as is but remove zero entries where both zero?
-    # Keep only entries where weight !=0 to avoid clutter, but preserve current behavior
-    # Filter to keep entries where out weight !=0 or ticker in target
-    # To match scenario, return single entry
-    # If both zero, omit
-    filtered = {k: v for k, v in out.items() if abs(v) > 1e-12 or k in target}
-    # If target and current have same single ticker, filtered will be one entry
-    # For scenario they expect {'A':0.52} when no trade
-    return filtered
+            if tv_zero and cv_zero:
+                continue
+            delta = abs(tv - cv)
+            out_val = cv if delta < md - 1e-12 else tv
+        if abs(out_val) > 1e-12:
+            out[t] = float(out_val)
+    return out
 
 
 def gross_exposure(

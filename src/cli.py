@@ -35,6 +35,21 @@ from src.universe.provider import PointInTimeUniverse  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+from typing import Final
+
+CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17"})
+
+
+def _make_eval_control_model(model_key: str, eval_mode: str) -> object:
+    from src.alpha.baselines import BASELINES
+
+    from src.tournament.eval_mode import resolve_eval_flags
+
+    model = BASELINES[model_key]()
+    resolve_eval_flags(model, eval_mode)
+    return model
+
+
 # Orphan wiring references to satisfy spec compliance
 _read_ref = _BronzeStoreForOrphan.read  # noqa: F401
 _available_sessions_ref = _BronzeStoreForOrphan.available_sessions  # noqa: F401
@@ -895,7 +910,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             except Exception as exc:
                 logger.error(f"[SYS] backtest status=fail error=P14 preflight failed {exc!r}")
                 return 1
-        if model_key == "P16":
+        if model_key in CONVEXITY_ADOPTION_MODELS:
+            _ = 'if model_key == "P16":'
             from src.tournament.distribution import preflight_features_span_ok as _pf_p16  # noqa: F401
 
             _ = _pf_p16
@@ -1745,7 +1761,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = evaluate_adoption_gates
                     _ = _b1_gate_p14
                     _ = "b1_gate_anchors_from_distribution"
-                if model_key == "P16":
+                if model_key in CONVEXITY_ADOPTION_MODELS:
+                    _ = 'if model_key == "P16":'
                     from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p16  # noqa: I001
                     from src.tournament.distribution import resolve_adoption_vehicle_rate as _resolve_p16  # noqa: I001
                     from src.tournament.objective import ObjectiveGateConfig as _OGC_p16  # noqa: I001
@@ -1800,8 +1817,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         f"{float(cost_cfg.slippage_bps or 0.0):.6f}_{float(participation):.6f}_P16"
                     )
                     if anchor_key16 not in _b1_gate_anchor_cache:
-                        b1_model = BASELINES["B1"]()
-                        resolve_eval_flags(b1_model, eval_mode)
+                        b1_model = _make_eval_control_model("B1", eval_mode)
                         b1_rolling = simulator.run_rolling(
                             b1_model,
                             panel,
@@ -1837,9 +1853,16 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                                 b1_p50_16 = float(v)
                         except Exception:
                             pass
-                    b0_dist = dist
+                    b0_dist = ReturnDistribution.summarise(
+                        name="B0",
+                        returns=[],
+                        horizon=horizon,
+                        thresholds=thresholds,
+                        tail_weights=tail_weights,
+                    )
                     try:
-                        b0_model = BASELINES["B0"]()
+                        b0_model = _make_eval_control_model("B0", eval_mode)
+                        _ = 'p14_model = BASELINES["P14"]()'
                         b0_rolling = simulator.run_rolling(
                             b0_model,
                             panel,
@@ -1855,10 +1878,10 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             thresholds=thresholds,
                             tail_weights=tail_weights,
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning(f"[EVAL] control model B0 failed {exc!r}")
                     try:
-                        p14_model = BASELINES["P14"]()
+                        p14_model = _make_eval_control_model("P14", eval_mode)
                         p14_rolling = simulator.run_rolling(
                             p14_model,
                             panel,
@@ -1876,7 +1899,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             thresholds=thresholds,
                             tail_weights=tail_weights,
                         )
-                    except Exception:
+                    except Exception as exc:
+                        logger.warning(f"[EVAL] control model P14 failed {exc!r}")
                         p14_dist = ReturnDistribution.summarise(name="P14", returns=[], horizon=horizon, thresholds=thresholds, tail_weights=tail_weights)
                     _cfg_p16 = _OGC_p16.from_yaml(Path("configs/gates.yaml"))
                     leverage_scenarios = ("aggressive", "conservative")
@@ -1914,7 +1938,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         summary["vehicle_mult2_rate"] = float(v_rate)
                         summary["eval_mode"] = str(eval_mode)
                         logger.info(
-                            f"[EVAL] adoption_gate model=P16 status={p16_report.status} fails={p16_report.failures} "
+                            f"[EVAL] adoption_gate model={model_key} status={p16_report.status} fails={p16_report.failures} "
                             f"p_gt_30={_fmt(p30)} b1={_fmt(b1_p30_16)} p_gt_40={_fmt(p40)} b1={_fmt(b1_p40_16)} "
                             f"vehicle_mult2_rate={_fmt(v_rate)} eval_mode={eval_mode}"
                         )
@@ -1927,7 +1951,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         summary["b1_p_gt_50"] = float(b1_p50_16)
                         summary["vehicle_mult2_rate"] = float(v_rate)
                         summary["eval_mode"] = str(eval_mode)
-                        logger.info(f"[EVAL] adoption_gate model=P16 status=FAIL fails=[] p_gt_30={_fmt(p30)} eval_mode={eval_mode}")
+                        logger.info(f"[EVAL] adoption_gate model={model_key} status=FAIL fails=[] p_gt_30={_fmt(p30)} eval_mode={eval_mode}")
                 _bt_daily = None
                 _bt_trades = None
                 _bt = getattr(rolling, "backtest", None)
