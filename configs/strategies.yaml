@@ -46,6 +46,12 @@ portfolio:
     suppress_vehicle_gate: true
     suppress_trim: true
     min_gap: 0.0
+  sticky_leader:
+    mom_col: mom_20
+    only_plus_2: true
+    no_inverse: true
+    min_gap: 0.08
+    min_hold: 3
   convexity_hold:
     enabled: true
     min_gap: 0.0
