@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_24_P20_STICKY_LEADER",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_24_P20_STICKY_LEADER",
+      "domain": "alpha",
+      "title": "P20 Sticky Leader — +2x filter · hysteresis · adoption PASS",
+      "why": "P14–P19 overlay stack (lottery/deadband/convexity/canonical) failed tail lift vs B1 on KRX 2018–2026; P19 adoption FAIL p_gt_30=2.63% p_gt_40=1.34% vs B1 4.07/2.82.",
+      "resolution": "Implemented StickyLeaderModel (score-only TOP1): filter_plus2_scores, apply_sticky_leader (min_gap=0.08, min_hold=3), P20 baseline + CLI adoption wiring with objective_gate_status merge; lean_check PASS; KRX 2018–2026 P20 P>30%=9.28% P>40%=6.75% ruin=3.40% trades=281 vs B1 4.07/2.82/1179 — adoption+G1+G2a PASS.",
+      "impact": "L5 alpha: P20 replaces overlay path for tail lift; B1-path score+TOP1 with +2x universe constraint and sticky hysteresis; vehicle_mult2_rate=93.1%; P14–P19 overlay hypothesis for adoption REJECTED."
+    },
+    {
       "task_id": "TASK_23_P19_LOTTERY_DEADBAND",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_23_P19_LOTTERY_DEADBAND",
