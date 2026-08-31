@@ -364,6 +364,104 @@ def measure_vehicle_activity_from_session_cache(
     return vehicle_activity_rate(multiples, risks)
 
 
+def measure_vehicle_activity_from_top1_scores(
+    model: object,
+    cache: object,
+    regimes: Mapping[date, object] | None,
+    leverage_allowed: bool | None,
+) -> float:
+    _ = measure_vehicle_activity_from_top1_scores
+    try:
+        import polars as pl
+
+        dates = getattr(cache, "dates", ())
+        snapshots = getattr(cache, "snapshots", {})
+        score_fn = getattr(model, "score", None)
+        if not callable(score_fn):
+            return 0.0
+        multiples: list[int] = []
+        risks: list[bool] = []
+        for sess in dates:
+            regime_snap = regimes.get(sess) if regimes is not None else None
+            regime_label = _regime_label(regime_snap)
+            risk_on = regime_label in _RISK_ON_LABELS if regime_label is not None else False
+            risks.append(risk_on)
+            snap = snapshots.get(sess) if isinstance(snapshots, Mapping) else None
+            mult = 1
+            try:
+                if snap is None:
+                    mult = 1
+                else:
+                    from src.alpha.base import DecisionContext
+
+                    # build minimal context for scoring
+                    try:
+                        rules = getattr(cache, "rules", None)
+                    except Exception:
+                        rules = None
+                    try:
+                        ctx = DecisionContext(
+                            decision_date=sess,
+                            regime=regime_snap,  # type: ignore[arg-type]
+                            capital=1_000_000_000.0,
+                            held={},
+                            rules=rules,  # type: ignore[arg-type]
+                        )
+                    except Exception:
+                        ctx = None  # type: ignore[assignment]
+                    scores = {}
+                    try:
+                        if ctx is not None:
+                            scores = score_fn(snap, ctx) or {}
+                        else:
+                            scores = score_fn(snap, {})  # type: ignore[arg-type]
+                    except Exception:
+                        scores = {}
+                    if not scores:
+                        mult = 1
+                    else:
+                        # top ticker by (-score, ticker)
+                        sorted_items = sorted(scores.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))
+                        top_ticker = str(sorted_items[0][0])
+                        # find name for top ticker from snapshot
+                        name = ""
+                        try:
+                            if hasattr(snap, "filter"):
+                                # polars DataFrame
+                                filt = snap.filter(pl.col("ticker") == top_ticker) if "ticker" in snap.columns else None  # type: ignore[attr-defined]
+                                if filt is not None and filt.height > 0 and "name" in filt.columns:
+                                    name = str(filt.select(pl.col("name")).to_series().to_list()[0] or "")
+                        except Exception:
+                            name = ""
+                        if not name:
+                            # fallback iterate
+                            try:
+                                for row in snap.iter_rows(named=True):  # type: ignore[attr-defined]
+                                    if str(row.get("ticker")) == top_ticker:
+                                        nv = row.get("name")
+                                        if nv is not None:
+                                            name = str(nv)
+                                        break
+                            except Exception:
+                                name = ""
+                        if name:
+                            try:
+                                from src.universe.instruments import resolve_leverage as _res
+
+                                lev, _conf = _res(name)
+                                mult = int(lev)
+                            except Exception:
+                                mult = 1
+                        else:
+                            mult = 1
+            except Exception:
+                mult = 1
+            multiples.append(mult)
+        return vehicle_activity_rate(multiples, risks)
+    except Exception:
+        return 0.0
+
+
 def resolve_adoption_vehicle_rate(
     model: object,
     engine: object,
@@ -375,7 +473,21 @@ def resolve_adoption_vehicle_rate(
 ) -> float:
     allocate = getattr(model, "allocate", None)
     if not callable(allocate):
-        return 0.0
+        # score-only path: build session cache and measure via TOP1
+        try:
+            from src.backtest.session_cache import build_session_cache
+
+            cache = build_session_cache(
+                engine,
+                model,
+                panel,  # type: ignore[arg-type]
+                config,
+                leverage_allowed=leverage_allowed,
+                inverse_allowed=inverse_allowed,
+            )
+        except Exception:
+            return 0.0
+        return measure_vehicle_activity_from_top1_scores(model, cache, regimes, leverage_allowed)
     reset = getattr(model, "reset_trackers", None)
     if callable(reset):
         import contextlib

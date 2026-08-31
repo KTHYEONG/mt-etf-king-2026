@@ -1461,6 +1461,32 @@ def _make_p19() -> object:
     return base
 
 
+def _make_p20() -> StickyLeaderModel:
+    from pathlib import Path as _P
+
+    import yaml as _yaml
+
+    from src.alpha.sticky import StickyLeaderConfig, StickyLeaderModel
+
+    _ = StickyLeaderModel
+    cfg = StickyLeaderConfig()
+    try:
+        fp = _P("configs/strategies.yaml")
+        if fp.exists():
+            with open(fp, encoding="utf-8") as f:
+                raw = _yaml.safe_load(f) or {}
+            sticky_raw = None
+            if isinstance(raw, dict):
+                sticky_raw = raw.get("sticky_leader")
+                if sticky_raw is None and isinstance(raw.get("portfolio"), dict):
+                    sticky_raw = raw["portfolio"].get("sticky_leader")  # type: ignore[index]
+            if isinstance(sticky_raw, Mapping):
+                cfg = StickyLeaderConfig.from_yaml(sticky_raw)  # type: ignore[arg-type]
+    except Exception:
+        cfg = StickyLeaderConfig()
+    return StickyLeaderModel(name="P20", config=cfg)
+
+
 BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "B0": _make_b0,
     "B1": _make_b1,
@@ -1481,4 +1507,5 @@ BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "P17": _make_p17,
     "P18": _make_p18,
     "P19": _make_p19,
+    "P20": _make_p20,
 }
