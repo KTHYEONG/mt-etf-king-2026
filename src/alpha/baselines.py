@@ -1487,6 +1487,99 @@ def _make_p20() -> StickyLeaderModel:
     return StickyLeaderModel(name="P20", config=cfg)
 
 
+def _make_p21() -> StickyLeaderModel:
+    import math as _math
+    from pathlib import Path as _P
+
+    import yaml as _yaml
+
+    from src.alpha.sticky import StickyLeaderConfig, StickyLeaderModel
+
+    _ = StickyLeaderModel
+    cfg = StickyLeaderConfig()
+    raw: dict = {}
+    try:
+        fp = _P("configs/strategies.yaml")
+        if fp.exists():
+            with open(fp, encoding="utf-8") as f:
+                raw = _yaml.safe_load(f) or {}
+            sticky_raw = None
+            if isinstance(raw, dict):
+                sticky_raw = raw.get("sticky_leader")
+                if sticky_raw is None and isinstance(raw.get("portfolio"), dict):
+                    sticky_raw = raw["portfolio"].get("sticky_leader")  # type: ignore[index]
+            if isinstance(sticky_raw, Mapping):
+                cfg = StickyLeaderConfig.from_yaml(sticky_raw)  # type: ignore[arg-type]
+    except Exception:
+        cfg = StickyLeaderConfig()
+        raw = {}
+    # overlay portfolio.p21
+    try:
+        p21_raw = None
+        if isinstance(raw, dict):
+            port = raw.get("portfolio")
+            if isinstance(port, dict):
+                p21_raw = port.get("p21")
+        if isinstance(p21_raw, Mapping):
+            if "impulse_gap" in p21_raw:
+                try:
+                    ig = float(p21_raw["impulse_gap"])  # type: ignore[arg-type]
+                    if not _math.isfinite(ig) or ig < 0:
+                        cfg.impulse_gap = 0.0
+                    else:
+                        cfg.impulse_gap = float(ig)
+                except Exception:
+                    cfg.impulse_gap = 0.0
+            else:
+                if cfg.impulse_gap == 0.0:
+                    cfg.impulse_gap = 0.04
+            if "impulse_require_volx" in p21_raw:
+                try:
+                    cfg.impulse_require_volx = bool(p21_raw["impulse_require_volx"])
+                except Exception:
+                    cfg.impulse_require_volx = True
+            else:
+                cfg.impulse_require_volx = True
+            if "impulse_col" in p21_raw:
+                try:
+                    v = p21_raw["impulse_col"]
+                    if isinstance(v, str) and v.strip():
+                        cfg.impulse_col = str(v).strip()
+                    else:
+                        cfg.impulse_col = "mom_5"
+                except Exception:
+                    cfg.impulse_col = "mom_5"
+            if "cash_drawdown" in p21_raw:
+                try:
+                    cd = float(p21_raw["cash_drawdown"])  # type: ignore[arg-type]
+                    if not _math.isfinite(cd) or cd > 0:
+                        cfg.cash_drawdown = 0.0
+                    else:
+                        cfg.cash_drawdown = float(cd)
+                except Exception:
+                    cfg.cash_drawdown = 0.0
+            else:
+                if cfg.cash_drawdown == 0.0:
+                    cfg.cash_drawdown = -0.12
+        else:
+            # no p21 block: default P21 overlay
+            if cfg.impulse_gap == 0.0:
+                cfg.impulse_gap = 0.04
+            cfg.impulse_require_volx = True
+            if cfg.cash_drawdown == 0.0:
+                cfg.cash_drawdown = -0.12
+            if not cfg.impulse_col or cfg.impulse_col.strip() == "":
+                cfg.impulse_col = "mom_5"
+    except Exception:
+        if cfg.impulse_gap == 0.0:
+            cfg.impulse_gap = 0.04
+        cfg.impulse_require_volx = True
+        if cfg.cash_drawdown == 0.0:
+            cfg.cash_drawdown = -0.12
+    _ = "P21"
+    return StickyLeaderModel(name="P21", config=cfg)
+
+
 BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "B0": _make_b0,
     "B1": _make_b1,
@@ -1508,4 +1601,5 @@ BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "P18": _make_p18,
     "P19": _make_p19,
     "P20": _make_p20,
+    "P21": _make_p21,
 }

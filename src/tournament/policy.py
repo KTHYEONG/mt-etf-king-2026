@@ -55,3 +55,25 @@ class AggressionPolicy:
         if not self.enabled:
             return 1.0
         return risk_multiplier(inp, self.config)
+
+
+def peak_lock_active(capital: float, initial_capital: float, lock_level: float) -> bool:
+    try:
+        cap = float(capital)
+        init = float(initial_capital)
+        ll = float(lock_level)
+    except Exception:
+        return False
+    import math
+
+    if not math.isfinite(cap) or not math.isfinite(init) or not math.isfinite(ll):
+        return False
+    if init <= 0:
+        return False
+    try:
+        ret = cap / init - 1.0
+    except Exception:
+        return False
+    if not math.isfinite(ret):
+        return False
+    return ret >= ll - 1e-12
