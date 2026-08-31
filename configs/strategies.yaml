@@ -71,6 +71,10 @@ portfolio:
     mom_col: mom_60
     lock_level: 0.50
     trail: 0.0
+  p25:
+    mom_col: mom_60
+    arm: 0.50
+    lock_remaining: 5
   convexity_hold:
     enabled: true
     min_gap: 0.0
