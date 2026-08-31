@@ -27,6 +27,7 @@ BACKTEST_PANEL_COLUMNS: tuple[str, ...] = (
     "ma_20",
     "ma_ratio_20",
     "drawdown_20",
+    "volume_expansion",
 )
 
 
