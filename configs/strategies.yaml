@@ -58,6 +58,11 @@ portfolio:
     impulse_col: mom_5
     cash_drawdown: -0.12
     peak_lock: 0.40
+  p22:
+    collapse_family: true
+    min_gap: 0.0
+    min_hold: 0
+    lock_level: 0.50
   convexity_hold:
     enabled: true
     min_gap: 0.0
