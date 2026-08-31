@@ -113,7 +113,8 @@
   "src/portfolio/sizing.py": {
     "testing": [
       "tests/unit/portfolio/test_sizing.py",
-      "tests/unit/portfolio/test_lottery_exposure.py"
+      "tests/unit/portfolio/test_lottery_exposure.py",
+      "tests/unit/portfolio/test_overlay_stack.py"
     ]
   },
   "src/tournament/distribution.py": {

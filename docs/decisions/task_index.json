@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_22_P18_OVERLAY_STACK",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_22_P18_OVERLAY_STACK",
+      "domain": "portfolio",
+      "title": "P18 Overlay Stack — lottery-first sizing · min_gap · adoption FAIL vs B1",
+      "why": "P16/P17 convexity sizing preempted lottery in allocate() (convexity before elif lottery), eroding P14 P>30% lift; P17 deadband slimmed fills but tail exceedance still below B1.",
+      "resolution": "Implemented resolve_overlay_sizing_branch (lottery-first when both active), LotteryExposureConfig.min_gap + scores-aware lottery_active, P18=P16+rebalance deadband baseline, CLI adoption wiring; lean_check PASS; KRX 2018-2026 P18 P>30%=3.44% P>40%=2.58% q99=65.8% trades=1579 vs B1 4.07/2.82/2.25 trades~1179; adoption FAIL P30/P40/P50/RUIN_VS_P14/G1_TAIL — q99 +0.7pp vs P17 but exceedance slightly below P17.",
+      "impact": "L5 portfolio: overlay arbitration corrected; P18 operational candidate; B1 tournament fallback retained — P14-only lottery path still best on P>30% (4.83%)."
+    },
+    {
       "task_id": "TASK_21_EVAL_TURNOVER_SLIM",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_21_EVAL_TURNOVER_SLIM",
