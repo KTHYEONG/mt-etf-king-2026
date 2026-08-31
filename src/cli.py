@@ -41,6 +41,8 @@ CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18
 
 LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
 
+STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20"})
+
 
 def _make_eval_control_model(model_key: str, eval_mode: str) -> object:
     from src.alpha.baselines import BASELINES
@@ -948,6 +950,39 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     return 1
             except Exception as exc:
                 logger.error(f"[SYS] backtest status=fail error=P19 preflight failed {exc!r}")
+                return 1
+        if model_key in STICKY_ADOPTION_MODELS:
+            _ = STICKY_ADOPTION_MODELS
+            from src.tournament.distribution import preflight_features_span_ok as _pf_sticky  # noqa: F401
+
+            _ = _pf_sticky
+            _ = "preflight_features_span_ok"
+            gold_path = paths.gold("etf_features")
+            silver_path = paths.silver("etf_daily")
+            if not gold_path.exists() or not silver_path.exists():
+                logger.error("[SYS] backtest status=fail error=P20 requires gold features and silver panel (INV-10-5)")
+                return 1
+            try:
+                import polars as _pl_pf_sticky
+
+                gold_span = _pl_pf_sticky.scan_parquet(gold_path).select(
+                    _pl_pf_sticky.col("date").min().alias("min"),
+                    _pl_pf_sticky.col("date").max().alias("max"),
+                ).collect()
+                silver_span = _pl_pf_sticky.scan_parquet(silver_path).select(
+                    _pl_pf_sticky.col("date").min().alias("min"),
+                    _pl_pf_sticky.col("date").max().alias("max"),
+                ).collect()
+                if not _pf_sticky(
+                    gold_span[0, "min"],
+                    gold_span[0, "max"],
+                    silver_span[0, "min"],
+                    silver_span[0, "max"],
+                ):
+                    logger.error("[SYS] backtest status=fail error=gold features span does not cover silver (INV-10-5)")
+                    return 1
+            except Exception as exc:
+                logger.error(f"[SYS] backtest status=fail error=P20 preflight failed {exc!r}")
                 return 1
         if model_key in CONVEXITY_ADOPTION_MODELS:
             _ = 'if model_key == "P16":'
@@ -1942,6 +1977,173 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = _b1_gate_p19
                     _ = "b1_gate_anchors_from_distribution"
                     _ = "p14_p_gt_30="
+                if model_key == "P20":
+                    _ = STICKY_ADOPTION_MODELS
+                    from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p20  # noqa: I001
+                    from src.tournament.distribution import resolve_adoption_vehicle_rate as _resolve_p20  # noqa: I001
+                    from src.tournament.objective import ObjectiveGateConfig as _OGC_p20  # noqa: I001
+                    from src.tournament.objective import evaluate_objective_gates  # noqa: I001
+                    from src.tournament.distribution import ruin_probability as _ruin_p20  # noqa: I001
+
+                    _ = _b1_gate_p20
+                    _ = _resolve_p20
+                    _ = _OGC_p20
+                    _ = evaluate_objective_gates
+                    _ = evaluate_adoption_gates
+                    _ = _ruin_p20
+                    _ = "b1_gate_anchors_from_distribution"
+                    _ = "resolve_adoption_vehicle_rate"
+                    _ = _make_eval_control_model("B0", eval_mode)
+                    _ = _make_eval_control_model("B1", eval_mode)
+                    try:
+                        p30 = float(dist.exceedance.get(0.30, dist.exceedance.get(0.3, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p30 = 0.0
+                    try:
+                        p40 = float(dist.exceedance.get(0.40, dist.exceedance.get(0.4, 0.0)) if isinstance(dist.exceedance, dict) else 0.0)
+                    except Exception:
+                        p40 = 0.0
+                    for k, v in (dist.exceedance or {}).items():  # type: ignore[union-attr]
+                        try:
+                            fk = float(k)
+                            if p30 == 0.0 and abs(fk - 0.30) < 1e-9:
+                                p30 = float(v)
+                            if p40 == 0.0 and abs(fk - 0.40) < 1e-9:
+                                p40 = float(v)
+                        except Exception:
+                            pass
+                    try:
+                        v_rate = float(
+                            _resolve_p20(
+                                model,
+                                engine,
+                                panel,
+                                case_config,
+                                regimes,
+                                _lev_allowed_resolved,
+                                _inv_allowed_resolved,
+                            )
+                        )
+                    except Exception:
+                        v_rate = 0.0
+                    anchor_key20 = (
+                        f"{float(cost_cfg.commission_bps or 0.0):.6f}_"
+                        f"{float(cost_cfg.slippage_bps or 0.0):.6f}_{float(participation):.6f}_P20"
+                    )
+                    if anchor_key20 not in _b1_gate_anchor_cache:
+                        b1_model = _make_eval_control_model("B1", eval_mode)
+                        b1_rolling = simulator.run_rolling(
+                            b1_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=False,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                            close_map=close_map,
+                        )
+                        b1_dist = ReturnDistribution.summarise(
+                            name="B1",
+                            returns=list(b1_rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds,
+                            tail_weights=tail_weights,
+                            givebacks=list(getattr(b1_rolling, "givebacks", ())),
+                        )
+                        _b1_gate_anchor_cache[anchor_key20] = _b1_gate_p20(b1_dist)
+                    b1_p30_20, b1_p40_20, b1_cvar_20 = _b1_gate_anchor_cache[anchor_key20]
+                    gate_status20, gate_fails20 = evaluate_adoption_gates(
+                        p30,
+                        b1_p30_20,
+                        p40,
+                        b1_p40_20,
+                        float(dist.cvar_05),
+                        b1_cvar_20,
+                        v_rate,
+                    )
+                    # B0 objective gates
+                    b0_p30 = 0.0
+                    b0_p40 = 0.0
+                    b0_cvar = 0.0
+                    ruin = 0.0
+                    obj_res = None
+                    try:
+                        ruin = float(_ruin_p20(list(rolling.returns), -0.25))
+                    except Exception:
+                        ruin = 0.0
+                    try:
+                        b0_model = _make_eval_control_model("B0", eval_mode)
+                        b0_rolling = simulator.run_rolling(
+                            b0_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=False,
+                            close_map=close_map,
+                        )
+                        b0_dist = ReturnDistribution.summarise(
+                            name="B0",
+                            returns=list(b0_rolling.returns),
+                            horizon=horizon,
+                            thresholds=thresholds,
+                            tail_weights=tail_weights,
+                        )
+                        for kk, vv in (b0_dist.exceedance or {}).items():  # type: ignore[union-attr]
+                            try:
+                                fk = float(kk)
+                                if abs(fk - 0.30) < 1e-9:
+                                    b0_p30 = float(vv)
+                                if abs(fk - 0.40) < 1e-9:
+                                    b0_p40 = float(vv)
+                            except Exception:
+                                pass
+                        if b0_p30 == 0.0:
+                            try:
+                                b0_p30 = float(b0_dist.exceedance.get(0.30, b0_dist.exceedance.get(0.3, 0.0)) if isinstance(b0_dist.exceedance, dict) else 0.0)
+                            except Exception:
+                                b0_p30 = 0.0
+                        if b0_p40 == 0.0:
+                            try:
+                                b0_p40 = float(b0_dist.exceedance.get(0.40, b0_dist.exceedance.get(0.4, 0.0)) if isinstance(b0_dist.exceedance, dict) else 0.0)
+                            except Exception:
+                                b0_p40 = 0.0
+                        b0_cvar = float(b0_dist.cvar_05)
+                        _cfg_p20 = _OGC_p20.from_yaml(Path("configs/gates.yaml"))
+                        obj_res = evaluate_objective_gates(dist, b0_dist, _cfg_p20)
+                    except Exception:
+                        obj_res = None
+                    if obj_res is not None:
+                        summary["objective_gate_status"] = str(obj_res.status)
+                        summary["objective_gate_fails"] = list(obj_res.failures)
+                        summary["objective_ruin_probability"] = float(obj_res.ruin_probability)
+                        ruin = float(obj_res.ruin_probability)
+                        if str(obj_res.status) != "PASS":
+                            gate_status20 = "FAIL"
+                            for _fail in obj_res.failures:
+                                if _fail not in gate_fails20:
+                                    gate_fails20.append(str(_fail))
+                    summary["p_gt_30"] = float(p30)
+                    summary["p_gt_40"] = float(p40)
+                    summary["b1_p_gt_30"] = float(b1_p30_20)
+                    summary["b1_p_gt_40"] = float(b1_p40_20)
+                    summary["b1_cvar_05"] = float(b1_cvar_20)
+                    summary["b0_p_gt_30"] = float(b0_p30)
+                    summary["b0_p_gt_40"] = float(b0_p40)
+                    summary["b0_cvar_05"] = float(b0_cvar)
+                    summary["vehicle_mult2_rate"] = float(v_rate)
+                    summary["vehicle_mult2_rate_source"] = "session_path"
+                    summary["ruin"] = float(ruin)
+                    summary["adoption_gate_status"] = str(gate_status20)
+                    summary["adoption_gate_fails"] = list(gate_fails20)
+                    summary["eval_mode"] = str(eval_mode)
+                    logger.info(
+                        f"[EVAL] adoption_gate model=P20 status={gate_status20} fails={gate_fails20} "
+                        f"p_gt_30={_fmt(p30)} b1={_fmt(b1_p30_20)} p_gt_40={_fmt(p40)} b1={_fmt(b1_p40_20)} "
+                        f"vehicle_mult2_rate={_fmt(v_rate)} ruin={_fmt(ruin)} eval_mode={eval_mode}"
+                    )
+                    _ = "objective_gate_status"
+                    _ = evaluate_objective_gates
+                    _ = "b1_gate_anchors_from_distribution"
                 if model_key in CONVEXITY_ADOPTION_MODELS:
                     _ = 'if model_key == "P16":'
                     from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p16  # noqa: I001
