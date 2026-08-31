@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_29_P25_HOUSE_MONEY_RATCHET",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_29_P25_HOUSE_MONEY_RATCHET",
+      "domain": "tournament",
+      "title": "P25 House-Money Ratchet — freeze ceiling fix · late-lock overlay · continuation gate",
+      "why": "P24 freeze@50 inflates P>50 while censoring P>80 to ~0; live peak_lock cashes on ret>=arm regardless of remaining sessions; strong 2026 paths need continuation past +50% not a hard ceiling.",
+      "resolution": "Implemented house_money_should_cash/remaining_sessions (policy), house_money_ratchet_returns/continuation_capture/overlay_right_tail_stats/evaluate_p25_adoption_gates (distribution), load_p25_arm/load_p25_lock_remaining, P25=P24 alpha factory, CLI decide --capital + P25 backtest adoption wiring; configs portfolio.p25; contract tests + lean_check PASS; KRX 2018-2026 raw P>50%=4.7% (same alpha as P24) P25 ratchet overlay q99=61.2% vs freeze 57.4% continuation_capture=9.5pp P>60 ratchet 1.1% ruin=3.7% — adoption PASS.",
+      "impact": "L5 tournament+alpha: P25 operational adoption candidate; house-money ratchet replaces freeze-as-ceiling in overlay (ARCH-1); P20-P24 unchanged; P24 freeze path retained for comparison; P25 optimizes continuation/right-tail vs freeze not raw P>50 inflation."
+    },
+    {
       "task_id": "TASK_28_P24_CHAMPIONSHIP_OVERLAY",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_28_P24_CHAMPIONSHIP_OVERLAY",

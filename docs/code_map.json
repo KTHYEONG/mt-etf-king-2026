@@ -196,5 +196,8 @@
   },
   "src/portfolio/split_fill.py": {
     "testing": "tests/unit/portfolio/test_split_fill.py"
+  },
+  "src/tournament/policy.py": {
+    "testing": "tests/unit/tournament/test_policy.py"
   }
 }
