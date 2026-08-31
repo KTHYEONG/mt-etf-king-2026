@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_26_P22_THEME_VEHICLE_TRAIL",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_26_P22_THEME_VEHICLE_TRAIL",
+      "domain": "alpha",
+      "title": "P22 Theme Vehicle Trail — family collapse · min_gap=0 sticky · lock@50",
+      "why": "P21 locked P>40%=9.6% but min_gap=0.08 hysteresis trapped 6 tickers; theme 2x siblings scored but not deployed; lock@40 caps below 2025 winner +47.82%.",
+      "resolution": "Implemented collapse_plus2_by_family, P22 StickyLeaderModel (min_gap=0 min_hold=0 collapse_family lock_level@0.50 from strategies.yaml), BACKTEST_PANEL_COLUMNS volume_expansion, CLI P22 adoption+decide peak_lock wiring; lock_level config plumbing fixed; lean_check PASS; KRX 2018-2026 P22 P>30%=8.4% P>40%=6.8% (locked) ruin=4.8% tour_20250922=+46.2% trades=611 vs P21 11.4/9.6/2.5/+37.9%/414 — adoption PASS, contract acceptance FAIL (P>40%<12%, tour<47.82%).",
+      "impact": "L5 alpha+tournament: P22 operational with family-dedup vehicle pick and championship lock@50; P20/P21 factories unchanged; scratch theme_any_res and lock@40 REJECTED; P21 remains stronger on locked tail vs P22 despite weaker 2025 tour window."
+    },
+    {
       "task_id": "TASK_25_P21_IMPULSE_PEAK_LOCK",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_25_P21_IMPULSE_PEAK_LOCK",
