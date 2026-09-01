@@ -95,14 +95,16 @@ HOLD ──→ TRIM ──→ EXIT ──→ WATCH ──→ RE_ENTER ──→ 
 
 Portfolio 가 산출한 target weights 에 대회 상황에 따른 조정을 적용합니다. `AggressionPolicy` 는 portfolio 와 분리된 모듈 (`tournament/policy.py`).
 
-### 5.1 Aggression 입력
+### 5.1 Overlay 상태와 사용 범위
 
-| 입력 | 조정 |
-| --- | --- |
-| 잔여 거래일 ≤ 5 | aggression ↑ (집중도·배수 증가) |
-| 현재 수익률 < 0 | risk ↓ (cash 비율 ↑) |
-| 현재 수익률 > 30% | aggression ↑ (lead 확보) |
-| regime = CRISIS | 전량 현금 또는 inverse |
+`AggressionInput` 에 `remaining`/`rank` 필드가 있으나 `risk_multiplier` 는 쓰지 않습니다. allocate 경로에 연결하기 전에는 켜지 않습니다.
+
+| 정책 | 실전 predicate | 역할 |
+| --- | --- | --- |
+| P25/P26 house-money | $R_t \ge \text{arm}$ **and** remaining $\le K$ → cash | late-lock (천장 아님) |
+| **P27 identity** | 항상 거짓 (cash 강제 없음) | live candidate / raw baseline |
+
+고정 +50% freeze 는 P24 유산입니다. P26 FAIL 은 overlay 가 raw 보다 hot-field·primary CI 에서 열위한 결과이므로, P27 은 **새 알파가 아니라 identity overlay** 입니다. 일별 Monte Carlo $P(\text{rank}=1)$ 정책은 범위 외입니다.
 
 ### 5.2 ExposureSelector — 배수 선택
 
