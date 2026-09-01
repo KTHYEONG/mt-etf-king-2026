@@ -327,3 +327,47 @@ def test_run_rolling_scores_path_dependent_defaults_to_fast() -> None:
     default = sim.run_rolling(model, panel, config, horizon=5, path_dependent=True)
     assert default.returns == explicit.returns
 
+
+def test_SCENARIO_PERF_05_sticky_fast_zero_engine_runs() -> None:
+    from datetime import date
+    from unittest.mock import MagicMock
+
+    import polars as pl
+
+    from src.alpha.baselines import BASELINES
+    from src.backtest.costs import CostConfig
+    from src.backtest.engine import BacktestConfig
+    from src.core.calendar import TradingCalendar
+    from src.portfolio.sizing import SizingScheme
+    from src.tournament.simulator import TournamentSimulator
+    from tests.unit.backtest.conftest import build_engine, panel_row
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 2, 28))
+    panel = pl.DataFrame(
+        [panel_row(day=d, ticker="069500", close=30000.0 + i, mom_20=0.2, name="KODEX 200") for i, d in enumerate(sessions)]
+    )
+    engine, cal2, filt = build_engine(panel)
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1_000_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+    model = BASELINES["P27"]()
+    mock_engine = MagicMock(wraps=engine)
+    mock_engine.run = MagicMock(wraps=engine.run)
+    for attr in ("execution", "calendar", "universe", "features", "regimes"):
+        setattr(mock_engine, attr, getattr(engine, attr))
+    mock_engine._leverage_multiples = engine._leverage_multiples  # type: ignore[method-assign]
+    mock_engine._portfolio_exposure_limits = engine._portfolio_exposure_limits  # type: ignore[method-assign]
+    sim = TournamentSimulator(mock_engine, cal2)
+    rolling = sim.run_rolling(
+        model, panel, config, horizon=5, path_dependent=True, path_dependent_mode="fast"
+    )
+    assert len(rolling.returns) > 0
+    assert mock_engine.run.call_count == 0
+
