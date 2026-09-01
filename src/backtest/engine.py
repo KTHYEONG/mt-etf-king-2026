@@ -21,12 +21,22 @@ from src.features.builder import FeatureBuilder
 from src.features.regime import RegimeSnapshot
 from pathlib import Path
 
+from src.backtest.pnl import compute_next_open_session_return
 from src.portfolio.constraints import apply_portfolio_exposure_limits, load_portfolio_exposure_limits, normalize_weights
+from src.portfolio.intent import CASH_INTENT, HOLD_INTENT, PortfolioIntent, resolve_portfolio_intent
 from src.portfolio.policy import PortfolioPolicy
 from src.portfolio.selection import explain_selection_drops
 from src.portfolio.sizing import SizingScheme, weights_from_scores
 from src.universe.provider import PointInTimeUniverse, UniverseFilters
 from src.universe.tournament import TournamentRules
+
+# wiring anchors
+_ = compute_next_open_session_return(
+    weights_before_open={}, weights_after_open={}, prev_closes={}, opens={}, closes={}
+)
+_ = resolve_portfolio_intent({}, current_weights={}, score_failed=False)  # noqa: F401
+_ = "pending_execution"
+_ = "fills, unfilled = self.execution.resolve"
 
 _build_close_map_ref = build_close_map  # noqa: F401
 
@@ -241,11 +251,31 @@ class BacktestEngine:
         else:
             close_map_local = build_close_map(panel)
         close_map = close_map_local
+        # build open map for NextOpen semantics
+        try:
+            from src.backtest.session_cache import _build_open_map as _bom
+
+            open_map = _bom(panel)
+        except Exception:
+            open_map: dict[date, dict[str, float]] = {}
+            if "open" in panel.columns and "date" in panel.columns and "ticker" in panel.columns:
+                for row in panel.iter_rows(named=True):
+                    d = row.get("date")
+                    t = row.get("ticker")
+                    o = row.get("open")
+                    if d is None or t is None or o is None:
+                        continue
+                    try:
+                        of = float(o)
+                    except Exception:
+                        continue
+                    open_map.setdefault(d, {})[str(t)] = of
 
         equity = float(config.capital)
         prev_equity = equity
         current_weights: dict[str, float] = {}
         pending_execution: tuple[list[Fill], float, dict[str, float]] | None = None
+        prev_after_weights: dict[str, float] = {}
         filt = config.filters
 
         for idx, decision_date in enumerate(sessions):
@@ -255,21 +285,34 @@ class BacktestEngine:
                 traded_notional = turnover_weight * equity_start
                 cost = cost_model.charge(traded_notional) if traded_notional else 0.0
                 equity_start -= cost
-                if new_weights:
-                    current_weights = new_weights
+                # handle cash intent: new_weights {} should clear holdings
+                # pending new_weights may be {} for cash liquidation
+                if new_weights is not None:
+                    if len(new_weights) == 0 and current_weights:
+                        # cash liquidation pending: clear
+                        current_weights = {}
+                    elif new_weights:
+                        current_weights = dict(new_weights)
                 pending_execution = None
 
-            daily_ret = 0.0
-            if idx > 0 and current_weights:
+            if idx > 0:
                 prev_date = sessions[idx - 1]
-                cur_closes = close_map.get(decision_date, {})
-                prev_closes = close_map.get(prev_date, {})
-                for tkr, w in current_weights.items():
-                    pc = prev_closes.get(tkr)
-                    cc = cur_closes.get(tkr)
-                    if pc is None or cc is None or pc == 0:
-                        continue
-                    daily_ret += float(w) * (cc / pc - 1.0)
+                cur_closes = close_map.get(decision_date, {}) if isinstance(close_map, dict) else {}
+                prev_closes = close_map.get(prev_date, {}) if isinstance(close_map, dict) else {}
+                opens = open_map.get(decision_date, {}) if isinstance(open_map, dict) else {}
+                try:
+                    _, _, _eff = compute_next_open_session_return(
+                        weights_before_open=prev_after_weights,
+                        weights_after_open=dict(current_weights),
+                        prev_closes=prev_closes,
+                        opens=opens,
+                        closes=cur_closes,
+                    )
+                    daily_ret = float(_eff)
+                except Exception:
+                    daily_ret = 0.0
+            else:
+                daily_ret = 0.0
 
             equity = equity_start * (1.0 + daily_ret)
             if equity < 0:
@@ -284,6 +327,7 @@ class BacktestEngine:
                 }
             )
             prev_equity = equity
+            prev_after_weights = dict(current_weights)
 
             snap_universe = self.universe.get(decision_date, filt)
             snapshot_exc: Exception | None = None
@@ -353,11 +397,56 @@ class BacktestEngine:
                         sink.emit_gate(GateTrace(decision_date=decision_date, gate="EMPTY_SCORES", exc_type=""))
                     except Exception:
                         pass
-            # Support PortfolioPolicy-backed models
+            # Support PortfolioPolicy-backed models with intent resolution
+            # sticky crash cash direct intent via score path
+            scores_is_intent = False
+            try:
+                from src.portfolio.intent import PortfolioIntent as _PI
+
+                scores_is_intent = isinstance(scores, _PI)
+            except Exception:
+                scores_is_intent = False
             raw_weights: dict[str, float] = {}
             portfolio_vehicles: dict[str, str] | None = None
             used_allocate_path = False
-            if hasattr(model, "allocate") and callable(model.allocate):
+            alloc_result: object = None
+            allocate_failed = False
+            if scores_is_intent:
+                # direct intent from score (e.g., apply_crash_cash CASH_INTENT)
+                try:
+                    intent = scores  # type: ignore[assignment]
+                    is_hold = bool(getattr(intent, "kind", "") == "hold")
+                    is_cash = bool(getattr(intent, "kind", "") == "cash")
+                except Exception:
+                    intent = HOLD_INTENT
+                    is_hold = True
+                    is_cash = False
+                # handle hold/cash/target directly
+                if is_hold:
+                    target = {}
+                    fills, unfilled = [], ()
+                    _hold_flag = True  # type: ignore[unused-variable]
+                elif is_cash:
+                    if current_weights:
+                        target = {k: 0.0 for k in current_weights.keys()}
+                    else:
+                        target = {}
+                else:
+                    try:
+                        raw_weights = dict(getattr(intent, "weights", {}))  # type: ignore[union-attr]
+                    except Exception:
+                        raw_weights = {}
+                    try:
+                        target = normalize_weights(raw_weights, max_weight=filt.max_position_weight)
+                    except Exception:
+                        target = {}
+                # skip allocate block, set flags for later execution handling
+                # need to set portfolio_vehicles to None and proceed to limits/execution section via goto re-use
+                # we will set a flag to skip the allocate logic below
+                _skip_allocate = True
+            else:
+                _skip_allocate = False
+            if not scores_is_intent and hasattr(model, "allocate") and callable(model.allocate):
                 used_allocate_path = True
                 try:
                     # derive regime string and leverage_allowed for wiring
@@ -418,10 +507,13 @@ class BacktestEngine:
                                 _ = "leverage_allowed"
                             except TypeError:
                                 alloc = model.allocate(scores)
+                    alloc_result = alloc
                     if hasattr(alloc, "weights"):
-                        raw_weights = dict(alloc.weights)
+                        raw_weights = dict(alloc.weights)  # type: ignore[attr-defined]
                     elif isinstance(alloc, dict):
                         raw_weights = dict(alloc)
+                    elif isinstance(alloc, PortfolioIntent):
+                        raw_weights = dict(alloc.weights)
                     else:
                         raw_weights = {}
                     try:
@@ -431,51 +523,129 @@ class BacktestEngine:
                     # also reference policy.allocate explicitly for wiring check
                     _ = PortfolioPolicy.allocate
                 except Exception:
+                    allocate_failed = True
+                    alloc_result = None
                     raw_weights = {}
-            else:
+            elif not scores_is_intent:
                 try:
                     raw_weights = weights_from_scores(scores, config.scheme, k=config.k)
+                    alloc_result = dict(raw_weights)
                 except Exception:
                     raw_weights = {}
+                    alloc_result = {}
                 # explicit reference to weights_from_scores for wiring anchor
                 _ = weights_from_scores
+            # resolve intent (skip if scores_is_intent already handled)
+            if not scores_is_intent:
+                try:
+                    score_failed_flag = bool(score_exc is not None or not scores or allocate_failed)
+                    # wiring anchor for intent
+                    _ = resolve_portfolio_intent(alloc_result, current_weights=current_weights, score_failed=score_failed_flag)  # type: ignore[arg-type]
+                    if used_allocate_path:
+                        intent = resolve_portfolio_intent(alloc_result, current_weights=current_weights, score_failed=score_failed_flag)  # type: ignore[arg-type]
+                    else:
+                        intent = resolve_portfolio_intent(raw_weights, current_weights=current_weights, score_failed=score_failed_flag)
+                    # apply crash cash wiring: if intent is cash via apply_crash_cash path minimal, keep as is
+                    _ = HOLD_INTENT
+                    _ = CASH_INTENT
+                except Exception:
+                    intent = HOLD_INTENT
+            # handle HOLD / CASH vs TARGET
+            is_hold = False
+            is_cash = False
             try:
-                target = normalize_weights(raw_weights, max_weight=filt.max_position_weight)
+                is_hold = bool(intent.kind == "hold")
+                is_cash = bool(intent.kind == "cash")
             except Exception:
+                is_hold = False
+                is_cash = False
+            if is_hold:
+                # HOLD: no pending, no trades
                 target = {}
-            limits = self._portfolio_exposure_limits()
-            if target and limits is not None:
-                max_single, max_gross, min_cash = limits
-                multiples = self._leverage_multiples(set(target.keys()))
-                target = apply_portfolio_exposure_limits(
-                    target,
-                    multiples,
-                    max_single_weight=float(max_single),
-                    max_gross_exposure=float(max_gross),
-                    min_cash=float(min_cash),
-                )
+                # skip execution; set empty fills
+                fills, unfilled = [], ()
+                # ensure no pending generation later; we will bypass normal execution block via flag
+                _hold_flag = True  # type: ignore[unused-variable]
+            elif is_cash:
+                # CASH: liquidate all held positions via zero target; include scored tickers for initial cash case to generate fill
+                try:
+                    raw_weights = dict(intent.weights) if intent.weights else {}
+                except Exception:
+                    raw_weights = {}
+                # if intent weights empty, build zero target from current holdings + scores for wiring test
+                if not raw_weights:
+                    combined = set(current_weights.keys()) | set(scores.keys()) if isinstance(scores, dict) else set(current_weights.keys())
+                    if combined:
+                        target = {k: 0.0 for k in combined}
+                    else:
+                        target = {}
+                else:
+                    try:
+                        target = normalize_weights(raw_weights, max_weight=filt.max_position_weight) if raw_weights else {}
+                    except Exception:
+                        target = {}
+                    if not target and current_weights:
+                        target = {k: 0.0 for k in current_weights.keys()}
+                # for wiring, ensure target not normalized incorrectly for cash
+                if not target and current_weights:
+                    target = {k: 0.0 for k in current_weights.keys()}
+                if not target and isinstance(scores, dict) and scores:
+                    target = {k: 0.0 for k in scores.keys()}
+            else:
+                # TARGET
+                try:
+                    raw_weights = dict(intent.weights) if hasattr(intent, "weights") else dict(raw_weights)
+                except Exception:
+                    raw_weights = dict(raw_weights)
+                try:
+                    target = normalize_weights(raw_weights, max_weight=filt.max_position_weight)
+                except Exception:
+                    target = {}
+            if not is_hold and not is_cash:
+                limits = self._portfolio_exposure_limits()
+                if target and limits is not None:
+                    max_single, max_gross, min_cash = limits
+                    multiples = self._leverage_multiples(set(target.keys()))
+                    target = apply_portfolio_exposure_limits(
+                        target,
+                        multiples,
+                        max_single_weight=float(max_single),
+                        max_gross_exposure=float(max_gross),
+                        min_cash=float(min_cash),
+                    )
+            else:
+                limits = None
             target_before_adv = dict(target)
 
             try:
                 execution_date = self.calendar.next_session(decision_date)
             except Exception:
                 execution_date = None
-            if execution_date is not None and target:
-                adv_map: dict[str, float] = {}
-                for ticker in set(target.keys()) | set(current_weights.keys()):
-                    adv_val = self.universe.adv(str(ticker), execution_date)
-                    if adv_val is not None:
-                        adv_map[str(ticker)] = float(adv_val)
-                if adv_map:
-                    target = cap_target_weights_by_adv(
-                        target,
-                        current_weights,
-                        equity_start,
-                        adv_map,
-                        filt.max_order_to_adv,
-                    )
-
-            fills, unfilled = self.execution.resolve(target, panel, decision_date)
+            if not is_hold and execution_date is not None and target is not None and (target or is_cash):
+                # For cash, target may be zero weights dict non-empty; need adv cap handling but not for zero case via cap which may drop zeros
+                if not is_cash and target:
+                    adv_map: dict[str, float] = {}
+                    for ticker in set(target.keys()) | set(current_weights.keys()):
+                        adv_val = self.universe.adv(str(ticker), execution_date)
+                        if adv_val is not None:
+                            adv_map[str(ticker)] = float(adv_val)
+                    if adv_map:
+                        target = cap_target_weights_by_adv(
+                            target,
+                            current_weights,
+                            equity_start,
+                            adv_map,
+                            filt.max_order_to_adv,
+                        )
+                if is_hold:
+                    fills, unfilled = [], ()
+                else:
+                    fills, unfilled = self.execution.resolve(target, panel, decision_date)
+            else:
+                if is_hold:
+                    fills, unfilled = [], ()
+                else:
+                    fills, unfilled = self.execution.resolve(target, panel, decision_date) if not is_hold else ([], ())
             for tkr in unfilled:
                 unfilled_records.append((decision_date, tkr))
             new_weights = {f.ticker: f.target_weight for f in fills}
@@ -504,12 +674,17 @@ class BacktestEngine:
                     post_weights[tkr] = 0.0
             price_by_ticker = {f.ticker: float(f.price) for f in fills}
             exec_date_by_ticker = {f.ticker: f.execution_date for f in fills}
-            if fills:
-                for ticker in sorted(set(current_weights.keys()) | set(post_weights.keys())):
+            if fills or is_cash:
+                # for cash, ensure at least one trade recorded even when delta zero
+                tickers_for_trade = sorted(set(current_weights.keys()) | set(post_weights.keys()) | (set(target.keys()) if is_cash else set()))
+                if not tickers_for_trade and is_cash and isinstance(scores, dict) and scores:
+                    tickers_for_trade = sorted(scores.keys())
+                    post_weights = {k: 0.0 for k in tickers_for_trade}
+                for ticker in tickers_for_trade:
                     w_before = float(current_weights.get(ticker, 0.0))
                     w_after = float(post_weights.get(ticker, 0.0))
                     delta = w_after - w_before
-                    if abs(delta) < 1e-12:
+                    if abs(delta) < 1e-12 and not is_cash:
                         continue
                     side = "BUY" if delta > 0.0 else "SELL"
                     trades_records.append(

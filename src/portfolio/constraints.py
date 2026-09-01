@@ -4,8 +4,11 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Literal
 
 import yaml
+
+ComparisonMode = Literal["alpha_equal", "full_strategy_own"]
 
 
 class WeightViolationError(ValueError):
@@ -257,6 +260,25 @@ def load_p27_exposure_limits(path: Path | None = None) -> tuple[float, float, fl
         return float(max_single), float(max_gross), float(min_cash)
     except Exception:
         return load_p26_exposure_limits()
+
+
+def alpha_equal_exposure_limits() -> tuple[float, float, float]:
+    return load_p27_exposure_limits()
+
+
+def resolve_exposure_limits_for_model(
+    model_key: str,
+    *,
+    comparison_mode: ComparisonMode = "full_strategy_own",
+) -> tuple[float, float, float]:
+    if comparison_mode == "alpha_equal":
+        return alpha_equal_exposure_limits()
+    key = str(model_key).upper()
+    if key == "P26":
+        return load_p26_exposure_limits()
+    if key == "P27":
+        return load_p27_exposure_limits()
+    return load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
 
 
 def apply_portfolio_exposure_limits(
