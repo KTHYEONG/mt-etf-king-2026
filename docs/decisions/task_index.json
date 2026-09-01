@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_33_P27_INDEPENDENT_EVAL_FAST_PATH",
+      "date": "2026-09-01",
+      "adr_id": "ADR_20260901_33_P27_INDEPENDENT_EVAL_FAST_PATH",
+      "domain": "tournament",
+      "title": "P27 Independent-Window Eval — StickyLeader live-score fast path",
+      "why": "StickyLeader (_held/_hold_len) is path-dependent but adoption eval used slice rolling (445/451 windows mismatched vs independent); correctness fix forced scores_path_independent=False→slow (2090× engine.run, 30–60min+).",
+      "resolution": "Implemented path_dependent=True adoption eval, reset_trackers(), oneshot_independent_window_returns, simulate_window_from_cache live model.score(ctx.held), removed slow override, CLI _path_mode=fast, exposure_limits parity; lean_check+tests PASS; KRX 2018-2026 fast rolling 4.4min (8× vs slow, 0 mismatch) championship PASS P>50%=4.8% ruin=3.1% win_rate vs P21=46.7% (slice 5.3%/55% invalidated).",
+      "impact": "L5 tournament+alpha: P27 eval correctness restored; 2090-window rolling ~4min not 30–60min; prior slice-based P27 metrics unreliable; oneshot JSON serialisation bug (date) still open."
+    },
+    {
       "task_id": "TASK_32_P27_IDENTITY_OVERLAY_FIELD_REPORT",
       "date": "2026-09-01",
       "adr_id": "ADR_20260901_32_P27_IDENTITY_OVERLAY_FIELD_REPORT",
