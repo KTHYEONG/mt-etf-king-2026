@@ -28,3 +28,23 @@ def test_p27_registered_matches_p26_alpha() -> None:
     assert load_p27_exposure_limits() == load_p26_exposure_limits()
     assert load_p27_exposure_limits() == (0.95, 1.90, 0.05)
     assert not hasattr(p27, "allocate") or not callable(getattr(p27, "allocate", None))
+
+
+def test_sticky_leader_declares_path_dependent_and_reset_trackers() -> None:
+    from src.alpha.baselines import BASELINES
+    from src.alpha.sticky import StickyLeaderModel
+    from src.tournament.simulator import model_requires_path_dependent
+
+    p27 = BASELINES["P27"]()
+    p21 = BASELINES["P21"]()
+    p26 = BASELINES["P26"]()
+    assert isinstance(p27, StickyLeaderModel)
+    for model in (p27, p21, p26):
+        assert model.path_dependent is True
+        assert model.scores_path_independent is False
+        assert model_requires_path_dependent(model) is True
+        model._held = "X"
+        model._hold_len = 7
+        model.reset_trackers()
+        assert model._held is None
+        assert int(model._hold_len) == 0
