@@ -206,5 +206,8 @@
       "tests/unit/tournament/test_objective.py"
     ],
     "architecture": "docs/architecture/08-research-harness.md"
+  },
+  "src/backtest/pnl.py": {
+    "testing": "tests/unit/backtest/test_next_open_pnl.py"
   }
 }
