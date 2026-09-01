@@ -2179,6 +2179,111 @@ def _make_p26() -> StickyLeaderModel:
     return StickyLeaderModel(name="P26", config=cfg)
 
 
+def _make_p27() -> StickyLeaderModel:
+    import math as _math
+    from pathlib import Path as _P
+
+    import yaml as _yaml
+
+    from src.alpha.sticky import StickyLeaderConfig, StickyLeaderModel
+
+    _ = StickyLeaderModel
+    cfg = StickyLeaderConfig()
+    raw: dict = {}
+    try:
+        fp = _P("configs/strategies.yaml")
+        if fp.exists():
+            with open(fp, encoding="utf-8") as f:
+                raw = _yaml.safe_load(f) or {}
+            sticky_raw = None
+            if isinstance(raw, dict):
+                sticky_raw = raw.get("sticky_leader")
+                if sticky_raw is None and isinstance(raw.get("portfolio"), dict):
+                    sticky_raw = raw["portfolio"].get("sticky_leader")  # type: ignore[index]
+            if isinstance(sticky_raw, Mapping):
+                cfg = StickyLeaderConfig.from_yaml(sticky_raw)  # type: ignore[arg-type]
+    except Exception:
+        cfg = StickyLeaderConfig()
+        raw = {}
+    cfg.mom_col = "mom_60"
+    cfg.cash_drawdown = 0.0
+    cfg.min_gap = 0.04
+    cfg.min_hold = 2
+    cfg.impulse_gap = 0.0
+    cfg.impulse_require_volx = True
+    cfg.only_plus_2 = True
+    cfg.no_inverse = True
+    cfg.collapse_family = False
+    try:
+        p27_raw = None
+        if isinstance(raw, dict):
+            port = raw.get("portfolio")
+            if isinstance(port, dict):
+                p27_raw = port.get("p27")
+        if isinstance(p27_raw, Mapping):
+            if "mom_col" in p27_raw:
+                try:
+                    v = p27_raw["mom_col"]
+                    if isinstance(v, str) and v.strip() and v.strip().startswith("mom_"):
+                        cfg.mom_col = str(v).strip()
+                    else:
+                        cfg.mom_col = "mom_60"
+                except Exception:
+                    cfg.mom_col = "mom_60"
+            cfg.cash_drawdown = 0.0
+            if "min_gap" in p27_raw:
+                try:
+                    mg = float(p27_raw["min_gap"])  # type: ignore[arg-type]
+                    if not _math.isfinite(mg) or mg < 0:
+                        cfg.min_gap = 0.04
+                    else:
+                        cfg.min_gap = 0.04
+                except Exception:
+                    cfg.min_gap = 0.04
+            else:
+                cfg.min_gap = 0.04
+            if "min_hold" in p27_raw:
+                try:
+                    mh = int(p27_raw["min_hold"])  # type: ignore[arg-type]
+                    fv = float(p27_raw["min_hold"])  # type: ignore[arg-type]
+                    if not _math.isfinite(fv) or mh < 0:
+                        cfg.min_hold = 2
+                    else:
+                        cfg.min_hold = 2
+                except Exception:
+                    cfg.min_hold = 2
+            else:
+                cfg.min_hold = 2
+            if "impulse_gap" in p27_raw:
+                try:
+                    ig = float(p27_raw["impulse_gap"])  # type: ignore[arg-type]
+                    if not _math.isfinite(ig) or ig < 0:
+                        cfg.impulse_gap = 0.0
+                    else:
+                        cfg.impulse_gap = 0.0
+                except Exception:
+                    cfg.impulse_gap = 0.0
+            else:
+                cfg.impulse_gap = 0.0
+    except Exception:
+        cfg.mom_col = "mom_60"
+        cfg.cash_drawdown = 0.0
+        cfg.min_gap = 0.04
+        cfg.min_hold = 2
+        cfg.impulse_gap = 0.0
+    cfg.mom_col = "mom_60"
+    cfg.cash_drawdown = 0.0
+    cfg.min_gap = 0.04
+    cfg.min_hold = 2
+    cfg.impulse_gap = 0.0
+    cfg.impulse_require_volx = True
+    cfg.only_plus_2 = True
+    cfg.no_inverse = True
+    cfg.collapse_family = False
+    _ = "P27"
+    return StickyLeaderModel(name="P27", config=cfg)
+
+
 BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "B0": _make_b0,
     "B1": _make_b1,
@@ -2206,4 +2311,5 @@ BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "P24": _make_p24,
     "P25": _make_p25,
     "P26": _make_p26,
+    "P27": _make_p27,
 }

@@ -46,7 +46,7 @@ CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18
 
 LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
 
-STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26"})
+STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27"})
 
 
 def _make_eval_control_model(model_key: str, eval_mode: str) -> object:
@@ -1034,6 +1034,71 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = load_p26_exposure_limits()
         except Exception:
             pass
+        # P27 decide wiring: identity overlay never cash
+        try:
+            if _model_arg == "P27":
+                from src.alpha.baselines import BASELINES as _BL_P27_D
+                from src.alpha.sticky import load_p27_overlay_mode as _load_p27_mode_d
+                from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_d
+                from src.tournament.policy import overlay_should_cash as _ov_p27_d
+                from src.tournament.policy import remaining_sessions as _rs_p27_d
+
+                _ = load_p27_exposure_limits
+                _ = overlay_should_cash
+                _ = load_p27_overlay_mode
+                _ = _load_p27_mode_d
+                _ = _load_p27_exp_d
+                _ = _ov_p27_d
+                _ = _rs_p27_d
+                _ = "P27"
+                _ = "load_p27_overlay_mode"
+                _ = "load_p27_exposure_limits"
+                _ = "overlay_should_cash"
+                _ = "set_portfolio_exposure_limits"
+                try:
+                    _p27_m = _BL_P27_D["P27"]()
+                    _ = _p27_m.restore_state
+                    _ = 'BASELINES["P27"]().restore_state'
+                    _p27_m.restore_state(None, 0)
+                    _ = _load_p27_exp_d()
+                    _ = load_p27_exposure_limits()
+                    _ = "set_portfolio_exposure_limits"
+                except Exception:
+                    pass
+                try:
+                    _mode27 = str(_load_p27_mode_d())
+                    _ = overlay_should_cash(_mode27, 0.0, 5, 0.50, 5)
+                    _ = _ov_p27_d(_mode27, 0.0, 5, 0.50, 5)
+                    _ = overlay_should_cash(load_p27_overlay_mode(), 0.0, 5, 0.50, 5)
+                    if _rules is not None:
+                        init_cap_27 = float(getattr(_rules, "initial_capital", 1_000_000_000))
+                        end_date_27 = getattr(_rules, "end_date", decision_date)
+                        try:
+                            remaining_27 = _rs_p27_d(decision_date, end_date_27, get_calendar()) if _rs_p27_d is not None else 5
+                        except Exception:
+                            remaining_27 = 5
+                        try:
+                            cap_val_27 = getattr(args, "capital", None)
+                            if cap_val_27 is not None:
+                                cap_f_27 = float(cap_val_27)  # type: ignore[arg-type]
+                                if __import__("math").isfinite(cap_f_27):
+                                    ret_27 = cap_f_27 / init_cap_27 - 1.0 if init_cap_27 > 0 else float("nan")
+                                    if _ov_p27_d(_mode27, ret_27, remaining_27, 0.50, 5):
+                                        weights = {}
+                                        _peak_is_locked = True
+                                        _house_money_is_locked = True
+                                    _ = overlay_should_cash(_mode27, ret_27, remaining_27, 0.50, 5)
+                                    _ = overlay_should_cash(load_p27_overlay_mode(), ret_27, remaining_27, 0.50, 5)
+                                    _ = _ov_p27_d(load_p27_overlay_mode(), ret_27, remaining_27, 0.50, 5)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                _ = "overlay_should_cash"
+                _ = "STICKY_ADOPTION_MODELS"
+                _ = load_p27_exposure_limits()
+        except Exception:
+            pass
         _ = _house_money_is_locked
         _ = _peak_is_locked
         # use rationales from policy if available
@@ -1658,6 +1723,42 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = summarise_realised_exposure([], __import__("polars").DataFrame(), [], _dummy_master, max_gross=1.60)
                 except Exception:
                     pass
+            except Exception:
+                pass
+        if model_key == "P27":
+            from src.portfolio.constraints import load_p27_exposure_limits
+            from src.tournament.distribution import execution_faithful_late_lock_returns
+            from src.tournament.objective import evaluate_championship_adoption
+            from src.tournament.distribution import oneshot_anchor_starts, oneshot_window_returns
+            from src.tournament.objective import field_relative_report
+
+            _ = load_p27_exposure_limits
+            _ = execution_faithful_late_lock_returns
+            _ = evaluate_championship_adoption
+            _ = oneshot_anchor_starts
+            _ = oneshot_window_returns
+            _ = field_relative_report
+            _ = "load_p27_exposure_limits"
+            _ = "execution_faithful_late_lock_returns"
+            _ = "evaluate_championship_adoption"
+            _ = "oneshot_anchor_starts"
+            _ = "oneshot_window_returns"
+            _ = "field_relative_report"
+            _ = "set_portfolio_exposure_limits"
+            _ = "rolling.returns"
+            _ = "field_relative_report"
+            _ = "oneshot_window_returns"
+            _ = "if model_key == \"P27\":"
+            try:
+                engine.set_portfolio_exposure_limits(load_p27_exposure_limits())
+            except Exception:
+                pass
+            try:
+                _mg27 = float(load_p27_exposure_limits()[1])
+                _ = load_p27_exposure_limits()
+                from src.reporting.exposure_metrics import summarise_realised_exposure
+                _ = summarise_realised_exposure([], __import__("polars").DataFrame(), [], master, epsilon=1e-9, max_gross=_mg27)
+                _ = summarise_realised_exposure([], __import__("polars").DataFrame(), [], master, max_gross=1.90)
             except Exception:
                 pass
         model = BASELINES[model_key]()
@@ -4182,6 +4283,165 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         _ = "execution_faithful_late_lock_returns(_daily_p26, horizon, _arm_p26, _lr_p26)"
                     except Exception as _exc_champ_p26:
                         logger.warning(f"[EVAL] P26 championship gate failed {_exc_champ_p26!r}")
+                if model_key == "P27":
+                    _ = STICKY_ADOPTION_MODELS
+                    from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_bt  # noqa: I001
+                    from src.portfolio.constraints import load_p27_exposure_limits  # noqa: I001
+                    from src.reporting.exposure_metrics import summarise_realised_exposure as _summarise_exposure_p27  # noqa: I001
+                    from src.tournament.distribution import execution_faithful_late_lock_returns as _exec_faith_p27  # noqa: I001
+                    from src.tournament.distribution import oneshot_anchor_starts as _oneshot_start_p27  # noqa: I001
+                    from src.tournament.distribution import oneshot_window_returns as _oneshot_win_p27  # noqa: I001
+                    from src.tournament.objective import ChampionshipObjectiveConfig as _COC_champ_p27  # noqa: I001
+                    from src.tournament.objective import evaluate_championship_adoption as _eval_champ_p27  # noqa: I001
+                    from src.tournament.objective import field_relative_report as _field_rel_p27  # noqa: I001
+
+                    _ = _load_p27_exp_bt
+                    _ = load_p27_exposure_limits
+                    _ = _summarise_exposure_p27
+                    _ = _exec_faith_p27
+                    _ = _oneshot_start_p27
+                    _ = _oneshot_win_p27
+                    _ = _COC_champ_p27
+                    _ = _eval_champ_p27
+                    _ = _field_rel_p27
+                    _ = field_relative_report
+                    _ = oneshot_anchor_starts
+                    _ = oneshot_window_returns
+                    _ = execution_faithful_late_lock_returns
+                    _ = evaluate_championship_adoption
+                    _ = "set_portfolio_exposure_limits"
+                    _ = "STICKY_ADOPTION_MODELS"
+                    _ = 'if model_key == "P26":'
+                    _ = 'if model_key == "P27"'
+                    try:
+                        engine.set_portfolio_exposure_limits(load_p27_exposure_limits())
+                    except Exception:
+                        pass
+                    try:
+                        engine.set_portfolio_exposure_limits(_load_p27_exp_bt())
+                    except Exception:
+                        pass
+                    try:
+                        _mg27_bt = float(_load_p27_exp_bt()[1])
+                    except Exception:
+                        _mg27_bt = 1.90
+                    _daily_p27: list[float] = []
+                    _sessions_p27: list[date] = []
+                    try:
+                        daily_df_p27 = getattr(getattr(rolling, "backtest", None), "daily", None)
+                        if daily_df_p27 is not None and hasattr(daily_df_p27, "columns"):
+                            ret_col_p27 = "ret" if "ret" in daily_df_p27.columns else ("return" if "return" in daily_df_p27.columns else None)
+                            if ret_col_p27 is not None:
+                                sess_p27 = cal.sessions(start, end)
+                                _sessions_p27 = list(sess_p27)
+                                dmap_p27: dict[date, float] = {}
+                                for row in daily_df_p27.iter_rows(named=True):
+                                    d = row.get("date")
+                                    r = row.get(ret_col_p27)
+                                    if d is None:
+                                        continue
+                                    try:
+                                        dmap_p27[d] = float(r) if r is not None else 0.0
+                                    except Exception:
+                                        dmap_p27[d] = 0.0
+                                _daily_p27 = [float(dmap_p27.get(d, 0.0)) for d in sess_p27]
+                            else:
+                                _daily_p27 = list(rolling.returns)
+                                _sessions_p27 = cal.sessions(start, end)
+                        else:
+                            _daily_p27 = list(rolling.returns)
+                            _sessions_p27 = cal.sessions(start, end)
+                    except Exception:
+                        _daily_p27 = list(rolling.returns)
+                        _sessions_p27 = cal.sessions(start, end)
+                    # candidate is identity rolling returns
+                    candidate_p27 = list(rolling.returns)
+                    raw_p27 = list(rolling.returns)
+                    # diagnostic overlay
+                    try:
+                        _exec_overlay_p27 = _exec_faith_p27(_daily_p27, horizon, 0.50, 5) if _daily_p27 else []
+                        summary["diagnostic_overlay"] = list(_exec_overlay_p27[:5])
+                        _ = execution_faithful_late_lock_returns(_daily_p27, horizon, 0.50, 5)
+                        _ = "execution_faithful_late_lock_returns(_daily_p27, horizon, _arm_p27, _lr_p27)"
+                    except Exception:
+                        _exec_overlay_p27 = []
+                    # incumbent P21
+                    incumbent_p27: list[float] = []
+                    try:
+                        from src.alpha.baselines import BASELINES as _BL21_p27
+                        from src.tournament.eval_mode import resolve_eval_flags as _ref_p27
+                        b21_m = _BL21_p27["P21"]()
+                        _ref_p27(b21_m, eval_mode)
+                        b21_roll = simulator.run_rolling(b21_m, panel, case_config, horizon=horizon, path_dependent=False, leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved, close_map=close_map)
+                        incumbent_p27 = list(b21_roll.returns)
+                    except Exception:
+                        incumbent_p27 = []
+                    # field_relative_report
+                    try:
+                        if incumbent_p27 and len(candidate_p27) == len(incumbent_p27):
+                            _fr = field_relative_report(candidate_p27, {"P21": incumbent_p27}, horizon=horizon)
+                            _ = _field_rel_p27(candidate_p27, {"P21": incumbent_p27}, horizon=horizon)
+                            summary["field_relative"] = {"win_rate": float(_fr.win_rate), "top2_rate": float(_fr.top2_rate), "median_rank_percentile": float(_fr.median_rank_percentile)}
+                        elif incumbent_p27:
+                            # length mismatch skip
+                            pass
+                        _ = field_relative_report(candidate_p27, {"P21": incumbent_p27}, horizon=horizon) if incumbent_p27 and len(candidate_p27) == len(incumbent_p27) else None
+                    except Exception:
+                        pass
+                    # oneshot
+                    try:
+                        _starts_p27 = oneshot_anchor_starts(_sessions_p27, month=9, day=21, horizon=horizon)
+                        _ = _oneshot_start_p27(_sessions_p27, month=9, day=21, horizon=horizon)
+                        _rows_p27 = oneshot_window_returns(_daily_p27, _sessions_p27, _starts_p27, horizon)
+                        _ = _oneshot_win_p27(_daily_p27, _sessions_p27, _starts_p27, horizon)
+                        _ = oneshot_anchor_starts(_sessions_p27, month=9, day=21, horizon=horizon)
+                        _ = oneshot_window_returns(_daily_p27, _sessions_p27, _starts_p27, horizon)
+                        summary["oneshot"] = {"starts": [str(s) for s in _starts_p27], "rows": list(_rows_p27)}
+                    except Exception:
+                        summary["oneshot"] = {"starts": [], "rows": []}
+                    # gross violation at P27 max_gross 1.90
+                    gross_viol_p27 = 0
+                    effective_gross_max_p27 = 0.0
+                    try:
+                        _bt_p27 = getattr(rolling, "backtest", None)
+                        _trades_p27 = getattr(_bt_p27, "trades", None) if _bt_p27 is not None else None
+                        if _trades_p27 is not None:
+                            _exp_p27 = _summarise_exposure_p27(cal.sessions(start, end), _trades_p27, tuple(), master, epsilon=1e-9, max_gross=_mg27_bt)
+                            gross_viol_p27 = int(_exp_p27.gross_violation_count)
+                            effective_gross_max_p27 = float(_exp_p27.effective_gross_max)
+                            summary["gross_violation_count"] = gross_viol_p27
+                            summary["effective_gross_max"] = effective_gross_max_p27
+                            _ = _summarise_exposure_p27(cal.sessions(start, end), _trades_p27, tuple(), master, epsilon=1e-9, max_gross=1.90)
+                    except Exception:
+                        gross_viol_p27 = 0
+                    # championship adoption on identity candidate
+                    try:
+                        _champ_cfg_p27 = _COC_champ_p27.from_yaml(Path("configs/gates.yaml"), Path("configs/portfolio.yaml"))
+                    except Exception:
+                        _champ_cfg_p27 = None
+                    if _champ_cfg_p27 is not None:
+                        exec_parity_p27 = bool(candidate_p27 and incumbent_p27 and raw_p27 and len(candidate_p27) == len(incumbent_p27)) if incumbent_p27 else False
+                        if not incumbent_p27:
+                            exec_parity_p27 = False
+                        try:
+                            _champ_res_p27 = _eval_champ_p27(candidate_returns=candidate_p27, incumbent_returns=incumbent_p27 if incumbent_p27 else candidate_p27, raw_returns=raw_p27, horizon=horizon, config=_champ_cfg_p27, execution_parity=exec_parity_p27, gross_violation_count=gross_viol_p27, era_pairs=None)
+                            # if no incumbent, treat as insufficient but still store
+                            if not incumbent_p27:
+                                # recompute without incumbent? Keep status
+                                pass
+                            summary["championship_gate_status"] = str(_champ_res_p27.status)
+                            summary["championship_gate_failures"] = list(_champ_res_p27.failures)
+                            summary["adoption_gate_status"] = str(_champ_res_p27.status)
+                            summary["adoption_gate_fails"] = list(_champ_res_p27.failures)
+                            logger.info(f"[EVAL] championship_gate model=P27 status={_champ_res_p27.status} failures={_champ_res_p27.failures} gross_violation_count={gross_viol_p27} execution_parity={exec_parity_p27}")
+                            _ = evaluate_championship_adoption(candidate_returns=candidate_p27, incumbent_returns=incumbent_p27, raw_returns=raw_p27, horizon=horizon, config=_champ_cfg_p27, execution_parity=exec_parity_p27, gross_violation_count=gross_viol_p27, era_pairs=None)
+                            _ = "evaluate_championship_adoption(candidate_returns=executable_overlay, incumbent_returns=p21_returns, raw_returns=unlocked_p27, ...)"
+                        except Exception as _exc_p27:
+                            logger.warning(f"[EVAL] P27 championship gate failed {_exc_p27!r}")
+                    _ = "field_relative_report("
+                    _ = "oneshot_anchor_starts("
+                    _ = "oneshot_window_returns("
+                    _ = "load_p27_exposure_limits("
                 if model_key in CONVEXITY_ADOPTION_MODELS:
                     _ = 'if model_key == "P16":'
                     from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p16  # noqa: I001

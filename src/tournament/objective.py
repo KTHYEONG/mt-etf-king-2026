@@ -892,3 +892,87 @@ def evaluate_championship_adoption(
         scenario_delta_ci=dict(scenario_delta_ci),
         era_deltas=dict(era_deltas),
     )
+
+
+@dataclass(frozen=True)
+class FieldRelativeReport:
+    n_windows: int
+    n_agents: int
+    n_effective: int
+    win_rate: float
+    top2_rate: float
+    median_rank_percentile: float
+
+
+def field_relative_report(
+    candidate_returns: Sequence[float],
+    rival_returns: Mapping[str, Sequence[float]],
+    *,
+    horizon: int,
+) -> FieldRelativeReport:
+    import math as _math
+    import statistics as _stats
+
+    from src.tournament.distribution import effective_sample_size
+
+    try:
+        h = int(horizon)  # type: ignore[arg-type]
+    except Exception:
+        raise ValueError("horizon must be >0")
+    if h <= 0:
+        raise ValueError("horizon must be >0")
+    if not isinstance(candidate_returns, Sequence) or len(candidate_returns) == 0:
+        raise ValueError("candidate empty")
+    if not isinstance(rival_returns, Mapping) or len(rival_returns) == 0:
+        raise ValueError("rival empty")
+    n_windows = len(candidate_returns)  # type: ignore[arg-type]
+    # check candidate finite
+    for v in candidate_returns:  # type: ignore[union-attr]
+        try:
+            fv = float(v)  # type: ignore[arg-type]
+        except Exception:
+            raise ValueError("candidate contains non-numeric")
+        if not _math.isfinite(fv):
+            raise ValueError("candidate contains non-finite")
+    # check rivals: identical lengths, finite
+    for key, seq in rival_returns.items():  # type: ignore[union-attr]
+        if not isinstance(seq, Sequence):
+            raise ValueError("rival sequence invalid")
+        if len(seq) != n_windows:  # type: ignore[arg-type]
+            raise ValueError("length mismatch")
+        for v in seq:  # type: ignore[union-attr]
+            try:
+                fv = float(v)  # type: ignore[arg-type]
+            except Exception:
+                raise ValueError("rival contains non-numeric")
+            if not _math.isfinite(fv):
+                raise ValueError("rival contains non-finite")
+    n_agents = 1 + len(rival_returns)
+    n_effective = int(effective_sample_size(n_windows, h))
+    # compute per window
+    win_count = 0
+    top2_count = 0
+    rank_percentiles: list[float] = []
+    rival_lists = list(rival_returns.values())  # type: ignore[union-attr]
+    for i in range(n_windows):
+        cand = float(candidate_returns[i])  # type: ignore[index]
+        rival_vals = [float(r[i]) for r in rival_lists]  # type: ignore[index]
+        max_rival = max(rival_vals) if rival_vals else float("-inf")
+        if cand > max_rival:
+            win_count += 1
+        cnt_ge = sum(1 for rv in rival_vals if rv >= cand)
+        rank = 1 + cnt_ge
+        if rank <= 2:
+            top2_count += 1
+        rank_percentiles.append(float(rank) / float(n_agents))
+    win_rate = float(win_count) / float(n_windows) if n_windows else 0.0
+    top2_rate = float(top2_count) / float(n_windows) if n_windows else 0.0
+    median_rank_percentile = float(_stats.median(rank_percentiles)) if rank_percentiles else 0.0
+    return FieldRelativeReport(
+        n_windows=int(n_windows),
+        n_agents=int(n_agents),
+        n_effective=int(n_effective),
+        win_rate=float(win_rate),
+        top2_rate=float(top2_rate),
+        median_rank_percentile=float(median_rank_percentile),
+    )
