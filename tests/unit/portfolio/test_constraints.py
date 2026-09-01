@@ -138,3 +138,20 @@ def test_apply_portfolio_exposure_limits_collapses_switch_overlap() -> None:
         min_cash=0.05,
     )
     assert gross_exposure(tight, multiples) <= 1.60 + 1e-9
+
+
+def test_resolve_exposure_limits_alpha_equal_uses_p27_budget() -> None:
+    from src.portfolio.constraints import (
+        alpha_equal_exposure_limits,
+        load_p27_exposure_limits,
+        load_portfolio_exposure_limits,
+        resolve_exposure_limits_for_model,
+    )
+    from pathlib import Path
+
+    alpha = resolve_exposure_limits_for_model("P21", comparison_mode="alpha_equal")
+    assert alpha == alpha_equal_exposure_limits()
+    assert alpha == load_p27_exposure_limits()
+    own = resolve_exposure_limits_for_model("P21", comparison_mode="full_strategy_own")
+    assert own == load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
+    assert own != alpha

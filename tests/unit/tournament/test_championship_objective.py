@@ -66,3 +66,30 @@ def test_championship_adoption_uses_incumbent_and_primary_ci() -> None:
     assert result.status == 'PASS'
     assert result.failures == ()
     assert result.scenario_delta_ci[config.primary_scenario][0] > 0.0
+
+
+def test_gross_metric_unavailable_insufficient_evidence() -> None:
+    from src.tournament.objective import ChampionshipObjectiveConfig, evaluate_championship_adoption
+
+    config = ChampionshipObjectiveConfig(
+        thresholds=(0.3, 0.4, 0.5, 0.6),
+        scenario_weights={"weak": 0.25, "championship": 0.5, "hot": 0.25},
+        primary_scenario="championship",
+        ruin_max=0.5,
+        bootstrap_samples=100,
+        bootstrap_expected_block=36,
+        bootstrap_seed=1,
+    )
+    seq = (0.1, 0.2, 0.3)
+    result = evaluate_championship_adoption(
+        candidate_returns=seq,
+        incumbent_returns=seq,
+        raw_returns=seq,
+        horizon=3,
+        config=config,
+        execution_parity=True,
+        gross_violation_count=None,
+        era_pairs=None,
+    )
+    assert result.status == "INSUFFICIENT_EVIDENCE"
+    assert "GROSS_METRIC_UNAVAILABLE" in result.failures
