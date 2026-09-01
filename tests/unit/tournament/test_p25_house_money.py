@@ -93,3 +93,26 @@ def test_evaluate_p25_adoption_gates_rejects_right_tail_censor() -> None:
     assert 'p_gt_50' in p24[1]
     assert 'p_gt_50' not in ok[1]
     assert 'p_gt_40' not in ok[1]
+
+
+def test_execution_faithful_late_lock_does_not_invent_floor() -> None:
+    from src.tournament.distribution import execution_faithful_late_lock_returns
+
+    daily = [0.60, -0.40, 0.0, 0.0, 0.0, 0.0]
+    result = execution_faithful_late_lock_returns(daily, 6, 0.50, 1)
+
+    assert len(result) == 1
+    assert abs(result[0] - (-0.04)) < 1e-12
+    assert abs(result[0] - 0.50) > 1e-6
+
+
+def test_execution_faithful_late_lock_matches_live_predicate() -> None:
+    from src.tournament.distribution import execution_faithful_late_lock_returns
+    from src.tournament.policy import house_money_should_cash
+
+    daily = [0.10, 0.10, 0.10, 0.10, 0.10, -0.50]
+    result = execution_faithful_late_lock_returns(daily, 6, 0.50, 2)
+    expected = (1.10 ** 5) - 1.0
+
+    assert house_money_should_cash(expected, 1, 0.50, 2)
+    assert abs(result[0] - expected) < 1e-12
