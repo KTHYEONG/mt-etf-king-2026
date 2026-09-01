@@ -765,6 +765,27 @@ class StickyLeaderModel:
         self._held: str | None = None
         self._hold_len: int = 0
 
+    def restore_state(self, held: str | None, hold_len: int) -> None:
+        import math as _math
+
+        if held is not None and not isinstance(held, str):
+            raise ValueError("held must be str or None")
+        try:
+            hl = int(hold_len)  # type: ignore[arg-type]
+        except Exception as exc:
+            raise ValueError(f"hold_len invalid: {exc}") from exc
+        # check finite via float
+        try:
+            fv = float(hold_len)  # type: ignore[arg-type]
+            if not _math.isfinite(fv):
+                raise ValueError("hold_len must be finite")
+        except Exception as exc:
+            raise ValueError(f"hold_len invalid: {exc}") from exc
+        if hl < 0:
+            raise ValueError("hold_len must be >=0")
+        self._held = held
+        self._hold_len = int(hl)
+
     def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float]:
         filtered = filter_plus2_scores(snapshot, self.config)
         if getattr(self.config, "collapse_family", False):

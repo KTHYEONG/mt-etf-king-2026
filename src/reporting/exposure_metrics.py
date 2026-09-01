@@ -22,6 +22,8 @@ class RealisedExposureSummary:
     mult2_filled_notional_rate: float
     turnover: float
     unfilled_session_rate: float
+    effective_gross_max: float = 0.0
+    gross_violation_count: int = 0
 
 
 def summarise_realised_exposure(
@@ -203,6 +205,9 @@ def summarise_realised_exposure(
     # unfilled_session_rate
     unfilled_dates = {d for d, _ in unfilled}
     unfilled_session_rate = len(unfilled_dates) / len(dates) if dates else 0.0
+    effective_gross_max = max(effective_grosses) if effective_grosses else 0.0
+    # gross violation against 1.60 with tolerance 1e-9
+    gross_violation_count = sum(1 for g in effective_grosses if float(g) > 1.60 + 1e-9)
     return RealisedExposureSummary(
         active_name_mean=float(active_name_mean),
         active_family_mean=float(active_family_mean),
@@ -213,4 +218,6 @@ def summarise_realised_exposure(
         mult2_filled_notional_rate=float(mult2_filled_notional_rate),
         turnover=float(turnover_val),
         unfilled_session_rate=float(unfilled_session_rate),
+        effective_gross_max=float(effective_gross_max),
+        gross_violation_count=int(gross_violation_count),
     )

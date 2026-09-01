@@ -5,6 +5,8 @@ import math
 from collections.abc import Mapping
 from pathlib import Path
 
+import yaml
+
 
 class WeightViolationError(ValueError):
     pass
@@ -146,6 +148,62 @@ def gross_exposure(
     return float(total)
 
 
+def load_portfolio_exposure_limits(path: Path) -> tuple[float, float, float]:
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except Exception as exc:
+        raise ValueError(f"load_portfolio_exposure_limits read failed: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("portfolio config root not mapping")
+    port = raw.get("portfolio")
+    if not isinstance(port, dict):
+        raise ValueError("portfolio block missing")
+    for kk in ("max_single_weight", "max_gross_exposure", "min_cash"):
+        if kk not in port:
+            raise ValueError(f"portfolio.{kk} missing")
+    try:
+        max_single = float(port["max_single_weight"])  # type: ignore[arg-type]
+        max_gross = float(port["max_gross_exposure"])  # type: ignore[arg-type]
+        min_cash = float(port["min_cash"])  # type: ignore[arg-type]
+    except Exception as exc:
+        raise ValueError(f"portfolio limit invalid: {exc}") from exc
+    if isinstance(port["max_single_weight"], bool) or isinstance(port["max_gross_exposure"], bool) or isinstance(port["min_cash"], bool):
+        raise ValueError("portfolio limits must be numeric not bool")
+    if not math.isfinite(max_single) or not math.isfinite(max_gross) or not math.isfinite(min_cash):
+        raise ValueError("portfolio limits must be finite")
+    if max_single <= 0 or max_single > 1:
+        raise ValueError("max_single_weight out of range")
+    if max_gross <= 0:
+        raise ValueError("max_gross_exposure must be >0")
+    if min_cash < 0 or min_cash > 1:
+        raise ValueError("min_cash out of range")
+    return float(max_single), float(max_gross), float(min_cash)
+
+
+def apply_portfolio_exposure_limits(
+    weights: Mapping[str, float],
+    multiples: Mapping[str, int],
+    *,
+    max_single_weight: float,
+    max_gross_exposure: float,
+    min_cash: float,
+) -> dict[str, float]:
+    capped: dict[str, float] = {}
+    for ticker, w in weights.items():
+        wf = float(w)
+        if wf <= 1e-12:
+            continue
+        capped[str(ticker)] = min(wf, float(max_single_weight))
+    capped = apply_gross_exposure_cap(capped, multiples, float(max_gross_exposure))
+    invested = sum(float(v) for v in capped.values())
+    max_invested = 1.0 - float(min_cash)
+    if invested > max_invested + 1e-9 and invested > 0.0:
+        factor = max_invested / invested
+        capped = {k: float(v) * float(factor) for k, v in capped.items()}
+    return capped
+
+
 def apply_gross_exposure_cap(
     weights: Mapping[str, float],
     multiples: Mapping[str, int],
@@ -161,6 +219,21 @@ def apply_gross_exposure_cap(
         return {k: float(v) for k, v in weights.items()}
     factor = mg / g
     return {k: float(v) * float(factor) for k, v in weights.items()}
+
+
+def load_effective_weight_cap(path: Path, leverage_multiple: int) -> float:
+    try:
+        mult = int(leverage_multiple)  # type: ignore[arg-type]
+    except Exception as exc:
+        raise ValueError(f"leverage_multiple invalid: {exc}") from exc
+    if mult == 0:
+        raise ValueError("leverage_multiple must be non-zero")
+    abs_mult = abs(int(mult))
+    max_single, max_gross, min_cash = load_portfolio_exposure_limits(path)
+    cap_single = float(max_single)
+    cap_gross = float(max_gross) / float(abs_mult)
+    cap_cash = 1.0 - float(min_cash)
+    return float(min(cap_single, cap_gross, cap_cash))
 
 
 def leverage_gate(
