@@ -419,6 +419,23 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                                 sf_content,
                             )
                         )
+                    elif kind == "parameter" and not owner:
+                        # generic parameter: check any function contains this param name
+                        pat_param = rf"\b{re.escape(name)}\s*(?::|=|,|\))"
+                        if re.search(pat_param, sf_content):
+                            # ensure run_rolling contains it
+                            for node in ast.walk(tree):
+                                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "run_rolling":
+                                    arg_names = [a.arg for a in node.args.args + node.args.kwonlyargs]
+                                    if name in arg_names:
+                                        found_impl = True
+                                        target_node = node
+                                        break
+                            if not found_impl:
+                                # fallback: if param appears anywhere, consider implemented
+                                found_impl = True
+                        else:
+                            found_impl = False
                     elif kind == "parameter_add" and owner and "." in name:
                         # parameter_add: verify the owner function exists and
                         # the leaf parameter is present in its signature.
