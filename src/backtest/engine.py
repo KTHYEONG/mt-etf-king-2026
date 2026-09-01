@@ -118,6 +118,9 @@ class BacktestEngine:
             self._portfolio_limits = None
         return self._portfolio_limits
 
+    def set_portfolio_exposure_limits(self, limits: tuple[float, float, float] | None) -> None:
+        self._portfolio_limits = limits if limits is not None else None
+
     def _leverage_multiples(self, tickers: set[str]) -> dict[str, int]:
         master = getattr(self.universe, "master", None)
         multiples: dict[str, int] = {}
@@ -476,6 +479,25 @@ class BacktestEngine:
             for tkr in unfilled:
                 unfilled_records.append((decision_date, tkr))
             new_weights = {f.ticker: f.target_weight for f in fills}
+            # championship concentration: collapse switch overlap via active exposure limits
+            try:
+                _limits = self._portfolio_exposure_limits()
+                if _limits is not None and new_weights:
+                    _holdings: dict[str, float] = dict(current_weights)
+                    for _tk, _w in new_weights.items():
+                        _holdings[str(_tk)] = float(_w)
+                    _filtered = {k: float(v) for k, v in _holdings.items() if abs(float(v)) > 1e-12}
+                    if _filtered:
+                        _multiples = self._leverage_multiples(set(_filtered.keys()))
+                        new_weights = apply_portfolio_exposure_limits(
+                            _filtered,
+                            _multiples,
+                            max_single_weight=float(_limits[0]),
+                            max_gross_exposure=float(_limits[1]),
+                            min_cash=float(_limits[2]),
+                        )
+            except Exception:
+                pass
             post_weights = dict(new_weights)
             for tkr in current_weights:
                 if tkr not in post_weights:
