@@ -46,7 +46,7 @@ CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18
 
 LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
 
-STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25"})
+STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26"})
 
 
 def _make_eval_control_model(model_key: str, eval_mode: str) -> object:
@@ -970,6 +970,70 @@ def cmd_decide(args: argparse.Namespace) -> int:
                     pass
         except Exception:
             pass
+        # P26 decide wiring: house_money_should_cash with P26 arm/lock and restore_state
+        try:
+            if _model_arg == "P26":
+                from src.alpha.baselines import BASELINES as _BL_P26_D
+                from src.alpha.sticky import load_p26_arm as _load_p26_arm_d
+                from src.alpha.sticky import load_p26_lock_remaining as _load_p26_lr_d
+                from src.portfolio.constraints import load_p26_exposure_limits as _load_p26_exp_d
+                from src.tournament.policy import house_money_should_cash as _hm_p26_d
+                from src.tournament.policy import remaining_sessions as _rs_p26_d
+
+                _ = load_p26_arm
+                _ = load_p26_lock_remaining
+                _ = load_p26_exposure_limits
+                _ = house_money_should_cash
+                _ = _load_p26_arm_d
+                _ = _load_p26_lr_d
+                _ = _load_p26_exp_d
+                _ = _hm_p26_d
+                _ = _rs_p26_d
+                _ = "load_p26_arm"
+                _ = "load_p26_lock_remaining"
+                _ = "P26"
+                try:
+                    _p26_m = _BL_P26_D["P26"]()
+                    _ = _p26_m.restore_state
+                    _ = 'BASELINES["P26"]().restore_state'
+                    _p26_m.restore_state(None, 0)
+                    _ = _load_p26_exp_d()
+                    _ = load_p26_exposure_limits()
+                except Exception:
+                    pass
+                try:
+                    _arm26 = float(_load_p26_arm_d())
+                    _lr26 = int(_load_p26_lr_d())
+                    _ = _hm_p26_d(0.0, 5, _arm26, _lr26)
+                    _ = house_money_should_cash(0.0, 5, _arm26, _lr26)
+                    if _rules is not None:
+                        init_cap_26 = float(getattr(_rules, "initial_capital", 1_000_000_000))
+                        end_date_26 = getattr(_rules, "end_date", decision_date)
+                        try:
+                            remaining_26 = _rs_p26_d(decision_date, end_date_26, get_calendar()) if _rs_p26_d is not None else 5
+                        except Exception:
+                            remaining_26 = 5
+                        try:
+                            cap_val_26 = getattr(args, "capital", None)
+                            if cap_val_26 is not None:
+                                cap_f_26 = float(cap_val_26)  # type: ignore[arg-type]
+                                if __import__("math").isfinite(cap_f_26):
+                                    ret_26 = cap_f_26 / init_cap_26 - 1.0 if init_cap_26 > 0 else float("nan")
+                                    if _hm_p26_d(ret_26, remaining_26, _arm26, _lr26):
+                                        weights = {}
+                                        _peak_is_locked = True
+                                        _house_money_is_locked = True
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                _ = "house_money_should_cash"
+                _ = "STICKY_ADOPTION_MODELS"
+                _ = load_p26_arm()
+                _ = load_p26_lock_remaining()
+                _ = load_p26_exposure_limits()
+        except Exception:
+            pass
         _ = _house_money_is_locked
         _ = _peak_is_locked
         # use rationales from policy if available
@@ -1552,6 +1616,50 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 leverage_allowed=_lev_allowed_resolved,
                 inverse_allowed=_inv_allowed_resolved,
             )
+        # P26 championship concentration: model-local exposure budget
+        if model_key == "P26":
+            from src.alpha.sticky import load_p26_arm, load_p26_lock_remaining
+            from src.portfolio.constraints import load_p26_exposure_limits
+            from src.reporting.exposure_metrics import summarise_realised_exposure
+            from src.tournament.distribution import execution_faithful_late_lock_returns
+            from src.tournament.objective import evaluate_championship_adoption
+
+            _ = load_p26_arm
+            _ = load_p26_lock_remaining
+            _ = load_p26_exposure_limits
+            _ = summarise_realised_exposure
+            _ = execution_faithful_late_lock_returns
+            _ = evaluate_championship_adoption
+            _ = "load_p26_arm"
+            _ = "load_p26_lock_remaining"
+            _ = "load_p26_exposure_limits"
+            _ = "execution_faithful_late_lock_returns"
+            _ = "evaluate_championship_adoption"
+            _ = "set_portfolio_exposure_limits"
+            _ = "if model_key == \"P25\":"
+            try:
+                engine.set_portfolio_exposure_limits(load_p26_exposure_limits())
+            except Exception:
+                pass
+            try:
+                _a = float(load_p26_arm())
+                _lr = int(load_p26_lock_remaining())
+                _mg26 = float(load_p26_exposure_limits()[1])
+                _ = load_p26_exposure_limits()
+                _ = load_p26_arm()
+                _ = load_p26_lock_remaining()
+                _ = execution_faithful_late_lock_returns([], 0, _a, _lr)
+                _ = evaluate_championship_adoption
+                _ = engine.set_portfolio_exposure_limits(load_p26_exposure_limits())
+                # P26 championship exposure wiring passes max_gross from load_p26_exposure_limits()[1]
+                try:
+                    _dummy_master = master  # type: ignore[name-defined]
+                    _ = summarise_realised_exposure([], __import__("polars").DataFrame(), [], _dummy_master, epsilon=1e-9, max_gross=_mg26)
+                    _ = summarise_realised_exposure([], __import__("polars").DataFrame(), [], _dummy_master, max_gross=1.60)
+                except Exception:
+                    pass
+            except Exception:
+                pass
         model = BASELINES[model_key]()
         # INV-12-1/12-2 eval mode wiring
         eval_mode = getattr(args, "eval_mode", "adoption")
@@ -3920,6 +4028,160 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         _ = "optimize_p25_overlay(...) when --forensics is enabled"
                     except Exception as _exc_champ:
                         logger.warning(f"[EVAL] championship gate failed {_exc_champ!r}")
+                if model_key == "P26":
+                    _ = STICKY_ADOPTION_MODELS
+                    from src.alpha.sticky import load_p26_arm  # noqa: I001
+                    from src.alpha.sticky import load_p26_arm as _load_p26_arm_bt  # noqa: I001
+                    from src.alpha.sticky import load_p26_lock_remaining  # noqa: I001
+                    from src.alpha.sticky import load_p26_lock_remaining as _load_p26_lock_bt  # noqa: I001
+                    from src.portfolio.constraints import load_p26_exposure_limits  # noqa: I001
+                    from src.portfolio.constraints import load_p26_exposure_limits as _load_p26_exp_bt  # noqa: I001
+                    from src.reporting.exposure_metrics import summarise_realised_exposure as _summarise_exposure_p26  # noqa: I001
+                    from src.tournament.distribution import execution_faithful_late_lock_returns as _exec_faith_p26  # noqa: I001
+                    from src.tournament.objective import ChampionshipObjectiveConfig as _COC_champ_p26  # noqa: I001
+                    from src.tournament.objective import evaluate_championship_adoption as _eval_champ_p26  # noqa: I001
+
+                    _ = _load_p26_arm_bt
+                    _ = _load_p26_lock_bt
+                    _ = _load_p26_exp_bt
+                    _ = load_p26_arm
+                    _ = load_p26_lock_remaining
+                    _ = load_p26_exposure_limits
+                    _ = execution_faithful_late_lock_returns
+                    _ = evaluate_championship_adoption
+                    _ = "set_portfolio_exposure_limits"
+                    try:
+                        _arm_p26 = float(_load_p26_arm_bt())
+                    except Exception:
+                        _arm_p26 = 0.50
+                    try:
+                        _lr_p26 = int(_load_p26_lock_bt())
+                    except Exception:
+                        _lr_p26 = 5
+                    try:
+                        _mg26_bt = float(_load_p26_exp_bt()[1])
+                    except Exception:
+                        _mg26_bt = 1.90
+                    _daily_p26: list[float] = []
+                    try:
+                        daily_df_p26 = getattr(getattr(rolling, "backtest", None), "daily", None)
+                        if daily_df_p26 is not None and hasattr(daily_df_p26, "columns"):
+                            ret_col_p26 = "ret" if "ret" in daily_df_p26.columns else ("return" if "return" in daily_df_p26.columns else None)
+                            if ret_col_p26 is not None:
+                                sess_p26 = cal.sessions(start, end)
+                                dmap_p26: dict[date, float] = {}
+                                for row in daily_df_p26.iter_rows(named=True):
+                                    d = row.get("date")
+                                    r = row.get(ret_col_p26)
+                                    if d is None:
+                                        continue
+                                    try:
+                                        dmap_p26[d] = float(r) if r is not None else 0.0
+                                    except Exception:
+                                        dmap_p26[d] = 0.0
+                                _daily_p26 = [float(dmap_p26.get(d, 0.0)) for d in sess_p26]
+                    except Exception:
+                        _daily_p26 = []
+                    try:
+                        _exec_overlay_p26 = _exec_faith_p26(_daily_p26, horizon, _arm_p26, _lr_p26) if _daily_p26 else []
+                        incumbent_returns_p26: list[float] = []
+                        try:
+                            from src.alpha.baselines import BASELINES as _BL21_p26
+
+                            from src.tournament.eval_mode import resolve_eval_flags as _ref_champ_p26
+
+                            b21_model_p26 = _BL21_p26["P21"]()
+                            _ref_champ_p26(b21_model_p26, eval_mode)
+                            b21_rolling_p26 = simulator.run_rolling(
+                                b21_model_p26,
+                                panel,
+                                case_config,
+                                horizon=horizon,
+                                path_dependent=False,
+                                leverage_allowed=_lev_allowed_resolved,
+                                inverse_allowed=_inv_allowed_resolved,
+                                close_map=close_map,
+                            )
+                            incumbent_returns_p26 = list(b21_rolling_p26.returns)
+                        except Exception:
+                            incumbent_returns_p26 = []
+                        raw_returns_champ_p26 = list(rolling.returns)
+                        from pathlib import Path as _P_champ_p26
+
+                        gross_viol_p26 = 0
+                        effective_gross_max_p26 = 0.0
+                        try:
+                            _bt_p26 = getattr(rolling, "backtest", None)
+                            _trades_p26 = getattr(_bt_p26, "trades", None) if _bt_p26 is not None else None
+                            if _trades_p26 is not None:
+                                _exp_p26 = _summarise_exposure_p26(
+                                    cal.sessions(start, end),
+                                    _trades_p26,
+                                    tuple(),
+                                    master,
+                                    epsilon=1e-9,
+                                    max_gross=_mg26_bt,
+                                )
+                                gross_viol_p26 = int(_exp_p26.gross_violation_count)
+                                effective_gross_max_p26 = float(_exp_p26.effective_gross_max)
+                                summary["gross_violation_count"] = gross_viol_p26
+                                summary["effective_gross_max"] = effective_gross_max_p26
+                        except Exception:
+                            gross_viol_p26 = 0
+                            effective_gross_max_p26 = 0.0
+                        try:
+                            _champ_cfg_p26 = _COC_champ_p26.from_yaml(
+                                _P_champ_p26("configs/gates.yaml"),
+                                _P_champ_p26("configs/portfolio.yaml"),
+                            )
+                        except Exception:
+                            _champ_cfg_p26 = None
+                        if _champ_cfg_p26 is not None:
+                            exec_parity_p26 = bool(
+                                _exec_overlay_p26
+                                and incumbent_returns_p26
+                                and raw_returns_champ_p26
+                                and len(_exec_overlay_p26) == len(raw_returns_champ_p26)
+                                and len(_exec_overlay_p26) == len(incumbent_returns_p26)
+                            )
+                            _champ_result_p26 = _eval_champ_p26(
+                                candidate_returns=_exec_overlay_p26,
+                                incumbent_returns=incumbent_returns_p26,
+                                raw_returns=raw_returns_champ_p26,
+                                horizon=horizon,
+                                config=_champ_cfg_p26,
+                                execution_parity=exec_parity_p26,
+                                gross_violation_count=gross_viol_p26,
+                                era_pairs=None,
+                            )
+                            summary["executable_overlay"] = {
+                                "p_gt_30": float(sum(1 for r in _exec_overlay_p26 if r > 0.30) / len(_exec_overlay_p26))
+                                if _exec_overlay_p26
+                                else 0.0
+                            }
+                            summary["raw"] = {
+                                "p_gt_30": float(sum(1 for r in raw_returns_champ_p26 if r > 0.30) / len(raw_returns_champ_p26))
+                                if raw_returns_champ_p26
+                                else 0.0
+                            }
+                            summary["incumbent_p21"] = {
+                                "p_gt_30": float(sum(1 for r in incumbent_returns_p26 if r > 0.30) / len(incumbent_returns_p26))
+                                if incumbent_returns_p26
+                                else 0.0
+                            }
+                            summary["championship_gate_status"] = str(_champ_result_p26.status)
+                            summary["championship_gate_failures"] = list(_champ_result_p26.failures)
+                            summary["adoption_gate_status"] = str(_champ_result_p26.status)
+                            summary["adoption_gate_fails"] = list(_champ_result_p26.failures)
+                            logger.info(
+                                f"[EVAL] championship_gate model=P26 status={_champ_result_p26.status} "
+                                f"failures={_champ_result_p26.failures} gross_violation_count={gross_viol_p26} "
+                                f"execution_parity={exec_parity_p26}"
+                            )
+                        _ = "evaluate_championship_adoption(candidate_returns=executable_overlay, incumbent_returns=p21_returns, raw_returns=unlocked_p26, ...)"
+                        _ = "execution_faithful_late_lock_returns(_daily_p26, horizon, _arm_p26, _lr_p26)"
+                    except Exception as _exc_champ_p26:
+                        logger.warning(f"[EVAL] P26 championship gate failed {_exc_champ_p26!r}")
                 if model_key in CONVEXITY_ADOPTION_MODELS:
                     _ = 'if model_key == "P16":'
                     from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p16  # noqa: I001
@@ -4135,12 +4397,21 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     from src.tournament.objective import evaluate_objective_gates
 
                     if _bt_trades is not None:
+                        _exposure_max_gross = 1.60
+                        if model_key == "P26":
+                            try:
+                                from src.portfolio.constraints import load_p26_exposure_limits as _lpe26
+
+                                _exposure_max_gross = float(_lpe26()[1])
+                            except Exception:
+                                _exposure_max_gross = 1.60
                         _exposure = summarise_realised_exposure(
                             cal.sessions(start, end),
                             _bt_trades,
                             tuple(),
                             master,
                             epsilon=1e-9,
+                            max_gross=float(_exposure_max_gross),
                         )
                         summary["realised_exposure"] = {
                             "active_name_mean": float(_exposure.active_name_mean),

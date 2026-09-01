@@ -8,6 +8,8 @@ from datetime import date
 
 import polars as pl
 
+import math
+
 from src.universe.instruments import InstrumentMaster
 
 
@@ -33,6 +35,7 @@ def summarise_realised_exposure(
     master: InstrumentMaster,
     *,
     epsilon: float = 1e-9,
+    max_gross: float = 1.60,
 ) -> RealisedExposureSummary:
     # Reconstruct holdings per session from trades (O(T+M))
     # trades columns: decision_date, execution_date, ticker, weight_after etc.
@@ -206,8 +209,14 @@ def summarise_realised_exposure(
     unfilled_dates = {d for d, _ in unfilled}
     unfilled_session_rate = len(unfilled_dates) / len(dates) if dates else 0.0
     effective_gross_max = max(effective_grosses) if effective_grosses else 0.0
-    # gross violation against 1.60 with tolerance 1e-9
-    gross_violation_count = sum(1 for g in effective_grosses if float(g) > 1.60 + 1e-9)
+    # gross violation against max_gross with tolerance 1e-9
+    try:
+        _mg = float(max_gross)
+        if not math.isfinite(_mg):
+            _mg = 1.60
+    except Exception:
+        _mg = 1.60
+    gross_violation_count = sum(1 for g in effective_grosses if float(g) > float(_mg) + 1e-9)
     return RealisedExposureSummary(
         active_name_mean=float(active_name_mean),
         active_family_mean=float(active_family_mean),
