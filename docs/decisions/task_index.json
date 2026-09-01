@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_36_EXECUTION_LEDGER_PARITY",
+      "date": "2026-09-01",
+      "adr_id": "ADR_20260901_36_EXECUTION_LEDGER_PARITY",
+      "domain": "execution",
+      "title": "Canonical Portfolio Ledger + Full/Fast Execution Parity",
+      "why": "Fast simulator ignored PortfolioIntent (CASH→hold), ADV used execution_date (look-ahead), costs applied before overnight, RollingDiagnostics were None scaffold; feedback §29 items 2–6.",
+      "resolution": "Added src/execution/ledger.py with transition_portfolio_state; BacktestEngine.run and simulate_window_from_cache share ledger transitions; ADV keyed to decision_date; fast rolling aggregates real SessionTransitionDiagnostics via aggregate_session_diagnostics.",
+      "impact": "L2 execution: full/fast path_dependent parity restored for HOLD/CASH/TARGET; championship gate can receive non-null gross/turnover diagnostics; P27 rebaseline unblocked pending."
+    },
+    {
       "task_id": "TASK_35_P27_EXECUTION_REBASELINE",
       "date": "2026-09-01",
       "adr_id": "ADR_20260901_35_P27_EXECUTION_REBASELINE",

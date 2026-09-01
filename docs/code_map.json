@@ -209,5 +209,8 @@
   },
   "src/backtest/pnl.py": {
     "testing": "tests/unit/backtest/test_next_open_pnl.py"
+  },
+  "src/execution/ledger.py": {
+    "testing": "tests/unit/execution/test_ledger.py"
   }
 }
