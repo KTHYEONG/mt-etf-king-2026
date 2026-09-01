@@ -40,6 +40,19 @@ def test_SCENARIO_09_08_aggression_scales_weights() -> None:  # noqa: N802
     assert sum(dec.weights.values()) <= 1.0 + 1e-9
 
 
+def test_overlay_should_cash_identity_never_locks() -> None:
+    from src.tournament.policy import house_money_should_cash, overlay_should_cash
+
+    assert overlay_should_cash("identity", 0.80, 1, 0.50, 5) is False
+    assert overlay_should_cash("raw", 0.80, 0, 0.50, 5) is False
+    assert overlay_should_cash("none", 0.80, 5, 0.50, 5) is False
+    assert overlay_should_cash("house_money", 0.80, 1, 0.50, 5) is True
+    assert overlay_should_cash("late_lock", 0.80, 5, 0.50, 5) is True
+    assert overlay_should_cash("house_money", 0.80, 20, 0.50, 5) is False
+    assert overlay_should_cash("unknown_mode", 0.80, 1, 0.50, 5) is False
+    assert overlay_should_cash("house_money", 0.80, 1, 0.50, 5) is house_money_should_cash(0.80, 1, 0.50, 5)
+
+
 @pytest.mark.parametrize("scenario_id", ["SCENARIO-08-11", "SCENARIO-08-12", "SCENARIO-09-08"])
 def test_SCENARIO_hyphen_wrapper(scenario_id: str) -> None:  # noqa: N802
     if scenario_id == "SCENARIO-08-11":
