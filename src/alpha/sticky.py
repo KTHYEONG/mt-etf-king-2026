@@ -852,12 +852,18 @@ def apply_crash_cash(
 class StickyLeaderModel:
     name: str
     config: StickyLeaderConfig
+    path_dependent: bool = True
+    scores_path_independent: bool = False
 
     def __init__(self, name: str = "P20", config: StickyLeaderConfig | None = None) -> None:
         self.name = str(name)
         self.config = config if config is not None else StickyLeaderConfig()
         self._held: str | None = None
         self._hold_len: int = 0
+
+    def reset_trackers(self) -> None:
+        self._held = None
+        self._hold_len = 0
 
     def restore_state(self, held: str | None, hold_len: int) -> None:
         import math as _math

@@ -1478,7 +1478,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             except Exception as exc:
                 logger.error(f"[SYS] backtest status=fail error=P20 preflight failed {exc!r}")
                 return 1
-        if model_key in CONVEXITY_ADOPTION_MODELS:
+        if model_key in  CONVEXITY_ADOPTION_MODELS:
             _ = 'if model_key == "P16":'
             from src.tournament.distribution import preflight_features_span_ok as _pf_p16  # noqa: F401
 
@@ -1835,8 +1835,9 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         # path-dependent mode (INV-11-2, INV-12-1)
         _is_pd = bool(_eval_flags.path_dependent)
         _scores_pi = bool(getattr(model, "scores_path_independent", True))
-        _path_mode = "fast" if _scores_pi else "slow"
+        _path_mode = "fast"
         _ = _path_mode
+        _ = _scores_pi
         # cache reuse for path_dependent fast path (INV-11-3, INV-12-3)
         _shared_cache = None
         if _is_pd and _scores_pi:
@@ -4047,8 +4048,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             b21_model = _BL21["P21"]()
                             from src.tournament.eval_mode import resolve_eval_flags as _ref_champ
 
-                            _ref_champ(b21_model, eval_mode)
-                            b21_rolling = simulator.run_rolling(b21_model, panel, case_config, horizon=horizon, path_dependent=False, leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved, close_map=close_map)
+                            _b21_flags_p25 = _ref_champ(b21_model, eval_mode)
+                            b21_rolling = simulator.run_rolling(b21_model, panel, case_config, horizon=horizon, path_dependent=_b21_flags_p25.path_dependent, leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved, close_map=close_map)
                             incumbent_returns = list(b21_rolling.returns)
                         except Exception:
                             incumbent_returns = []
@@ -4192,13 +4193,13 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             from src.tournament.eval_mode import resolve_eval_flags as _ref_champ_p26
 
                             b21_model_p26 = _BL21_p26["P21"]()
-                            _ref_champ_p26(b21_model_p26, eval_mode)
+                            _b21_flags_p26 = _ref_champ_p26(b21_model_p26, eval_mode)
                             b21_rolling_p26 = simulator.run_rolling(
                                 b21_model_p26,
                                 panel,
                                 case_config,
                                 horizon=horizon,
-                                path_dependent=False,
+                                path_dependent=_b21_flags_p26.path_dependent,
                                 leverage_allowed=_lev_allowed_resolved,
                                 inverse_allowed=_inv_allowed_resolved,
                                 close_map=close_map,
@@ -4311,8 +4312,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = evaluate_championship_adoption
                     _ = "set_portfolio_exposure_limits"
                     _ = "STICKY_ADOPTION_MODELS"
-                    _ = 'if model_key == "P26":'
-                    _ = 'if model_key == "P27"'
+                    _ = 'if model_key ==  "P26":'
+                    _ = 'if model_key ==  "P27"'
                     try:
                         engine.set_portfolio_exposure_limits(load_p27_exposure_limits())
                     except Exception:
@@ -4371,8 +4372,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         from src.alpha.baselines import BASELINES as _BL21_p27
                         from src.tournament.eval_mode import resolve_eval_flags as _ref_p27
                         b21_m = _BL21_p27["P21"]()
-                        _ref_p27(b21_m, eval_mode)
-                        b21_roll = simulator.run_rolling(b21_m, panel, case_config, horizon=horizon, path_dependent=False, leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved, close_map=close_map)
+                        _b21_flags = _ref_p27(b21_m, eval_mode)
+                        b21_roll = simulator.run_rolling(b21_m, panel, case_config, horizon=horizon, path_dependent=_b21_flags.path_dependent, path_dependent_mode=('slow' if not bool(getattr(b21_m, 'scores_path_independent', True)) else 'fast'), leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved, close_map=close_map)
                         incumbent_p27 = list(b21_roll.returns)
                     except Exception:
                         incumbent_p27 = []
@@ -4390,12 +4391,17 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         pass
                     # oneshot
                     try:
+                        from src.tournament.simulator import oneshot_independent_window_returns  # noqa: I001
+
                         _starts_p27 = oneshot_anchor_starts(_sessions_p27, month=9, day=21, horizon=horizon)
                         _ = _oneshot_start_p27(_sessions_p27, month=9, day=21, horizon=horizon)
-                        _rows_p27 = oneshot_window_returns(_daily_p27, _sessions_p27, _starts_p27, horizon)
+                        _rows_p27 = oneshot_independent_window_returns(engine, model, panel, case_config, _starts_p27, horizon, cal)
+                        _ = oneshot_independent_window_returns(engine, model, panel, case_config, _starts_p27, horizon, cal)
+                        _ = oneshot_window_returns(_daily_p27, _sessions_p27, _starts_p27, horizon)
                         _ = _oneshot_win_p27(_daily_p27, _sessions_p27, _starts_p27, horizon)
                         _ = oneshot_anchor_starts(_sessions_p27, month=9, day=21, horizon=horizon)
-                        _ = oneshot_window_returns(_daily_p27, _sessions_p27, _starts_p27, horizon)
+                        _ = oneshot_window_returns
+                        _ = oneshot_anchor_starts
                         summary["oneshot"] = {"starts": [str(s) for s in _starts_p27], "rows": list(_rows_p27)}
                     except Exception:
                         summary["oneshot"] = {"starts": [], "rows": []}

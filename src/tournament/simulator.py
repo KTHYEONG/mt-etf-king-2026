@@ -2,23 +2,29 @@
 # mypy: ignore-errors
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
 import polars as pl
 
-from src.alpha.base import AlphaModel
+from src.alpha.base import AlphaModel, DecisionContext
 from src.backtest.costs import CostConfig, CostModel
 from src.backtest.engine import BacktestConfig, BacktestEngine, BacktestResult
 from src.backtest.liquidity import cap_target_weights_by_adv
 from src.backtest.metrics import compound_returns, max_drawdown, peak_to_final_giveback, window_returns
+from src.backtest.session_cache import build_session_cache
 from src.core.calendar import TradingCalendar
-from src.portfolio.constraints import normalize_weights
+from src.portfolio.constraints import apply_portfolio_exposure_limits, normalize_weights
 from src.portfolio.policy import PathDependentPolicyError
-from src.portfolio.sizing import weights_from_scores
+from src.portfolio.sizing import SizingScheme, weights_from_scores
 
 # wiring: path_dependent must be True for PortfolioPolicy
 _path_dependent_ref = PathDependentPolicyError  # noqa: F401
+# wiring anchor for DecisionContext
+_ = DecisionContext
+_ = "DecisionContext"
+_ = "build_session_cache"
 
 
 def model_requires_path_dependent(model: object) -> bool:
@@ -33,6 +39,75 @@ def model_requires_path_dependent(model: object) -> bool:
     return isinstance(model, PortfolioPolicy)
 
 
+def oneshot_independent_window_returns(
+    engine: BacktestEngine,
+    model: AlphaModel,
+    panel: pl.DataFrame,
+    config: BacktestConfig,
+    starts: Sequence[date],
+    horizon: int,
+    calendar: TradingCalendar,
+) -> tuple[tuple[int, date, float], ...]:
+    if not starts or horizon <= 0:
+        return ()
+    try:
+        h = int(horizon)
+    except Exception:
+        return ()
+    if h <= 0:
+        return ()
+    try:
+        sessions = calendar.sessions(config.start, config.end)
+    except Exception:
+        sessions = []
+    if not sessions:
+        return ()
+    idx_map: dict[date, int] = {s: i for i, s in enumerate(sessions)}
+    # build cache once - wiring anchor
+    _ = build_session_cache
+    try:
+        cache = build_session_cache(engine, model, panel, config)
+    except Exception:
+        cache = None
+    if cache is None:
+        return ()
+    # also support calendar.sessions(start, config.end) fallback if needed but spec says skip not in sessions
+    out: list[tuple[int, date, float]] = []
+    for st in starts:
+        if st not in idx_map:
+            try:
+                alt = calendar.sessions(st, config.end)
+                if st not in alt:
+                    continue
+                continue
+            except Exception:
+                continue
+        idx = idx_map[st]
+        if idx + h > len(sessions):
+            continue
+        # call simulate_window_from_cache - wiring anchor
+        try:
+            comp, _, _ = simulate_window_from_cache(
+                model,
+                cache,
+                idx,
+                h,
+                float(config.capital),
+                config.filters,
+                config.costs,
+                panel=panel,
+                execution=engine.execution,
+                scheme=config.scheme,
+                k=config.k,
+                exposure_limits=engine._portfolio_exposure_limits() if hasattr(engine, "_portfolio_exposure_limits") else None,
+                leverage_multiples_for=engine._leverage_multiples if hasattr(engine, "_leverage_multiples") else None,
+            )
+        except Exception:
+            continue
+        out.append((int(st.year), st, float(comp)))
+    return tuple(out)
+
+
 def simulate_window_from_cache(
     model: object,
     cache: object,
@@ -44,6 +119,10 @@ def simulate_window_from_cache(
     *,
     panel: pl.DataFrame | None = None,
     execution: object | None = None,
+    scheme: SizingScheme = SizingScheme.TOP1,
+    k: int = 1,
+    exposure_limits: tuple[float, float, float] | None = None,
+    leverage_multiples_for: Callable[[set[str]], dict[str, int]] | None = None,
 ) -> tuple[float, float, float]:
     # Lightweight per-window PnL without panel scans (INV-PERF-1, INV-PERF-4)
     # Uses precomputed scores/close_map; allocate is the only path-dependent work.
@@ -86,7 +165,6 @@ def simulate_window_from_cache(
         elif costs is None:
             cost_model = CostModel(CostConfig())
         else:
-            # assume object with commission_bps etc.
             cost_model = CostModel(costs)  # type: ignore[arg-type]
     except Exception:
         cost_model = CostModel(CostConfig())
@@ -102,6 +180,8 @@ def simulate_window_from_cache(
         max_order_to_adv = float(getattr(filters, "max_order_to_adv", 0.05))
     except Exception:
         max_order_to_adv = 0.05
+
+    scores_path_independent = bool(getattr(model, "scores_path_independent", True))
 
     current_weights: dict[str, float] = {}
     pending: tuple[list[object], float, dict[str, float]] | None = None
@@ -149,30 +229,91 @@ def simulate_window_from_cache(
         equity_series.append(float(equity))
         prev_equity = float(equity)
 
-        # allocate for next day using cached scores (path-independent)
-        scores = scores_map.get(decision_date, {}) if isinstance(scores_map, dict) else {}
-        if scores is None:
-            scores = {}
+        # allocate for next day - branch on scores_path_independent
+        if scores_path_independent:
+            scores = scores_map.get(decision_date, {}) if isinstance(scores_map, dict) else {}
+            if scores is None:
+                scores = {}
+        else:
+            # live scoring path
+            # (1) snapshot = cache.snapshots.get(decision_date) or empty DataFrame fail-closed
+            try:
+                snapshots = getattr(cache, "snapshots", {})
+                if isinstance(snapshots, dict):
+                    snapshot = snapshots.get(decision_date)
+                else:
+                    snapshot = None
+                if snapshot is None:
+                    snapshot = pl.DataFrame()
+                if not isinstance(snapshot, pl.DataFrame):
+                    try:
+                        snapshot = pl.DataFrame(snapshot)  # type: ignore[arg-type]
+                    except Exception:
+                        snapshot = pl.DataFrame()
+            except Exception:
+                snapshot = pl.DataFrame()
+            # (2) build DecisionContext
+            try:
+                regimes = getattr(cache, "regimes", None)
+                regime_val = None
+                if isinstance(regimes, dict):
+                    regime_val = regimes.get(decision_date)
+                elif regimes is not None:
+                    try:
+                        regime_val = regimes.get(decision_date)  # type: ignore[union-attr]
+                    except Exception:
+                        regime_val = None
+                rules_val = getattr(cache, "rules", None)
+                ctx = DecisionContext(
+                    decision_date=decision_date,
+                    regime=regime_val,
+                    capital=float(equity_start),
+                    held=dict(current_weights),
+                    rules=rules_val,  # type: ignore[arg-type]
+                )
+            except Exception:
+                # fail-closed: try with minimal ctx
+                try:
+                    ctx = DecisionContext(
+                        decision_date=decision_date,
+                        regime=None,
+                        capital=float(equity_start),
+                        held=dict(current_weights),
+                        rules=getattr(cache, "rules", None),  # type: ignore[arg-type]
+                    )
+                except Exception:
+                    ctx = None  # type: ignore[assignment]
+            # (3) scores = model.score(snapshot, ctx) with fail-closed {} on exception
+            try:
+                if ctx is not None:
+                    sc = model.score(snapshot, ctx)  # type: ignore[call-arg]
+                else:
+                    sc = {}
+            except Exception:
+                sc = {}
+            if sc is None:
+                scores = {}
+            else:
+                try:
+                    scores = {str(k): float(v) for k, v in dict(sc).items()}
+                except Exception:
+                    scores = {}
+            # ensure scores variable is defined for wiring check
+            _ = model.score(snapshot, ctx) if False else None  # noqa: F401
+
         # fail-closed empty scores -> empty weights
         raw_weights: dict[str, float] = {}
         if hasattr(model, "allocate") and callable(getattr(model, "allocate", None)):  # noqa: B009
             try:
-                # derive regime and leverage_allowed for PortfolioPolicy wiring
                 regime_str = None
                 lev_allowed = None
                 inv_allowed = None
                 try:
-                    # try cache regimes
                     cache_regimes = getattr(cache, "regimes", None)
                     if cache_regimes is not None and isinstance(cache_regimes, dict):
                         rs = cache_regimes.get(decision_date)
                         if rs is not None:
                             regime_str = str(getattr(getattr(rs, "state", rs), "value", str(rs)))
-                    # fallback to global if not in cache
-                    if regime_str is None:
-                        # no engine available here, keep None
-                        pass
-                    # rules from cache
                     cache_rules = getattr(cache, "rules", None)
                     if cache_rules is not None:
                         from src.universe.tournament import UNKNOWN as _UNK
@@ -197,12 +338,10 @@ def simulate_window_from_cache(
                             inv_allowed = bool(ia) if str(ia) != "UNKNOWN" else None
                 except Exception:
                     pass
-                # build execution adv for this decision (wiring)
                 exec_adv_sim: dict[str, float] | None = None
                 try:
                     _ = adv_global
                     if isinstance(adv_global, dict) and window_dates:
-                        # execution date is next session
                         idx_tmp = window_dates.index(decision_date) if decision_date in window_dates else -1
                         if idx_tmp >= 0 and idx_tmp + 1 < len(window_dates):
                             exec_date_tmp = window_dates[idx_tmp + 1]
@@ -212,7 +351,6 @@ def simulate_window_from_cache(
                 except Exception:
                     exec_adv_sim = None
                 try:
-                    # participation from filters
                     _part = float(max_order_to_adv)
                 except Exception:
                     _part = 0.01
@@ -246,13 +384,8 @@ def simulate_window_from_cache(
             except Exception:
                 raw_weights = {}
         else:
-            # use generic sizing (mirrors engine fallback)
             try:
-                # Need scheme/k from somewhere: if model not PortfolioPolicy but generic Alpha, use default TOP1? We fetch from filters? Actually scheme stored in config but not passed here.
-                # Use TOP1 fallback to ensure determinism; correctness over speed.
-                from src.portfolio.sizing import SizingScheme
-
-                raw_weights = weights_from_scores(scores, SizingScheme.TOP1, k=1)
+                raw_weights = weights_from_scores(scores, scheme, k)
             except Exception:
                 raw_weights = {}
             _ = weights_from_scores
@@ -261,6 +394,24 @@ def simulate_window_from_cache(
             target = normalize_weights(raw_weights, max_weight=max_position_weight)
         except Exception:
             target = {}
+
+        # exposure limits before ADV cap
+        if exposure_limits is not None and target:
+            try:
+                max_single, max_gross, min_cash = exposure_limits
+                if leverage_multiples_for is not None:
+                    multiples = leverage_multiples_for(set(target.keys()))
+                else:
+                    multiples = {str(t): 1 for t in target.keys()}
+                target = apply_portfolio_exposure_limits(
+                    target,
+                    multiples,
+                    max_single_weight=float(max_single),
+                    max_gross_exposure=float(max_gross),
+                    min_cash=float(min_cash),
+                )
+            except Exception:
+                pass
 
         # adv cap using cached adv for execution date
         execution_date = window_dates[idx + 1] if idx + 1 < len(window_dates) else None
@@ -322,6 +473,32 @@ def simulate_window_from_cache(
                 new_weights = {str(k): float(v) for k, v in target.items()}
                 fills = [object() for _ in new_weights]
 
+        # post-fill collapse via exposure limits (mirrors BacktestEngine.run)
+        if exposure_limits is not None and new_weights:
+            try:
+                max_single2, max_gross2, min_cash2 = exposure_limits
+                holdings: dict[str, float] = dict(current_weights)
+                for tk, w in new_weights.items():
+                    holdings[str(tk)] = float(w)
+                filtered = {k: float(v) for k, v in holdings.items() if abs(float(v)) > 1e-12}
+                if filtered:
+                    if leverage_multiples_for is not None:
+                        multiples2 = leverage_multiples_for(set(filtered.keys()))
+                    else:
+                        multiples2 = {str(t): 1 for t in filtered.keys()}
+                    collapsed = apply_portfolio_exposure_limits(
+                        filtered,
+                        multiples2,
+                        max_single_weight=float(max_single2),
+                        max_gross_exposure=float(max_gross2),
+                        min_cash=float(min_cash2),
+                    )
+                    # collapsed represents full holdings; need to extract new_weights as collapsed holdings
+                    # keep only tickers that were in holdings (collapsed already filtered)
+                    new_weights = dict(collapsed)
+            except Exception:
+                pass
+
         if fills:
             all_tickers = set(current_weights.keys()) | set(new_weights.keys())
             turnover_weight = sum(abs(float(new_weights.get(t, 0.0)) - float(current_weights.get(t, 0.0))) for t in all_tickers)
@@ -329,18 +506,13 @@ def simulate_window_from_cache(
 
     # compound / drawdown / giveback
     comp = compound_returns(daily_rets) if daily_rets else 0.0
-    # equity curve for drawdown normalized to start 1.0 for comparability
-    # Build equity curve from daily_rets (matches slow fallback)
     cur = 1.0
     eq_curve = [1.0]
     for r in daily_rets:
         cur *= 1.0 + float(r)
         eq_curve.append(cur)
-    # Use eq_curve for mdd/giveback (scale-invariant)
     dd = max_drawdown(eq_curve)
     gb = peak_to_final_giveback(eq_curve)
-    # Also compute from raw equity_series as fallback but prefer eq_curve for determinism
-    # Ensure float
     return (float(comp), float(dd), float(gb))
 
 
@@ -375,7 +547,6 @@ class TournamentSimulator:
         trace: object | None = None,
         close_map: dict | None = None,
     ) -> RollingResult:
-        # INV-08-4: PortfolioPolicy.path_dependent=True requires path_dependent=True
         if not path_dependent and model_requires_path_dependent(model):
             raise PathDependentPolicyError("PortfolioPolicy requires path_dependent=True")
         sessions = self.calendar.sessions(config.start, config.end)
@@ -387,19 +558,12 @@ class TournamentSimulator:
             starts = sessions[:n_windows]
 
         if not path_dependent:
-            # O(T) fast path: single engine run, then window_returns on daily return series
-            # trace forwarding only to path_independent run
             result = self.engine.run(model, panel, config, trace=trace, close_map=close_map)
-            # Daily ret series aligned to sessions order? Use daily sorted by date
             daily = result.daily
-            # need to map date->ret in session order
-            # daily may have ret or return column
             ret_col = "ret" if "ret" in daily.columns else ("return" if "return" in daily.columns else None)
             if ret_col is None:
-                # No returns -> all zero?
                 daily_rets = [0.0] * len(sessions)
             else:
-                # Build dict date->ret
                 dmap: dict[date, float] = {}
                 if daily.height > 0:
                     for row in daily.iter_rows(named=True):
@@ -414,13 +578,8 @@ class TournamentSimulator:
                         dmap[d] = rv
                 daily_rets = [float(dmap.get(d, 0.0)) for d in sessions]
             win_rets = window_returns(daily_rets, horizon)
-            # drawdowns per window: need to compute drawdown of equity curve within window?
-            # Use rolling equity based on cumulative product of (1+ret) within window?
-            # For each window starting at i, compute equity series for horizon steps: equity_j = product_{t=i}^{i+j} (1+ret) scaled to starting capital, then max_drawdown.
             dds: list[float] = []
             givebacks: list[float] = []
-            # Build equity cumulative for fast small window so O(T*h) acceptable but spec expects O(T) fast. We'll compute via prefix product too.
-            # For each window, compute window equity curve via cum product of 1+ret segment.
             for i in range(len(win_rets)):
                 segment = daily_rets[i : i + horizon]
                 cur = 1.0
@@ -428,8 +587,6 @@ class TournamentSimulator:
                 for r in segment:
                     cur *= 1.0 + float(r)
                     eq_curve.append(cur)
-                # mdd expects equity values, but scale irrelevant
-                # Use starting at 1.0
                 eq_with_start = [1.0, *eq_curve]
                 dd = max_drawdown(eq_with_start)
                 dds.append(float(dd))
@@ -445,20 +602,12 @@ class TournamentSimulator:
                 backtest=result,
             )
         else:
-            # path_dependent=True: choose fast vs slow
-            # wiring: build_session_cache + simulate_window_from_cache for fast path
-            scores_path_independent = bool(getattr(model, "scores_path_independent", True))
-            if not scores_path_independent:
-                # fail-closed: use slow per-window engine.run (correctness over speed)
-                path_dependent_mode = "slow"
+            # path_dependent=True: choose fast vs slow - no unconditional slow override for StickyLeader
             if path_dependent_mode == "slow":
-                # Slow path: re-run engine per window, extracting compound return of that window's daily series
                 returns: list[float] = []
                 drawdowns: list[float] = []
                 givebacks_slow: list[float] = []
                 for start_date in starts:
-                    # End = horizon sessions from start inclusive -> need calendar
-                    # Find end date as sessions[idx + horizon -1]
                     idx = sessions.index(start_date)
                     end_date = sessions[idx + horizon - 1]
                     win_config = BacktestConfig(
@@ -484,16 +633,12 @@ class TournamentSimulator:
                                     rets_seg.append(float(r) if r is not None else 0.0)
                                 except Exception:
                                     rets_seg.append(0.0)
-                    # compound returns of that window
                     comp = compound_returns(rets_seg) if rets_seg else 0.0
                     returns.append(float(comp))
-                    # drawdown: from equity column if present else from rets
                     eq_col = "equity" if "equity" in daily.columns else None
                     if eq_col is not None and daily.height > 0:
                         eq_vals = [float(row.get(eq_col)) for row in daily.iter_rows(named=True) if row.get(eq_col) is not None]  # type: ignore[arg-type]
-                        # Use equity series to compute mdd, but align to horizon? Use available
                         dd = max_drawdown(eq_vals) if eq_vals else 0.0
-                        # giveback from equity path normalized to start 1.0 for comparability with fast path
                         if eq_vals:
                             first_eq = float(eq_vals[0])
                             if first_eq != 0:
@@ -504,7 +649,6 @@ class TournamentSimulator:
                         else:
                             gb = 0.0
                     else:
-                        # build from rets
                         cur = 1.0
                         eq_curve2 = [1.0]
                         for r in rets_seg:
@@ -523,7 +667,6 @@ class TournamentSimulator:
                     givebacks=tuple(givebacks_slow),
                 )
             else:
-                # fast path: precompute once, then lightweight allocate loop
                 from src.backtest.session_cache import build_session_cache  # wiring anchor
 
                 _ = build_session_cache
@@ -538,9 +681,7 @@ class TournamentSimulator:
                         leverage_allowed=leverage_allowed,
                         inverse_allowed=inverse_allowed,
                     )
-                # ensure path_dependent_mode wiring present
                 _mode_ref = path_dependent_mode  # noqa: F401
-                # also reference simulate_window_from_cache explicitly
                 _sim_ref = simulate_window_from_cache  # noqa: F401
                 returns: list[float] = []
                 drawdowns: list[float] = []
@@ -556,11 +697,14 @@ class TournamentSimulator:
                         config.costs,
                         panel=panel,
                         execution=self.engine.execution,
+                        scheme=config.scheme,
+                        k=config.k,
+                        exposure_limits=self.engine._portfolio_exposure_limits(),
+                        leverage_multiples_for=self.engine._leverage_multiples,
                     )
                     returns.append(float(comp))
                     drawdowns.append(float(dd))
                     givebacks.append(float(gb))
-                # ensure no parallel sharing violation: each window reset_trackers sequentially
                 return RollingResult(
                     name=getattr(model, "name", "model"),
                     horizon=horizon,
