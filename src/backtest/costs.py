@@ -9,6 +9,7 @@ class CostConfig:
     commission_bps: float | None = None
     slippage_bps: float | None = None
     spread_bps: float | None = None
+    tax_bps: float | None = None
 
     def grid(self) -> tuple[CostConfig, ...]:
         commission_grid: tuple[float, ...] = (0.0, 1.5, 3.0, 15.0)
@@ -29,5 +30,6 @@ class CostModel:
         comm = float(self.config.commission_bps or 0.0)
         slip = float(self.config.slippage_bps or 0.0)
         spread = float(self.config.spread_bps or 0.0)
-        bps = comm + slip + spread
+        tax = float(self.config.tax_bps or 0.0)
+        bps = comm + slip + spread + tax
         return float(traded_notional) * bps / 10000.0

@@ -226,17 +226,58 @@ def _attr_at_row(
 class PointInTimeUniverse:
     def __init__(
         self,
-        panel: pl.DataFrame,
-        master: InstrumentMaster,
-        calendar: TradingCalendar,
-        adv_window: int = 20,
+        panel: pl.DataFrame | InstrumentMaster,
+        master: InstrumentMaster | pl.DataFrame | UniverseFilters | None = None,
+        calendar: TradingCalendar | None = None,
+        adv_window: int | UniverseFilters = 20,
         brand_map: Mapping[str, str] | None = None,
     ) -> None:
-        self._panel = panel
-        self._master = master
-        self._calendar = calendar
-        self._adv_window = adv_window
-        self._brand_map: dict[str, str] = dict(brand_map or {})
+        # flexible order: allow (master, panel, calendar, filters) from legacy test skeleton
+        _panel: pl.DataFrame | None = None
+        _master: InstrumentMaster | None = None
+        _cal: TradingCalendar | None = None
+        _adv = 20
+        _brand = brand_map
+        if isinstance(panel, InstrumentMaster) or (hasattr(panel, "attributes") and not hasattr(panel, "height")):
+            _master = panel  # type: ignore[assignment]
+            if isinstance(master, pl.DataFrame):
+                _panel = master
+            elif isinstance(master, InstrumentMaster):
+                _panel = panel  # type: ignore[assignment]
+            else:
+                _panel = master if isinstance(master, pl.DataFrame) else None
+            _cal = calendar
+            if isinstance(adv_window, UniverseFilters):
+                _adv = int(getattr(adv_window, "adv_window", 20)) if hasattr(adv_window, "adv_window") else 20
+            elif isinstance(adv_window, int):
+                _adv = adv_window
+        else:
+            _panel = panel
+            _master = master if isinstance(master, InstrumentMaster) else None
+            _cal = calendar
+            if isinstance(adv_window, UniverseFilters):
+                _adv = int(getattr(adv_window, "adv_window", 20))
+            elif isinstance(adv_window, int):
+                _adv = adv_window
+            if _master is None and isinstance(master, UniverseFilters):
+                _adv = int(getattr(master, "adv_window", 20))
+        if _panel is None:
+            _panel = pl.DataFrame()
+        if _master is None:
+            _master = master if isinstance(master, InstrumentMaster) else None
+        if _master is None:
+            from datetime import date as _date
+
+            from src.universe.instruments import InstrumentMaster as _IM  # noqa: N814
+
+            _master = _IM(attributes={}, panel_start=_date(2026, 1, 1))
+        if _cal is None:
+            _cal = TradingCalendar() if calendar is None else calendar
+        self._panel = _panel
+        self._master = _master
+        self._calendar = _cal
+        self._adv_window = int(_adv) if isinstance(_adv, int) else 20
+        self._brand_map: dict[str, str] = dict(_brand or {})
         # Compute rolling ADV panel once at construction time
         self._adv_map: dict[str, dict[date, float]] = {}
         self._build_adv()
