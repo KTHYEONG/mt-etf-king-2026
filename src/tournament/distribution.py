@@ -1074,6 +1074,18 @@ def oneshot_window_returns(
     return tuple(res)
 
 
+def serialize_oneshot_rows(rows: Sequence[tuple[int, date, float]]) -> list[list[object]]:
+    """JSON-safe oneshot rows: [[year, \"YYYY-MM-DD\", return], ...]."""
+    out: list[list[object]] = []
+    for row in rows:
+        try:
+            year, start, ret = row
+            out.append([int(year), start.isoformat(), float(ret)])
+        except Exception:
+            continue
+    return out
+
+
 def evaluate_p24_adoption_gates(
     p_gt_30: float,
     b1_p_gt_30: float,
