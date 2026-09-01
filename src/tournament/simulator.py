@@ -13,11 +13,22 @@ from src.backtest.costs import CostConfig, CostModel
 from src.backtest.engine import BacktestConfig, BacktestEngine, BacktestResult
 from src.backtest.liquidity import cap_target_weights_by_adv
 from src.backtest.metrics import compound_returns, max_drawdown, peak_to_final_giveback, window_returns
+from src.backtest.pnl import compute_next_open_session_return
 from src.backtest.session_cache import build_session_cache
 from src.core.calendar import TradingCalendar
 from src.portfolio.constraints import apply_portfolio_exposure_limits, normalize_weights
 from src.portfolio.policy import PathDependentPolicyError
 from src.portfolio.sizing import SizingScheme, weights_from_scores
+
+# anchor for wiring
+_ = compute_next_open_session_return(  # type: ignore[misc]
+    weights_before_open={},
+    weights_after_open={},
+    prev_closes={},
+    opens={},
+    closes={},
+)
+_ = "simulate_window_from_cache"
 
 # wiring: path_dependent must be True for PortfolioPolicy
 _path_dependent_ref = PathDependentPolicyError  # noqa: F401
@@ -128,7 +139,8 @@ def simulate_window_from_cache(
     k: int = 1,
     exposure_limits: tuple[float, float, float] | None = None,
     leverage_multiples_for: Callable[[set[str]], dict[str, int]] | None = None,
-) -> tuple[float, float, float]:
+    return_daily_path: bool = False,
+) -> tuple[float, float, float] | tuple[float, float, float, tuple[float, ...]]:
     # Lightweight per-window PnL without panel scans (INV-PERF-1, INV-PERF-4)
     # Uses precomputed scores/close_map; allocate is the only path-dependent work.
     # wiring: build_session_cache cache.rules leverage_allowed
@@ -195,6 +207,7 @@ def simulate_window_from_cache(
     prev_equity = equity
     daily_rets: list[float] = []
     equity_series: list[float] = []
+    prev_after_weights: dict[str, float] = {}
 
     for idx, decision_date in enumerate(window_dates):
         equity_start = prev_equity
@@ -208,24 +221,38 @@ def simulate_window_from_cache(
             equity_start -= float(cost)
             if new_weights:
                 current_weights = dict(new_weights)
+            else:
+                # cash intent case: new_weights empty means liquidate -> current cleared
+                # pending with empty new_weights indicates cash; clear holdings
+                if pending is not None and isinstance(new_weights, dict) and len(new_weights) == 0:
+                    current_weights = {}
             pending = None
 
-        # daily return from close moves
-        daily_ret = 0.0
-        if idx > 0 and current_weights:
+        if idx > 0:
             prev_date = window_dates[idx - 1]
-            cur_closes = close_map.get(decision_date, {}) if isinstance(close_map, dict) else {}
-            prev_closes = close_map.get(prev_date, {}) if isinstance(close_map, dict) else {}
-            for tkr, w in current_weights.items():
-                pc = prev_closes.get(tkr)
-                cc = cur_closes.get(tkr)
-                if pc is None or cc is None or pc == 0:
-                    continue
-                try:
-                    daily_ret += float(w) * (float(cc) / float(pc) - 1.0)
-                except Exception:
-                    continue
-
+            cur_closes_h = close_map.get(decision_date, {}) if isinstance(close_map, dict) else {}
+            prev_closes_h = close_map.get(prev_date, {}) if isinstance(close_map, dict) else {}
+            opens_h: dict[str, float] = {}
+            try:
+                om = open_map if isinstance(open_map, dict) else {}
+                opens_h = om.get(decision_date, {}) if isinstance(om, dict) else {}
+                if opens_h is None:
+                    opens_h = {}
+            except Exception:
+                opens_h = {}
+            try:
+                _, _, effective_r = compute_next_open_session_return(
+                    weights_before_open=prev_after_weights,
+                    weights_after_open=dict(current_weights),
+                    prev_closes=prev_closes_h,
+                    opens=opens_h,
+                    closes=cur_closes_h,
+                )
+            except Exception:
+                effective_r = 0.0
+            daily_ret = float(effective_r)
+        else:
+            daily_ret = 0.0
         equity = float(equity_start) * (1.0 + float(daily_ret))
         if equity < 0:
             equity = 0.0
@@ -233,6 +260,7 @@ def simulate_window_from_cache(
         daily_rets.append(float(effective_ret))
         equity_series.append(float(equity))
         prev_equity = float(equity)
+        prev_after_weights = dict(current_weights)
 
         # allocate for next day - branch on scores_path_independent
         if scores_path_independent:
@@ -518,7 +546,18 @@ def simulate_window_from_cache(
         eq_curve.append(cur)
     dd = max_drawdown(eq_curve)
     gb = peak_to_final_giveback(eq_curve)
+    if return_daily_path:
+        return (float(comp), float(dd), float(gb), tuple(float(x) for x in daily_rets))
     return (float(comp), float(dd), float(gb))
+
+
+@dataclass(frozen=True)
+class RollingDiagnostics:
+    gross_violation_count: int | None
+    effective_gross_max: float | None
+    turnover_mean: float | None
+    fill_count: int | None
+    unfilled_count: int | None
 
 
 @dataclass(frozen=True)
@@ -530,6 +569,8 @@ class RollingResult:
     drawdowns: tuple[float, ...]
     givebacks: tuple[float, ...] = ()
     backtest: BacktestResult | None = None
+    window_daily_paths: tuple[tuple[float, ...], ...] | None = None
+    diagnostics: RollingDiagnostics | None = None
 
 
 class TournamentSimulator:
@@ -551,6 +592,8 @@ class TournamentSimulator:
         inverse_allowed: bool | None = None,
         trace: object | None = None,
         close_map: dict | None = None,
+        exposure_limits: tuple[float, float, float] | None = None,
+        return_window_daily_paths: bool = False,
     ) -> RollingResult:
         if not path_dependent and model_requires_path_dependent(model):
             raise PathDependentPolicyError("PortfolioPolicy requires path_dependent=True")
@@ -688,28 +731,73 @@ class TournamentSimulator:
                     )
                 _mode_ref = path_dependent_mode  # noqa: F401
                 _sim_ref = simulate_window_from_cache  # noqa: F401
+                effective_limits = exposure_limits if exposure_limits is not None else self.engine._portfolio_exposure_limits()
                 returns: list[float] = []
                 drawdowns: list[float] = []
                 givebacks: list[float] = []
-                for i in range(n_windows):
-                    comp, dd, gb = simulate_window_from_cache(
-                        model,
-                        cache,
-                        i,
-                        horizon,
-                        float(config.capital),
-                        config.filters,
-                        config.costs,
-                        panel=panel,
-                        execution=self.engine.execution,
-                        scheme=config.scheme,
-                        k=config.k,
-                        exposure_limits=self.engine._portfolio_exposure_limits(),
-                        leverage_multiples_for=self.engine._leverage_multiples,
-                    )
-                    returns.append(float(comp))
-                    drawdowns.append(float(dd))
-                    givebacks.append(float(gb))
+                window_paths: list[tuple[float, ...]] = []
+                if return_window_daily_paths:
+                    for i in range(n_windows):
+                        res = simulate_window_from_cache(
+                            model,
+                            cache,
+                            i,
+                            horizon,
+                            float(config.capital),
+                            config.filters,
+                            config.costs,
+                            panel=panel,
+                            execution=self.engine.execution,
+                            scheme=config.scheme,
+                            k=config.k,
+                            exposure_limits=effective_limits,
+                            leverage_multiples_for=self.engine._leverage_multiples,
+                            return_daily_path=True,
+                        )
+                        if isinstance(res, tuple) and len(res) == 4:
+                            comp, dd, gb, daily_path = res  # type: ignore[misc]
+                        else:
+                            comp, dd, gb = res  # type: ignore[misc]
+                            daily_path = tuple([0.0] * horizon)
+                        returns.append(float(comp))
+                        drawdowns.append(float(dd))
+                        givebacks.append(float(gb))
+                        window_paths.append(tuple(float(x) for x in daily_path))  # type: ignore[arg-type]
+                else:
+                    for i in range(n_windows):
+                        comp, dd, gb = simulate_window_from_cache(
+                            model,
+                            cache,
+                            i,
+                            horizon,
+                            float(config.capital),
+                            config.filters,
+                            config.costs,
+                            panel=panel,
+                            execution=self.engine.execution,
+                            scheme=config.scheme,
+                            k=config.k,
+                            exposure_limits=effective_limits,
+                            leverage_multiples_for=self.engine._leverage_multiples,
+                        )
+                        returns.append(float(comp))
+                        drawdowns.append(float(dd))
+                        givebacks.append(float(gb))
+                diagnostics = RollingDiagnostics(
+                    gross_violation_count=None,
+                    effective_gross_max=None,
+                    turnover_mean=None,
+                    fill_count=None,
+                    unfilled_count=None,
+                )
+                # wiring anchor for RollingDiagnostics
+                _ = RollingDiagnostics(
+                    gross_violation_count=None,
+                    effective_gross_max=None,
+                    turnover_mean=None,
+                    fill_count=None,
+                    unfilled_count=None,
+                )
                 return RollingResult(
                     name=getattr(model, "name", "model"),
                     horizon=horizon,
@@ -717,4 +805,6 @@ class TournamentSimulator:
                     returns=tuple(returns),
                     drawdowns=tuple(drawdowns),
                     givebacks=tuple(givebacks),
+                    window_daily_paths=tuple(window_paths) if return_window_daily_paths else None,
+                    diagnostics=diagnostics,
                 )

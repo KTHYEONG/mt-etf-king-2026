@@ -808,7 +808,7 @@ def apply_impulse_switch(
 
 def apply_crash_cash(
     scores: Mapping[str, float], held: str | None, snapshot: pl.DataFrame, config: StickyLeaderConfig
-) -> dict[str, float]:
+) -> dict[str, float] | object:
     if not scores:
         return {}
     try:
@@ -845,7 +845,12 @@ def apply_crash_cash(
     if not math.isfinite(hf):
         return dict(scores)
     if hf < float(cd) - 1e-12:
-        return {}
+        try:
+            from src.portfolio.intent import CASH_INTENT
+
+            return CASH_INTENT
+        except Exception:
+            return {}
     return dict(scores)
 
 
