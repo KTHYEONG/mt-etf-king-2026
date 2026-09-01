@@ -182,6 +182,108 @@ def test_SCENARIO_08_10_path_dependent_error() -> None:  # noqa: N802
     res = sim.run_rolling(policy, panel, config, horizon=5, path_dependent=True)
     assert len(res.returns) > 0
 
+def test_run_rolling_independent_windows_match_fresh_engine() -> None:
+    from datetime import date
+
+    import polars as pl
+    import pytest
+
+    from src.backtest.costs import CostConfig
+    from src.backtest.engine import BacktestConfig
+    from src.backtest.metrics import compound_returns
+    from src.core.calendar import TradingCalendar
+    from src.portfolio.policy import PathDependentPolicyError
+    from src.portfolio.sizing import SizingScheme
+    from src.tournament.simulator import TournamentSimulator
+    from tests.unit.backtest.conftest import build_engine, panel_row
+
+    class _HoldSwitchModel:
+        name = "hold_switch"
+        path_dependent = True
+        scores_path_independent = False
+
+        def __init__(self) -> None:
+            self._held: str | None = None
+            self._hold_len: int = 0
+
+        def reset_trackers(self) -> None:
+            self._held = None
+            self._hold_len = 0
+
+        def score(self, snapshot: object, context: object) -> dict[str, float]:
+            tickers: list[str] = []
+            try:
+                if snapshot is not None and "ticker" in snapshot.columns:  # type: ignore[union-attr]
+                    tickers = [str(t) for t in snapshot.get_column("ticker").to_list()]  # type: ignore[union-attr]
+            except Exception:
+                tickers = []
+            uniq = sorted(set(tickers))
+            if not uniq:
+                return {}
+            first, last = uniq[0], uniq[-1]
+            if self._held is None or self._held not in uniq:
+                self._held = first
+                self._hold_len = 1
+                return {self._held: 1.0}
+            self._hold_len += 1
+            if self._hold_len >= 3 and last != first:
+                self._held = last
+                self._hold_len = 1
+            return {str(self._held): 1.0}
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 2, 10))
+    rows: list[dict[str, object]] = []
+    for i, d in enumerate(sessions):
+        rows.append(panel_row(day=d, ticker="069500", close=30000.0 + i * 50.0, mom_20=0.10, name="KODEX 200", theme="KOSPI"))
+        rows.append(panel_row(day=d, ticker="122630", close=20000.0 + i * 80.0, mom_20=0.20, name="KODEX 레버리지", theme="LEV"))
+    panel = pl.DataFrame(rows)
+    engine, cal2, filt = build_engine(panel, warmup_sessions=1)
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1_000_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+    horizon = 5
+    model = _HoldSwitchModel()
+    sim = TournamentSimulator(engine, cal2)
+    with pytest.raises(PathDependentPolicyError, match="path_dependent"):
+        sim.run_rolling(model, panel, config, horizon=horizon, path_dependent=False)
+    rolling = sim.run_rolling(
+        model,
+        panel,
+        config,
+        horizon=horizon,
+        path_dependent=True,
+        path_dependent_mode="slow",
+    )
+    assert len(rolling.starts) >= 8
+    assert len(rolling.returns) == len(rolling.starts)
+    for start, rolling_ret in zip(rolling.starts, rolling.returns, strict=True):
+        idx = sessions.index(start)
+        end_date = sessions[idx + horizon - 1]
+        win_config = BacktestConfig(
+            start=start,
+            end=end_date,
+            capital=config.capital,
+            scheme=config.scheme,
+            k=config.k,
+            filters=config.filters,
+            costs=config.costs,
+        )
+        fresh = _HoldSwitchModel()
+        res = engine.run(fresh, panel, win_config)
+        daily = res.daily
+        ret_col = "ret" if "ret" in daily.columns else "return"
+        rets = [float(row.get(ret_col) or 0.0) for row in daily.iter_rows(named=True)]
+        independent = compound_returns(rets) if rets else 0.0
+        assert abs(float(rolling_ret) - float(independent)) < 1e-10
+
+
 import pytest
 
 
@@ -189,3 +291,178 @@ import pytest
 def test_SCENARIO_hyphen_wrapper_sim(scenario_id: str) -> None:  # noqa: N802
     if scenario_id in ("SCENARIO-08-10", "SCENARIO-PERF-05"):
         test_SCENARIO_08_10_path_dependent_error()
+
+
+def test_simulate_window_live_scores_match_engine_slow() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.backtest.costs import CostConfig
+    from src.backtest.engine import BacktestConfig
+    from src.backtest.metrics import compound_returns
+    from src.backtest.session_cache import build_session_cache
+    from src.core.calendar import TradingCalendar
+    from src.portfolio.sizing import SizingScheme
+    from src.tournament.simulator import simulate_window_from_cache
+    from tests.unit.backtest.conftest import build_engine, panel_row
+
+    class _HoldSwitchModel:
+        name = "hold_switch"
+        path_dependent = True
+        scores_path_independent = False
+
+        def __init__(self) -> None:
+            self._held: str | None = None
+            self._hold_len: int = 0
+
+        def reset_trackers(self) -> None:
+            self._held = None
+            self._hold_len = 0
+
+        def score(self, snapshot: object, context: object) -> dict[str, float]:
+            tickers: list[str] = []
+            try:
+                if snapshot is not None and "ticker" in snapshot.columns:  # type: ignore[union-attr]
+                    tickers = [str(t) for t in snapshot.get_column("ticker").to_list()]  # type: ignore[union-attr]
+            except Exception:
+                tickers = []
+            uniq = sorted(set(tickers))
+            if not uniq:
+                return {}
+            first, last = uniq[0], uniq[-1]
+            if self._held is None or self._held not in uniq:
+                self._held = first
+                self._hold_len = 1
+                return {self._held: 1.0}
+            self._hold_len += 1
+            if self._hold_len >= 3 and last != first:
+                self._held = last
+                self._hold_len = 1
+            return {str(self._held): 1.0}
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 2, 28))
+    rows: list[dict[str, object]] = []
+    for i, d in enumerate(sessions):
+        rows.append(panel_row(day=d, ticker="069500", close=30000.0 + i * 50.0, mom_20=0.10, name="KODEX 200", theme="KOSPI"))
+        rows.append(panel_row(day=d, ticker="122630", close=20000.0 + i * 80.0, mom_20=0.20, name="KODEX 레버리지", theme="LEV"))
+    panel = pl.DataFrame(rows)
+    engine, cal2, filt = build_engine(panel, warmup_sessions=1)
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1_000_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+    horizon = 5
+    model = _HoldSwitchModel()
+    cache = build_session_cache(engine, model, panel, config)
+    for start_idx in (0, 7, 15):
+        start = sessions[start_idx]
+        end_date = sessions[start_idx + horizon - 1]
+        win_config = BacktestConfig(
+            start=start,
+            end=end_date,
+            capital=config.capital,
+            scheme=config.scheme,
+            k=config.k,
+            filters=config.filters,
+            costs=config.costs,
+        )
+        fresh = _HoldSwitchModel()
+        slow = engine.run(fresh, panel, win_config)
+        ret_col = "ret" if "ret" in slow.daily.columns else "return"
+        slow_rets = [float(row.get(ret_col) or 0.0) for row in slow.daily.iter_rows(named=True)]
+        slow_comp = compound_returns(slow_rets) if slow_rets else 0.0
+        fast_comp, _, _ = simulate_window_from_cache(
+            model,
+            cache,
+            start_idx,
+            horizon,
+            float(config.capital),
+            config.filters,
+            config.costs,
+            panel=panel,
+            execution=engine.execution,
+            scheme=config.scheme,
+            k=config.k,
+            exposure_limits=None,
+            leverage_multiples_for=engine._leverage_multiples,
+        )
+        assert abs(float(fast_comp) - float(slow_comp)) < 1e-10
+
+def test_run_rolling_sticky_live_fast_matches_slow() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.backtest.costs import CostConfig
+    from src.backtest.engine import BacktestConfig
+    from src.core.calendar import TradingCalendar
+    from src.portfolio.sizing import SizingScheme
+    from src.tournament.simulator import TournamentSimulator
+    from tests.unit.backtest.conftest import build_engine, panel_row
+
+    class _HoldSwitchModel:
+        name = "hold_switch"
+        path_dependent = True
+        scores_path_independent = False
+
+        def __init__(self) -> None:
+            self._held: str | None = None
+            self._hold_len: int = 0
+
+        def reset_trackers(self) -> None:
+            self._held = None
+            self._hold_len = 0
+
+        def score(self, snapshot: object, context: object) -> dict[str, float]:
+            tickers: list[str] = []
+            try:
+                if snapshot is not None and "ticker" in snapshot.columns:  # type: ignore[union-attr]
+                    tickers = [str(t) for t in snapshot.get_column("ticker").to_list()]  # type: ignore[union-attr]
+            except Exception:
+                tickers = []
+            uniq = sorted(set(tickers))
+            if not uniq:
+                return {}
+            first, last = uniq[0], uniq[-1]
+            if self._held is None or self._held not in uniq:
+                self._held = first
+                self._hold_len = 1
+                return {self._held: 1.0}
+            self._hold_len += 1
+            if self._hold_len >= 3 and last != first:
+                self._held = last
+                self._hold_len = 1
+            return {str(self._held): 1.0}
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 3, 15))
+    rows: list[dict[str, object]] = []
+    for i, d in enumerate(sessions):
+        rows.append(panel_row(day=d, ticker="069500", close=30000.0 + i * 50.0, mom_20=0.10, name="KODEX 200", theme="KOSPI"))
+        rows.append(panel_row(day=d, ticker="122630", close=20000.0 + i * 80.0, mom_20=0.20, name="KODEX 레버리지", theme="LEV"))
+    panel = pl.DataFrame(rows)
+    engine, cal2, filt = build_engine(panel, warmup_sessions=1)
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1_000_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+    model = _HoldSwitchModel()
+    sim = TournamentSimulator(engine, cal2)
+    slow = sim.run_rolling(model, panel, config, horizon=5, path_dependent=True, path_dependent_mode="slow")
+    fast = sim.run_rolling(model, panel, config, horizon=5, path_dependent=True, path_dependent_mode="fast")
+    assert len(fast.returns) == len(slow.returns) > 0
+    for a, b in zip(fast.returns, slow.returns, strict=True):
+        assert abs(float(a) - float(b)) < 1e-10
+

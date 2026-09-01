@@ -172,6 +172,29 @@ def test_run_rolling_leverage_propagation_single_protocol() -> None:
     assert captured[-1].get("inverse_allowed") is False
 
 
+def test_resolve_eval_flags_adoption_keeps_path_dependent_for_sticky() -> None:
+    from src.alpha.baselines import BASELINES
+    from src.portfolio.policy import PortfolioPolicy
+    from src.tournament.eval_mode import EvalMode, resolve_eval_flags
+    from src.tournament.simulator import model_requires_path_dependent
+
+    sticky = BASELINES["P27"]()
+    flags = resolve_eval_flags(sticky, EvalMode.ADOPTION)
+    assert flags.path_dependent is True
+    assert flags.state_enabled is False
+    assert sticky.path_dependent is True
+    assert sticky.scores_path_independent is False
+    assert model_requires_path_dependent(sticky) is True
+
+    policy = PortfolioPolicy()
+    policy.scores_path_independent = True
+    pflags = resolve_eval_flags(policy, EvalMode.ADOPTION)
+    assert pflags.path_dependent is False
+    assert pflags.state_enabled is False
+    assert policy.path_dependent is False
+    assert model_requires_path_dependent(policy) is False
+
+
 @pytest.mark.parametrize("scenario_id", ["test_resolve_eval_flags_adoption_disables_state", "test_resolve_eval_flags_operational_enables_state", "test_simulate_window_vehicle_rate_aggressive", "test_run_rolling_leverage_propagation_single_protocol"])
 def test_scenario_wrapper(scenario_id: str) -> None:
     if scenario_id == "test_resolve_eval_flags_adoption_disables_state":
