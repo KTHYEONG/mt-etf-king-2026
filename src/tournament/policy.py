@@ -115,6 +115,22 @@ def remaining_sessions(decision_date: date, end_date: date, calendar: object | N
         return 10**9
 
 
+def overlay_should_cash(mode: str, return_from_start: float, remaining: int, arm: float, lock_remaining: int) -> bool:
+    if not isinstance(mode, str):
+        return False
+    try:
+        norm = str(mode).strip().lower()
+    except Exception:
+        return False
+    if not norm:
+        return False
+    if norm in {"identity", "raw", "none", "off"}:
+        return False
+    if norm in {"house_money", "late_lock"}:
+        return bool(house_money_should_cash(return_from_start, remaining, arm, lock_remaining))
+    return False
+
+
 def peak_lock_active(capital: float, initial_capital: float, lock_level: float) -> bool:
     try:
         cap = float(capital)

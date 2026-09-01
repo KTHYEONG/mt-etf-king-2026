@@ -974,6 +974,106 @@ def evaluate_p25_adoption_gates(
     return ("FAIL", fails)
 
 
+def oneshot_anchor_starts(
+    sessions: Sequence[date], *, month: int = 9, day: int = 21, horizon: int = 36
+) -> tuple[date, ...]:
+    if not sessions or horizon <= 0:
+        return ()
+    try:
+        m = int(month)  # type: ignore[arg-type]
+        d = int(day)  # type: ignore[arg-type]
+        h = int(horizon)  # type: ignore[arg-type]
+    except Exception:
+        return ()
+    if m < 1 or m > 12 or d < 1 or d > 31 or h <= 0:
+        return ()
+    try:
+        _ = date(2000, m, d)
+    except Exception:
+        return ()
+    if not sessions:
+        return ()
+    try:
+        sess_list = sorted(set(sessions))  # type: ignore[arg-type]
+    except Exception:
+        return ()
+    if not sess_list:
+        return ()
+    idx_map = {s: i for i, s in enumerate(sess_list)}
+    years = sorted({s.year for s in sess_list})
+    out: list[date] = []
+    for yr in years:
+        try:
+            anchor = date(yr, m, d)
+        except Exception:
+            continue
+        candidate = None
+        for s in sess_list:
+            if s >= anchor and s.year == yr:
+                candidate = s
+                break
+            if s >= anchor and s.year > yr:
+                break
+        if candidate is None:
+            continue
+        idx = idx_map.get(candidate)
+        if idx is None:
+            continue
+        if idx + h <= len(sess_list):
+            out.append(candidate)
+    out = sorted(set(out))
+    return tuple(out)
+
+
+def oneshot_window_returns(
+    daily_rets: Sequence[float],
+    sessions: Sequence[date],
+    starts: Sequence[date],
+    horizon: int,
+) -> tuple[tuple[int, date, float], ...]:
+    if not daily_rets or not sessions or not starts or horizon <= 0:
+        return ()
+    try:
+        h = int(horizon)  # type: ignore[arg-type]
+    except Exception:
+        return ()
+    if h <= 0:
+        return ()
+    try:
+        if len(daily_rets) != len(sessions):  # type: ignore[arg-type]
+            return ()
+    except Exception:
+        return ()
+    try:
+        sess_list = list(sessions)  # type: ignore[arg-type]
+        daily_list = list(daily_rets)  # type: ignore[arg-type]
+        start_list = list(starts)  # type: ignore[arg-type]
+    except Exception:
+        return ()
+    if not sess_list or not daily_list or not start_list:
+        return ()
+    idx_map2 = {s: i for i, s in enumerate(sess_list)}
+    res: list[tuple[int, date, float]] = []
+    for st in start_list:
+        if st not in idx_map2:
+            continue
+        idx = idx_map2[st]
+        if idx + h > len(sess_list):
+            continue
+        equity = 1.0
+        for k in range(h):
+            try:
+                r = float(daily_list[idx + k])  # type: ignore[index]
+            except Exception:
+                r = 0.0
+            if not math.isfinite(r):
+                r = 0.0
+            equity *= 1.0 + r
+        ret = float(round(equity - 1.0, 12))
+        res.append((int(st.year), st, float(ret)))
+    return tuple(res)
+
+
 def evaluate_p24_adoption_gates(
     p_gt_30: float,
     b1_p_gt_30: float,
