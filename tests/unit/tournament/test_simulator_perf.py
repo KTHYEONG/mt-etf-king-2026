@@ -371,3 +371,9 @@ def test_SCENARIO_PERF_05_sticky_fast_zero_engine_runs() -> None:
     assert len(rolling.returns) > 0
     assert mock_engine.run.call_count == 0
 
+
+def test_fast_slow_parity_after_next_open_fix() -> None:
+    from tests.unit.tournament.test_simulator_perf import test_SCENARIO_PERF_01_fast_vs_slow_equivalence
+
+    test_SCENARIO_PERF_01_fast_vs_slow_equivalence()
+

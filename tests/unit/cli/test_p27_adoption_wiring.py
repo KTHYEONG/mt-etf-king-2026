@@ -78,6 +78,8 @@ def test_p27_cli_incumbent_no_slow_override() -> None:
     p27_src = bt[p27_idx:end_p27]
     assert "path_dependent_mode=('slow'" not in p27_src
     assert "path_dependent_mode=_path_mode" in p27_src or "resolve_path_dependent_mode" in p27_src
+    assert "exposure_limits=_p21_alpha_limits_p27" in p27_src
+    assert "resolve_exposure_limits_for_model" in p27_src
 
 
 def test_sticky_shared_session_cache_wiring() -> None:
