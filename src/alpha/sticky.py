@@ -394,6 +394,38 @@ def load_p26_lock_remaining(*, default: int = 5) -> int:
         return int(default)
 
 
+def load_p27_overlay_mode(*, default: str = "identity") -> str:
+    try:
+        from pathlib import Path
+
+        import yaml
+
+        fp = Path("configs/strategies.yaml")
+        if not fp.exists():
+            return str(default)
+        with open(fp, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        if not isinstance(raw, dict):
+            return str(default)
+        port = raw.get("portfolio")
+        if not isinstance(port, dict):
+            return str(default)
+        p27 = port.get("p27")
+        if not isinstance(p27, dict):
+            return str(default)
+        v = p27.get("overlay_mode")
+        if not isinstance(v, str) or not v.strip():
+            return str(default)
+        s = str(v).strip().lower()
+        if s in {"identity", "raw", "none", "off"}:
+            return "identity"
+        if s in {"house_money", "late_lock"}:
+            return "house_money"
+        return str(default)
+    except Exception:
+        return str(default)
+
+
 def load_p24_mom_col(*, default: str = "mom_60") -> str:
     try:
         from pathlib import Path
