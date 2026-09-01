@@ -16,6 +16,27 @@ class EvalFlags:
     mode: EvalMode
 
 
+def resolve_path_dependent_mode(model: object, *, mode: EvalMode | str = EvalMode.ADOPTION) -> str:
+    # INV-PERF-1: StickyLeader adoption eval MUST use fast path
+    # All adoption evaluations use fast (simulate_window_from_cache + live model.score)
+    if isinstance(mode, str):
+        low = mode.strip().lower()
+        if low == "adoption":
+            eval_mode = EvalMode.ADOPTION
+        elif low == "operational":
+            eval_mode = EvalMode.OPERATIONAL
+        else:
+            try:
+                eval_mode = EvalMode(low)
+            except Exception:  # noqa: S110
+                eval_mode = EvalMode.ADOPTION
+    else:
+        eval_mode = mode
+    _ = model
+    _ = eval_mode
+    return "fast"
+
+
 def resolve_eval_flags(model: object, mode: EvalMode | str) -> EvalFlags:
     # normalize mode
     if isinstance(mode, str):

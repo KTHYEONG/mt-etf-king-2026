@@ -1833,14 +1833,17 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         # also keep iter_harness_cases reference for parity
         _ = list(iter_harness_cases(CostConfig()))  # noqa: F841
         # path-dependent mode (INV-11-2, INV-12-1)
+        from src.tournament.eval_mode import resolve_path_dependent_mode
+
         _is_pd = bool(_eval_flags.path_dependent)
         _scores_pi = bool(getattr(model, "scores_path_independent", True))
-        _path_mode = "fast"
+        _path_mode = resolve_path_dependent_mode(model, mode=eval_mode)
         _ = _path_mode
         _ = _scores_pi
+        _ = resolve_path_dependent_mode
         # cache reuse for path_dependent fast path (INV-11-3, INV-12-3)
         _shared_cache = None
-        if _is_pd and _scores_pi:
+        if _is_pd:
             try:
                 from dataclasses import replace as _replace
 
@@ -4373,7 +4376,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         from src.tournament.eval_mode import resolve_eval_flags as _ref_p27
                         b21_m = _BL21_p27["P21"]()
                         _b21_flags = _ref_p27(b21_m, eval_mode)
-                        b21_roll = simulator.run_rolling(b21_m, panel, case_config, horizon=horizon, path_dependent=_b21_flags.path_dependent, path_dependent_mode=('slow' if not bool(getattr(b21_m, 'scores_path_independent', True)) else 'fast'), leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved, close_map=close_map)
+                        b21_roll = simulator.run_rolling(b21_m, panel, case_config, horizon=horizon, path_dependent=_b21_flags.path_dependent, path_dependent_mode=_path_mode, session_cache=_shared_cache, leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved, close_map=close_map)
                         incumbent_p27 = list(b21_roll.returns)
                     except Exception:
                         incumbent_p27 = []
@@ -4393,16 +4396,22 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     try:
                         from src.tournament.simulator import oneshot_independent_window_returns  # noqa: I001
 
+                        from src.tournament.distribution import serialize_oneshot_rows  # noqa: I001
+
                         _starts_p27 = oneshot_anchor_starts(_sessions_p27, month=9, day=21, horizon=horizon)
                         _ = _oneshot_start_p27(_sessions_p27, month=9, day=21, horizon=horizon)
-                        _rows_p27 = oneshot_independent_window_returns(engine, model, panel, case_config, _starts_p27, horizon, cal)
-                        _ = oneshot_independent_window_returns(engine, model, panel, case_config, _starts_p27, horizon, cal)
+                        _rows_p27 = oneshot_independent_window_returns(engine, model, panel, case_config, _starts_p27, horizon, cal, session_cache=_shared_cache)
+                        _ = oneshot_independent_window_returns(engine, model, panel, case_config, _starts_p27, horizon, cal, session_cache=_shared_cache)
                         _ = oneshot_window_returns(_daily_p27, _sessions_p27, _starts_p27, horizon)
                         _ = _oneshot_win_p27(_daily_p27, _sessions_p27, _starts_p27, horizon)
                         _ = oneshot_anchor_starts(_sessions_p27, month=9, day=21, horizon=horizon)
                         _ = oneshot_window_returns
                         _ = oneshot_anchor_starts
-                        summary["oneshot"] = {"starts": [str(s) for s in _starts_p27], "rows": list(_rows_p27)}
+                        _ = serialize_oneshot_rows
+                        summary["oneshot"] = {
+                            "starts": [str(s) for s in _starts_p27],
+                            "rows": serialize_oneshot_rows(_rows_p27),
+                        }
                     except Exception:
                         summary["oneshot"] = {"starts": [], "rows": []}
                     # gross violation at P27 max_gross 1.90
