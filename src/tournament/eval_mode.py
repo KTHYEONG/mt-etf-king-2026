@@ -33,6 +33,18 @@ def resolve_eval_flags(model: object, mode: EvalMode | str) -> EvalFlags:
         eval_mode = mode
     if eval_mode == EvalMode.ADOPTION:
         # INV-12-1: adoption eval MUST use path_dependent=False OR state_enabled=False
+        # Must inspect scores_path_independent BEFORE mutating path_dependent
+        scores_pi = getattr(model, "scores_path_independent", True)
+        if scores_pi is False:
+            try:  # noqa: SIM105
+                model.path_dependent = True  # type: ignore[attr-defined]
+            except Exception:  # noqa: S110
+                pass
+            try:  # noqa: SIM105
+                model.state_enabled = False  # type: ignore[attr-defined]
+            except Exception:  # noqa: S110
+                pass
+            return EvalFlags(path_dependent=True, state_enabled=False, mode=eval_mode)
         try:  # noqa: SIM105
             model.path_dependent = False  # type: ignore[attr-defined]
         except Exception:  # noqa: S110
