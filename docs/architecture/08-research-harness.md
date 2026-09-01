@@ -169,18 +169,22 @@ ci = stationary_bootstrap(
 
 ---
 
-## 7. Competitor Field (Monte Carlo)
+## 7. Competitor Field
 
-참가자 분포를 모르므로 **stress scenario** 로만 사용:
+참가자 CDF 는 미관측입니다. `CompetitorField.rank_interval` 은 **stress 구간**만 반환합니다. 스칼라 `win_probability` 를 의사결정 입력으로 쓰지 않습니다 (INV-08-7).
+
+식별 가능한 진단은 **같은 36일 window 의 구현된 rival 수익률**입니다.
 
 ```
-CompetitorField:
-  - N ~ Uniform(100, 500) participants
-  - R_comp ~ LogNormal(μ, σ) calibrated to 2025 anchor
-  - P(rank=1) = P(R > max(R_comp))
+field_relative_report(candidate, rivals) → win_rate, top2_rate, median_rank_percentile
+win = I(R_candidate > max_j R_rival_j)   # 동점은 패배
 ```
 
-점추정이 아닌 **민감도 분석** 용도. 의사결정의 primary input 아님.
+채택 게이트를 이 값으로 교체하지 않습니다. $n_{\text{effective}} \approx n/36$ 이라 1-0 win 지표의 CI 가 더 넓습니다.
+
+### 7.1 Annual one-shot (진단)
+
+Rolling 과 별도로, 매년 `date(Y,9,21)` 이후 **첫 세션에서 36일 1회**만 자릅니다 (2025-09-22 · 2026-09-21 정렬). 표본 ~8개라 게이트가 아닙니다.
 
 ---
 
@@ -216,6 +220,8 @@ rank 400 →     0        ← rank 3 과 동일한 보상
 | G3 | robustness grid 전 조합 PASS | 강건성 |
 | G4 | 2025 replay R > median anchor | **경고** (INV-23, 단독 기각 아님) |
 | G5 | structural + deployment 모두 양(+)의 median | 구조적 타당성 |
+| overlay vs raw | primary scenario CI lower bound $\ge 0$ vs raw | overlay 채택 불변식. 위반 시 identity/raw 가 live |
+| field win_rate | 구현 rival 대비 | 진단 (기각 사유 아님) |
 
 CVaR(5%) 와 MDD 분포는 **하드 게이트가 아니라 리포트 필수 진단 지표**로 유지합니다. 기각 사유는 못 되지만 항상 함께 보여줍니다.
 

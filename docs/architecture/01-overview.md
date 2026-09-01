@@ -14,11 +14,13 @@ Primary Objective: 8주 대회에서 전체 1위 / 2위 확률 극대화
 
 ## 2. 목적 함수
 
-참가자 분포를 모르므로 $P(\text{rank}=1)$ 을 직접 추정하지 않습니다. 대신 **구조적으로 등가인 대리 목적**을 사용합니다.
+경제적 목표는 $P(\text{rank}=1)$ 이지만, 참가자 분포 $F$ 와 $N$ 은 관측되지 않습니다. $F(r)^N$ 을 채택 목적함수로 쓰지 않습니다 (INV-08-7). 채택 게이트는 식별 가능한 대리량입니다.
 
 $$
-\text{maximize} \quad P(R_{36d} > R_{\text{competitors}})
+\text{adoption proxy:} \quad P(R_{36d} > \theta),\ \theta \in \{0.30,0.40,0.50,0.60\}
 $$
+
+같은 window 에서 구현된 rival 전략 대비 `win_rate` 는 **진단**이지 기각 게이트가 아닙니다. 합성 N-IID 필드·일별 Monte Carlo $P(\text{rank}=1)$ 은 유효 표본이 지탱하지 않습니다.
 
 상금을 고려하면:
 
@@ -170,8 +172,9 @@ ML 의 위치도 고정입니다. LightGBM Ranker 는 `AlphaModel` Protocol 을 
 | 10 | 언제 다시 진입해야 하는가? | Re-entry |
 | 11 | 같은 기초지수에서 배수(1x/2x/-1x/-2x)를 언제 바꿔야 하는가? | Exposure |
 | 12 | LightGBM Ranker 가 purged walk-forward 에서 rule baseline 을 이기는가? | ML |
+| 13 | identity overlay 가 house-money late-lock 보다 hot-field·raw 비하위에서 나은가? | Overlay |
 
-11번은 레버리지 허용을 전제로 새로 생긴 질문입니다. 12번은 **기각이 기본값**입니다 — ML 은 rule baseline 을 이기지 못하면 버립니다.
+11번은 레버리지 허용을 전제로 생긴 질문이며, **P27에서 inverse 를 알파에 섞지 않습니다** (별도 후보). 12번은 **기각이 기본값**입니다. 13번은 P26 championship FAIL(overlay < raw) 의 직접 후속입니다.
 
 ---
 

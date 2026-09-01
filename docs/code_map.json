@@ -201,6 +201,10 @@
     "testing": "tests/unit/tournament/test_policy.py"
   },
   "src/tournament/objective.py": {
-    "testing": "tests/unit/tournament/test_championship_objective.py"
+    "testing": [
+      "tests/unit/tournament/test_championship_objective.py",
+      "tests/unit/tournament/test_objective.py"
+    ],
+    "architecture": "docs/architecture/08-research-harness.md"
   }
 }

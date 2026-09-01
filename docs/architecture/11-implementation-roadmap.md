@@ -100,28 +100,26 @@ uv run python tools/agent_skills/lean_check.py --pre-impl docs/specs/01_core_spi
 
 ---
 
-## 4. 현재 상태 (2026-08-28)
+## 4. 현재 상태 (2026-09-01)
 
 | 항목 | 상태 |
 | --- | --- |
-| Spec 00~06 | ✅ **구현 완료** |
-| Spec 07_preflight | ✅ 구현 완료 (본 contract) |
-| Contract 07·08 | ⏳ blueprint-only (preflight 후 `/spec 07` 재실행) |
-| `src/` | ✅ 엔진·시뮬레이터·리플레이·지표 구현 |
-| KRX 실측 검증 | ✅ probe_*.py + 06 실데이터 baseline |
-| Silver 데이터 | 2024~ panel 확보 (06 결과) |
+| Spec 00~06 · P20–P26 | ✅ 구현. P26 alpha `mom_60` w95/gross 1.90 |
+| P26 championship | ❌ FAIL — overlay < raw (`hot_field`, primary CI). gross_viol=0 |
+| P26 숫자 | champ=0.064, P>50%=5.3%, ruin=4.5% — **우승확률 아님** |
+| Contract P27 | identity overlay + field/oneshot 진단 |
 
 ---
 
 ## 5. 다음 즉시 작업
 
 ```
-1. preflight PASS 후 B5 재측정 + giveback 열 추가
-2. /spec 07_leadership_engine (파라미터 분위수·ablation)
-3. /implement 07 (A-1 P(R>30%)>0.091)
-4. /spec 08_portfolio_tournament (giveback 보고 필수)
+1. /implement docs/specs/p27_identity_overlay_field_report_contract.json
+2. P27 live = P26 alpha + identity overlay (lock 제거). P26 경로는 보존
+3. field_relative_report · annual oneshot 을 진단으로 리포트 (게이트 교체 금지)
+4. inverse / rank-MC / nested WF 는 P27 PASS 후 별도 후보
 ```
-ML은 W3+preflight+07 A-1 이전 착수 금지.
+ML은 rule baseline 게이트 이전 착수 금지. P27 에서 새 알파를 넣지 않습니다.
 
 ---
 
