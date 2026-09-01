@@ -63,3 +63,29 @@ def test_p27_cli_independent_window_eval_wiring() -> None:
     assert "path_dependent=False" not in p27_src
     assert "path_dependent=_b21_flags_p26.path_dependent" in p26_src
     assert "path_dependent=_b21_flags_p25.path_dependent" in p25_src
+
+
+def test_p27_cli_incumbent_no_slow_override() -> None:
+    import inspect
+
+    from src.cli import cmd_backtest
+
+    bt = inspect.getsource(cmd_backtest)
+    end_p27 = bt.find("if model_key in CONVEXITY_ADOPTION_MODELS")
+    assert end_p27 > 0
+    p27_idx = bt.rfind('if model_key == "P27"', 0, end_p27)
+    assert p27_idx > 0
+    p27_src = bt[p27_idx:end_p27]
+    assert "path_dependent_mode=('slow'" not in p27_src
+    assert "path_dependent_mode=_path_mode" in p27_src or "resolve_path_dependent_mode" in p27_src
+
+
+def test_sticky_shared_session_cache_wiring() -> None:
+    import inspect
+
+    from src.cli import cmd_backtest
+
+    bt = inspect.getsource(cmd_backtest)
+    assert "if _is_pd and _scores_pi:" not in bt
+    assert "if _is_pd" in bt
+    assert "session_cache=_shared_cache" in bt
