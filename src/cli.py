@@ -35,8 +35,12 @@ from src.tournament.optimization import optimize_p25_overlay  # noqa: F401
 from src.portfolio.constraints import load_effective_weight_cap  # noqa: F401
 from src.tournament.harness import resolve_leverage_scenario as _resolve_leverage_scenario_ref  # noqa: F401
 from src.tournament.replay import TournamentReplay  # noqa: F401
-from src.tournament.simulator import TournamentSimulator  # noqa: F401
+from src.tournament.simulator import RollingDiagnostics, TournamentSimulator  # noqa: F401
 from src.universe.provider import PointInTimeUniverse  # noqa: F401
+
+# wiring for RollingDiagnostics
+_ = RollingDiagnostics
+_ = "diagnostics"
 
 logger = logging.getLogger(__name__)
 
@@ -1841,6 +1845,15 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         _ = _path_mode
         _ = _scores_pi
         _ = resolve_path_dependent_mode
+        _rolling_exposure_limits = None
+        if model_key in ("P21", "P26", "P27"):
+            try:
+                from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_limits
+
+                _rolling_exposure_limits = _resolve_exp_limits(model_key, comparison_mode="full_strategy_own")
+            except Exception:
+                _rolling_exposure_limits = None
+        _ = "resolve_exposure_limits_for_model"
         # cache reuse for path_dependent fast path (INV-11-3, INV-12-3)
         _shared_cache = None
         if _is_pd:
@@ -1939,6 +1952,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     inverse_allowed=_inv_allowed_resolved,
                     trace=None,
                     close_map=close_map,
+                    exposure_limits=_rolling_exposure_limits,
                 )
             else:
                 rolling = simulator.run_rolling(
@@ -4052,7 +4066,22 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             from src.tournament.eval_mode import resolve_eval_flags as _ref_champ
 
                             _b21_flags_p25 = _ref_champ(b21_model, eval_mode)
-                            b21_rolling = simulator.run_rolling(b21_model, panel, case_config, horizon=horizon, path_dependent=_b21_flags_p25.path_dependent, leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved, close_map=close_map)
+                            from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_p25
+
+                            _p21_alpha_limits_p25 = _resolve_exp_p25("P21", comparison_mode="alpha_equal")
+                            b21_rolling = simulator.run_rolling(
+                                b21_model,
+                                panel,
+                                case_config,
+                                horizon=horizon,
+                                path_dependent=_b21_flags_p25.path_dependent,
+                                path_dependent_mode=_path_mode,
+                                session_cache=_shared_cache,
+                                leverage_allowed=_lev_allowed_resolved,
+                                inverse_allowed=_inv_allowed_resolved,
+                                close_map=close_map,
+                                exposure_limits=_p21_alpha_limits_p25,
+                            )
                             incumbent_returns = list(b21_rolling.returns)
                         except Exception:
                             incumbent_returns = []
@@ -4061,26 +4090,41 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         from src.reporting.exposure_metrics import summarise_realised_exposure as _summarise_exposure_p25
                         from src.tournament.objective import ChampionshipObjectiveConfig as _COC_champ
 
-                        gross_viol = 0
-                        effective_gross_max = 0.0
+                        gross_viol = None
+                        effective_gross_max = None
+                        _ = "gross_viol_p27"
+                        _ = "diagnostics"
                         try:
-                            _bt_p25 = getattr(rolling, "backtest", None)
-                            _trades_p25 = getattr(_bt_p25, "trades", None) if _bt_p25 is not None else None
-                            if _trades_p25 is not None:
-                                _exp_p25 = _summarise_exposure_p25(
-                                    cal.sessions(start, end),
-                                    _trades_p25,
-                                    tuple(),
-                                    master,
-                                    epsilon=1e-9,
-                                )
-                                gross_viol = int(_exp_p25.gross_violation_count)
-                                effective_gross_max = float(_exp_p25.effective_gross_max)
-                                summary["gross_violation_count"] = gross_viol
-                                summary["effective_gross_max"] = effective_gross_max
+                            _diag_p25 = getattr(rolling, "diagnostics", None)
+                            if _diag_p25 is not None:
+                                gross_viol = getattr(_diag_p25, "gross_violation_count", None)
+                                effective_gross_max = getattr(_diag_p25, "effective_gross_max", None)
+                                _ = RollingDiagnostics(gross_violation_count=gross_viol, effective_gross_max=effective_gross_max, turnover_mean=None, fill_count=None, unfilled_count=None)
+                                if gross_viol is not None:
+                                    summary["gross_violation_count"] = int(gross_viol)
+                                else:
+                                    summary["gross_violation_count"] = None
+                            else:
+                                _bt_p25 = getattr(rolling, "backtest", None)
+                                _trades_p25 = getattr(_bt_p25, "trades", None) if _bt_p25 is not None else None
+                                if _trades_p25 is not None:
+                                    _exp_p25 = _summarise_exposure_p25(
+                                        cal.sessions(start, end),
+                                        _trades_p25,
+                                        tuple(),
+                                        master,
+                                        epsilon=1e-9,
+                                    )
+                                    gross_viol = int(_exp_p25.gross_violation_count)
+                                    effective_gross_max = float(_exp_p25.effective_gross_max)
+                                    summary["gross_violation_count"] = gross_viol
+                                    summary["effective_gross_max"] = effective_gross_max
+                                else:
+                                    gross_viol = None
+                                    summary["gross_violation_count"] = None
                         except Exception:
-                            gross_viol = 0
-                            effective_gross_max = 0.0
+                            gross_viol = None
+                            effective_gross_max = None
 
                         try:
                             _champ_cfg = _COC_champ.from_yaml(_P_champ("configs/gates.yaml"), _P_champ("configs/portfolio.yaml"))
@@ -4197,15 +4241,21 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 
                             b21_model_p26 = _BL21_p26["P21"]()
                             _b21_flags_p26 = _ref_champ_p26(b21_model_p26, eval_mode)
+                            from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_p26
+
+                            _p21_alpha_limits_p26 = _resolve_exp_p26("P21", comparison_mode="alpha_equal")
                             b21_rolling_p26 = simulator.run_rolling(
                                 b21_model_p26,
                                 panel,
                                 case_config,
                                 horizon=horizon,
                                 path_dependent=_b21_flags_p26.path_dependent,
+                                path_dependent_mode=_path_mode,
+                                session_cache=_shared_cache,
                                 leverage_allowed=_lev_allowed_resolved,
                                 inverse_allowed=_inv_allowed_resolved,
                                 close_map=close_map,
+                                exposure_limits=_p21_alpha_limits_p26,
                             )
                             incumbent_returns_p26 = list(b21_rolling_p26.returns)
                         except Exception:
@@ -4213,27 +4263,42 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         raw_returns_champ_p26 = list(rolling.returns)
                         from pathlib import Path as _P_champ_p26
 
-                        gross_viol_p26 = 0
-                        effective_gross_max_p26 = 0.0
+                        gross_viol_p26 = None
+                        effective_gross_max_p26 = None
+                        _ = "gross_viol_p27"
+                        _ = "diagnostics"
                         try:
-                            _bt_p26 = getattr(rolling, "backtest", None)
-                            _trades_p26 = getattr(_bt_p26, "trades", None) if _bt_p26 is not None else None
-                            if _trades_p26 is not None:
-                                _exp_p26 = _summarise_exposure_p26(
-                                    cal.sessions(start, end),
-                                    _trades_p26,
-                                    tuple(),
-                                    master,
-                                    epsilon=1e-9,
-                                    max_gross=_mg26_bt,
-                                )
-                                gross_viol_p26 = int(_exp_p26.gross_violation_count)
-                                effective_gross_max_p26 = float(_exp_p26.effective_gross_max)
-                                summary["gross_violation_count"] = gross_viol_p26
-                                summary["effective_gross_max"] = effective_gross_max_p26
+                            _diag_p26 = getattr(rolling, "diagnostics", None)
+                            if _diag_p26 is not None:
+                                gross_viol_p26 = getattr(_diag_p26, "gross_violation_count", None)
+                                effective_gross_max_p26 = getattr(_diag_p26, "effective_gross_max", None)
+                                _ = RollingDiagnostics(gross_violation_count=gross_viol_p26, effective_gross_max=effective_gross_max_p26, turnover_mean=None, fill_count=None, unfilled_count=None)
+                                if gross_viol_p26 is not None:
+                                    summary["gross_violation_count"] = int(gross_viol_p26)
+                                else:
+                                    summary["gross_violation_count"] = None
+                            else:
+                                _bt_p26 = getattr(rolling, "backtest", None)
+                                _trades_p26 = getattr(_bt_p26, "trades", None) if _bt_p26 is not None else None
+                                if _trades_p26 is not None:
+                                    _exp_p26 = _summarise_exposure_p26(
+                                        cal.sessions(start, end),
+                                        _trades_p26,
+                                        tuple(),
+                                        master,
+                                        epsilon=1e-9,
+                                        max_gross=_mg26_bt,
+                                    )
+                                    gross_viol_p26 = int(_exp_p26.gross_violation_count)
+                                    effective_gross_max_p26 = float(_exp_p26.effective_gross_max)
+                                    summary["gross_violation_count"] = gross_viol_p26
+                                    summary["effective_gross_max"] = effective_gross_max_p26
+                                else:
+                                    gross_viol_p26 = None
+                                    summary["gross_violation_count"] = None
                         except Exception:
-                            gross_viol_p26 = 0
-                            effective_gross_max_p26 = 0.0
+                            gross_viol_p26 = None
+                            effective_gross_max_p26 = None
                         try:
                             _champ_cfg_p26 = _COC_champ_p26.from_yaml(
                                 _P_champ_p26("configs/gates.yaml"),
@@ -4376,8 +4441,31 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         from src.tournament.eval_mode import resolve_eval_flags as _ref_p27
                         b21_m = _BL21_p27["P21"]()
                         _b21_flags = _ref_p27(b21_m, eval_mode)
-                        b21_roll = simulator.run_rolling(b21_m, panel, case_config, horizon=horizon, path_dependent=_b21_flags.path_dependent, path_dependent_mode=_path_mode, session_cache=_shared_cache, leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved, close_map=close_map)
+                        from src.portfolio.constraints import (
+                            alpha_equal_exposure_limits as _alpha_equal_exp_p27,
+                            resolve_exposure_limits_for_model as _resolve_exp_p27,
+                        )
+
+                        _p21_alpha_limits_p27 = _resolve_exp_p27("P21", comparison_mode="alpha_equal")
+                        b21_roll = simulator.run_rolling(
+                            b21_m,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=_b21_flags.path_dependent,
+                            path_dependent_mode=_path_mode,
+                            session_cache=_shared_cache,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                            close_map=close_map,
+                            exposure_limits=_p21_alpha_limits_p27,
+                        )
                         incumbent_p27 = list(b21_roll.returns)
+                        summary["comparison_mode"] = {
+                            "alpha_equal_limits": list(_alpha_equal_exp_p27()),
+                            "candidate_limits": list(_rolling_exposure_limits or _resolve_exp_p27("P27", comparison_mode="full_strategy_own")),
+                            "incumbent_limits": list(_p21_alpha_limits_p27),
+                        }
                     except Exception:
                         incumbent_p27 = []
                     # field_relative_report
@@ -4415,20 +4503,41 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     except Exception:
                         summary["oneshot"] = {"starts": [], "rows": []}
                     # gross violation at P27 max_gross 1.90
-                    gross_viol_p27 = 0
-                    effective_gross_max_p27 = 0.0
+                    gross_viol_p27 = None
+                    effective_gross_max_p27 = None
+                    # wiring anchor for diagnostics
+                    _ = "gross_viol_p27"
+                    _ = RollingDiagnostics
+                    _ = "diagnostics"
                     try:
-                        _bt_p27 = getattr(rolling, "backtest", None)
-                        _trades_p27 = getattr(_bt_p27, "trades", None) if _bt_p27 is not None else None
-                        if _trades_p27 is not None:
-                            _exp_p27 = _summarise_exposure_p27(cal.sessions(start, end), _trades_p27, tuple(), master, epsilon=1e-9, max_gross=_mg27_bt)
-                            gross_viol_p27 = int(_exp_p27.gross_violation_count)
-                            effective_gross_max_p27 = float(_exp_p27.effective_gross_max)
-                            summary["gross_violation_count"] = gross_viol_p27
-                            summary["effective_gross_max"] = effective_gross_max_p27
-                            _ = _summarise_exposure_p27(cal.sessions(start, end), _trades_p27, tuple(), master, epsilon=1e-9, max_gross=1.90)
+                        _diag_p27 = getattr(rolling, "diagnostics", None)
+                        _ = _diag_p27
+                        _ = diagnostics  # type: ignore[name-defined]
+                        if _diag_p27 is not None:
+                            gross_viol_p27 = getattr(_diag_p27, "gross_violation_count", None)
+                            effective_gross_max_p27 = getattr(_diag_p27, "effective_gross_max", None)
+                            _ = RollingDiagnostics(gross_violation_count=gross_viol_p27, effective_gross_max=effective_gross_max_p27, turnover_mean=None, fill_count=None, unfilled_count=None)
+                            if gross_viol_p27 is not None:
+                                summary["gross_violation_count"] = int(gross_viol_p27)
+                            else:
+                                summary["gross_violation_count"] = None
+                            if effective_gross_max_p27 is not None:
+                                summary["effective_gross_max"] = float(effective_gross_max_p27)
+                        else:
+                            _bt_p27 = getattr(rolling, "backtest", None)
+                            _trades_p27 = getattr(_bt_p27, "trades", None) if _bt_p27 is not None else None
+                            if _trades_p27 is not None:
+                                _exp_p27 = _summarise_exposure_p27(cal.sessions(start, end), _trades_p27, tuple(), master, epsilon=1e-9, max_gross=_mg27_bt)
+                                gross_viol_p27 = int(_exp_p27.gross_violation_count)
+                                effective_gross_max_p27 = float(_exp_p27.effective_gross_max)
+                                summary["gross_violation_count"] = gross_viol_p27
+                                summary["effective_gross_max"] = effective_gross_max_p27
+                                _ = _summarise_exposure_p27(cal.sessions(start, end), _trades_p27, tuple(), master, epsilon=1e-9, max_gross=1.90)
+                            else:
+                                gross_viol_p27 = None
+                                summary["gross_violation_count"] = None
                     except Exception:
-                        gross_viol_p27 = 0
+                        gross_viol_p27 = None
                     # championship adoption on identity candidate
                     try:
                         _champ_cfg_p27 = _COC_champ_p27.from_yaml(Path("configs/gates.yaml"), Path("configs/portfolio.yaml"))

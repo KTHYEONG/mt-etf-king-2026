@@ -334,13 +334,57 @@ class ChampionshipObjectiveConfig:
     thresholds: tuple[float, ...]
     scenario_weights: Mapping[str, tuple[float, ...]]
     primary_scenario: str
-    ruin_threshold: float
-    ruin_max: float
-    max_effective_gross: float
-    bootstrap_expected_block: int
-    bootstrap_resamples: int
-    seed: int
-    min_era_effective: int
+    ruin_threshold: float = -0.25
+    ruin_max: float = 0.05
+    max_effective_gross: float = 1.60
+    bootstrap_expected_block: int = 36
+    bootstrap_resamples: int = 2000
+    seed: int = 0
+    min_era_effective: int = 5
+
+    def __init__(
+        self,
+        thresholds: tuple[float, ...],
+        scenario_weights: Mapping[str, tuple[float, ...]] | Mapping[str, float],
+        primary_scenario: str,
+        ruin_threshold: float = -0.25,
+        ruin_max: float = 0.05,
+        max_effective_gross: float = 1.60,
+        bootstrap_expected_block: int = 36,
+        bootstrap_resamples: int = 2000,
+        seed: int = 0,
+        min_era_effective: int = 5,
+        bootstrap_samples: int | None = None,
+        bootstrap_seed: int | None = None,
+        thresholds_alias: tuple[float, ...] | None = None,
+    ) -> None:
+        # alias handling
+        if bootstrap_samples is not None:
+            bootstrap_resamples = int(bootstrap_samples)
+        if bootstrap_seed is not None:
+            seed = int(bootstrap_seed)
+        # normalize thresholds
+        thr = tuple(float(x) for x in thresholds) if thresholds is not None else ()  # type: ignore[arg-type]
+        # normalize scenario_weights values to tuple if float
+        norm_sw: dict[str, tuple[float, ...]] = {}
+        for k, v in dict(scenario_weights).items():
+            if isinstance(v, (list, tuple)):
+                norm_sw[str(k)] = tuple(float(x) for x in v)  # type: ignore[arg-type]
+            else:
+                try:
+                    norm_sw[str(k)] = (float(v),)  # type: ignore[arg-type]
+                except Exception:
+                    norm_sw[str(k)] = tuple()  # type: ignore[assignment]
+        object.__setattr__(self, "thresholds", thr)
+        object.__setattr__(self, "scenario_weights", norm_sw)
+        object.__setattr__(self, "primary_scenario", str(primary_scenario))
+        object.__setattr__(self, "ruin_threshold", float(ruin_threshold))
+        object.__setattr__(self, "ruin_max", float(ruin_max))
+        object.__setattr__(self, "max_effective_gross", float(max_effective_gross))
+        object.__setattr__(self, "bootstrap_expected_block", int(bootstrap_expected_block))
+        object.__setattr__(self, "bootstrap_resamples", int(bootstrap_resamples))
+        object.__setattr__(self, "seed", int(seed))
+        object.__setattr__(self, "min_era_effective", int(min_era_effective))
 
     @classmethod
     def from_yaml(cls, gates_path: Path, portfolio_path: Path) -> "ChampionshipObjectiveConfig":
@@ -685,6 +729,9 @@ def paired_scenario_delta_ci(
     return (lower, upper)
 
 
+GROSS_METRIC_UNAVAILABLE: str = "GROSS_METRIC_UNAVAILABLE"
+
+
 def evaluate_championship_adoption(
     *,
     candidate_returns: Sequence[float],
@@ -693,7 +740,7 @@ def evaluate_championship_adoption(
     horizon: int,
     config: ChampionshipObjectiveConfig,
     execution_parity: bool,
-    gross_violation_count: int,
+    gross_violation_count: int | None,
     era_pairs: Mapping[str, tuple[Sequence[float], Sequence[float]]] | None = None,
 ) -> ChampionshipAdoptionResult:
     import math as _math
@@ -754,6 +801,16 @@ def evaluate_championship_adoption(
         return ChampionshipAdoptionResult(
             status="INSUFFICIENT_EVIDENCE",
             failures=("MISSING_ARTIFACT",),
+            candidate=None,
+            incumbent=None,
+            raw=None,
+            scenario_delta_ci={},
+            era_deltas={},
+        )
+    if gross_violation_count is None:
+        return ChampionshipAdoptionResult(
+            status="INSUFFICIENT_EVIDENCE",
+            failures=(GROSS_METRIC_UNAVAILABLE,),
             candidate=None,
             incumbent=None,
             raw=None,
