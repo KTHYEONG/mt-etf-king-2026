@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_30_P25_CHAMPIONSHIP_OBJECTIVE",
+      "date": "2026-09-01",
+      "adr_id": "ADR_20260901_30_P25_CHAMPIONSHIP_OBJECTIVE",
+      "domain": "quant",
+      "title": "P25 Championship Objective — execution-faithful overlay · gross-cap engine · adoption gate",
+      "why": "단일 대회 우승 목표에 맞는 championship gate와 gross invariant enforcement가 필요했고, max_position_weight=0.80 filt override가 거래 0건·수익률 0% 버그를 유발했다.",
+      "resolution": "ChampionshipObjectiveConfig/evaluate_championship_adoption/execution_faithful_late_lock_returns/optimize_p25_overlay 구현, engine에 apply_portfolio_exposure_limits 적용, gross_violation_count championship gate 전파, forensics artifact 저장 순서 수정; cap 적용 KRX 2018-2026 raw P>30%=7.85% exec overlay P>50%=2.7% gross_violation=2 championship FAIL.",
+      "impact": "L5 tournament: P25 championship gate operational; P24/P25 raw alpha identical under cap engine; legacy 10.5% P30 inflated by gross>1.60; adoption requires gross_violation=0 and P21 CI pass."
+    },
+    {
       "task_id": "TASK_29_P25_HOUSE_MONEY_RATCHET",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_29_P25_HOUSE_MONEY_RATCHET",
