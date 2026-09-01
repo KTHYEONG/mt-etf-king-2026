@@ -1,484 +1,783 @@
+## 재평가 결론
 
-코드와 최근 P20~P26 의사결정 로그, 2026 대회 공식 규칙, 2025 실제 대회 결과까지 맞춰봤습니다.
+**P27의 방향 자체는 P26보다 명확히 좋아졌습니다.** `house-money overlay`를 제거한 것은 맞는 결정입니다. 다만 코드를 다시 따라가 보니, 지금은 새로운 알파를 추가할 단계보다 **P27의 평가 엔진을 먼저 바로잡아야 할 가능성이 높습니다.**
 
-## 결론
+특히 중요한 문제가 하나 있습니다.
 
-**P26을 현재 상태 그대로 2026 실전에 투입해서 “우승 가능성이 충분히 검증됐다”고 판단하면 안 됩니다.**
+> **현재 P27의 rolling 36일과 annual one-shot이 실제로 “각 시작일마다 현금에서 새로 시작한 36일 대회”를 정확하게 시뮬레이션하지 않을 가능성이 큽니다.**
 
-반대로, P26이 실패작이라는 뜻도 아닙니다. 현재까지 만든 모델 중에서는 **실제로 우승권 수익률을 낼 수 있는 우측 꼬리를 만든 상당히 유의미한 후보**입니다. 문제는 지금 검증하는 목적함수가 **“내가 1등 할 확률”을 직접 최적화하지 않고 있다는 것**입니다.
-
-저라면 현 상태를 이렇게 평가합니다.
-
-| 항목                                 |           평가 | 판단                                             |
-| ------------------------------------ | -------------: | ------------------------------------------------ |
-| 우승권 수익률 생성 능력              |   **B+** | P26에서 확실히 개선됨                            |
-| 36일 단발성 대회 시뮬레이션          |   **B+** | 경로의존 상태를 매 윈도우 초기화하는 구조가 좋음 |
-| 거래/유동성 현실성                   |    **B** | ADV·비용·next-open 등을 상당히 고려            |
-| 목적함수의 실제 대회 정렬            |    **C** | 현재 가장 큰 문제                                |
-| 통계적 OOS 신뢰도                    |   **C-** | P20→P26 반복 선택으로 연구자 과적합 위험 큼     |
-| 하락장 대응                          |   **C-** | P26은 사실상 +2x long-only                       |
-| 실시간 순위 대응                     |   **D+** | 구조는 있으나 현재 정책에서 거의 활용하지 않음   |
-| **현재 상태로 우승 전략 확정** | **보류** | repo 자체 championship gate도 FAIL               |
-
-가장 중요한 사실은 저장소의 P26 최종 기록입니다.
-
-> KRX 2018~2026 기준 **P(36일 수익률 > 50%) = 5.3%**, championship score = **0.064**, ruin = **4.5%**, gross violation = 0. P25 대비 우측 꼬리는 크게 개선됐지만 최종 `championship` 판정은 **FAIL**, 이유는 `hot_field vs raw`, `primary CI vs raw`입니다.
-
-즉 **코드베이스 자신의 가장 엄격한 검증도 아직 P26을 챔피언으로 승인하지 않았습니다.**
+이게 맞다면 현재 `P>50%=5.3%`, `ruin=4.5%`, one-shot 연도별 성과, P21 대비 win rate 55%까지 다시 계산해야 합니다.
 
 ---
 
-# 1. P26에서 실제로 잘 된 부분
+# 1. 가장 먼저 수정해야 할 문제: P27은 경로의존적인데 평가기가 경로독립으로 취급한다
 
-P26은 그냥 흔한 ETF 모멘텀 전략이 아닙니다. 현재 핵심은 대략 다음과 같습니다.
+`StickyLeaderModel`은 명백하게 상태를 가집니다.
 
-`mom_60`으로 +2배 레버리지 ETF 중 강한 리더를 찾고, 2거래일 minimum hold와 0.04 switching gap을 두면서, 단일 ETF 비중을 최대 95%까지 허용합니다. 2배 ETF이므로 실질 gross exposure는 약 1.90까지 갑니다. 현금은 최소 5%입니다.
+```python
+self._held
+self._hold_len
+```
 
-P20의 `P>30%=9.28%, P>40%=6.75%`에서 시작해 P21, P24 등을 거쳐 P26에서는 `P>30%≈11.2%, P>50%=5.3%`까지 올라왔습니다. 단순 평균수익률을 올린 게 아니라 **대회에 필요한 우측 꼬리를 실제로 밀어올렸다는 점은 좋습니다.**
+그리고 오늘 점수는 현재 보유 종목과 보유 기간에 따라 달라집니다. `min_hold=2`, `min_gap=0.04`가 바로 이 상태를 이용합니다.
 
-그리고 롤링 백테스트 구조도 좋은 부분이 있습니다. 경로의존 모델은 각각의 36일 window마다 tracker를 reset하고, 현금 상태에서 포트폴리오를 다시 구성합니다. 따라서 하나의 장기 백테스트 수익률을 단순히 36일씩 잘라낸 것보다 실제 대회 단발 실행에 훨씬 가깝습니다.
+그런데 `model_requires_path_dependent()`는
 
-이 부분은 유지해야 합니다.
+```python
+if hasattr(model, "path_dependent"):
+    ...
+return isinstance(model, PortfolioPolicy)
+```
 
----
+만 검사합니다. `StickyLeaderModel`에는 현재 `path_dependent=True`가 없습니다. 따라서 경로독립으로 판정됩니다.
 
-# 2. 가장 큰 문제: `championship score`는 우승 확률이 아니다
+그리고 평가기는 경로독립 모델이면
 
-현재 championship 목적함수는 사실상
+```python
+engine.run(model, 전체기간)
+→ 전체 daily return 생성
+→ window_returns(daily_rets, 36)
+```
 
-$$
-C =
-0.10P(R>30\%)
-+0.25P(R>40\%)
-+0.45P(R>50\%)
-+0.20P(R>60\%)
-$$
+으로 처리합니다. 즉 2090개의 각 36일 window를 새로 실행하는 것이 아니라 **2018~2026 하나의 긴 투자 경로를 실행한 다음 36일씩 잘라냅니다.**
 
-형태입니다. 설정은 `thresholds=[0.3,0.4,0.5,0.6]`, championship weights는 `[0.1,0.25,0.45,0.2]`입니다.  코드에서도 각 threshold exceedance를 가중합해서 scenario score를 계산합니다.
+### 이 차이는 P27에서 중요합니다
 
-따라서 **P26의 championship score 0.064는 “우승 확률 6.4%”가 절대 아닙니다.**
+예를 들어 어떤 36일 window가 2023-09-01에 시작한다고 해도 현재 방식에서는:
 
-이 목적함수에는 중요한 정보가 빠져 있습니다.
+* 보유종목이 이미 존재할 수 있고
+* `_hold_len`도 이전 기간에서 이어지고
+* 전날 전략 상태도 이어지고
+* 시작일부터 새로운 TOP1을 선택하는 것이 아닐 수 있습니다.
 
-실제 2026 대상 선정 기준은 단 하나입니다.
+실제 대회 모델은:
 
-**전체 참가자 중 최종 수익률 1위.** ([머니투데이][1])
-
-그러므로 궁극적인 목적함수는
-
-$$
-\boxed{
-P(R_{\text{P26}} > \max(R_1,\dots,R_N))
-}
-$$
+```text
+t = 0
+capital = initial capital
+holdings = {}
+_hold_len = 0
+```
 
 이어야 합니다.
 
-현재 함수는 예를 들어 +61%와 +120%를 똑같이 `R>60%=1`로 처리합니다. 반대로 +59.9%와 +60.1%에는 불연속적인 차이를 줍니다.
-
-순위 경쟁에서는 이상적이지 않습니다.
+따라서 제가 이전 답변에서 rolling 구조를 높게 평가했던 부분은 **P27 코드까지 다시 추적한 결과 수정해야 합니다.**
 
 ---
 
-# 3. 목적함수를 `P(win)`으로 바꾸는 것이 다음 개발의 1순위
+# 2. Annual one-shot도 같은 문제가 있다
 
-상대 참가자의 최종 수익률 CDF를 \(F(r)\), 경쟁자가 N명이라고 단순화하면 내 전략이 수익률 \(r\)을 냈을 때 우승할 확률은 대략
+P27 CLI는 one-shot 계산에서 전체기간 backtest의 daily return을 가져온 후,
+
+```python
+oneshot_window_returns(
+    _daily_p27,
+    sessions,
+    starts,
+    horizon
+)
+```
+
+으로 특정 날짜의 36일을 잘라냅니다.
+
+`oneshot_window_returns()` 자체는 단순 복리 계산 함수라 문제 없습니다.
+
+문제는 입력되는 `_daily_p27`이 **그 해 9월 21일에 포트폴리오를 초기화해 만든 daily return이 아니라 2018년부터 이어진 긴 backtest 경로**라는 것입니다.
+
+따라서 지금 제시한:
+
+| 연도 | 현재 수치 |
+| ---- | --------: |
+| 2018 |    -33.4% |
+| 2019 |     -4.5% |
+| ...  |       ... |
+| 2025 |    +43.1% |
+
+은 지금 단계에서는 **진짜 annual one-shot이라고 단정하면 안 됩니다.**
+
+참고로 표 자체에서도 작은 오류가 있습니다. 양수는 2개가 아니라 **2020, 2022, 2025의 3/8개**입니다. 제공한 숫자로 단순 계산하면 평균 약 -1.46%, 중앙값 -6.45%입니다. 하지만 위 시뮬레이션 문제를 수정하기 전에는 이 숫자에도 큰 의미를 부여하지 않는 게 맞습니다.
+
+---
+
+# 3. 수정 방법
+
+P27 자체의 알파는 건드리지 말고 우선 평가기를 고치는 **P27-validation fix**를 먼저 하는 것을 권합니다.
+
+`StickyLeaderModel`에 최소한 다음 의미가 들어가야 합니다.
+
+```python
+path_dependent = True
+scores_path_independent = False
+
+def reset_trackers(self):
+    self._held = None
+    self._hold_len = 0
+```
+
+`engine.run()`은 시작할 때 `reset_trackers()`를 호출할 준비가 이미 되어 있습니다.
+
+그리고 `TournamentSimulator`도 `scores_path_independent=False`이면 fast cache 대신 slow per-window rerun으로 전환하는 구조가 이미 있습니다.
+
+즉 아키텍처를 새로 만들 필요는 없습니다.
+
+### 검증해야 할 invariant
+
+가장 중요한 테스트는 이것입니다.
+
+```text
+rolling window start = X
+```
+
+일 때
+
+```text
+simulator rolling[X]
+```
+
+와
+
+```text
+engine.run(
+    fresh P27(),
+    start=X,
+    end=X+35 sessions
+)
+```
+
+의 terminal return이 완전히 같아야 합니다.
+
+랜덤하게 20~50개 window를 골라:
+
+```text
+abs(rolling_ret - independent_ret) < 1e-10
+```
+
+을 보장하십시오.
+
+이게 통과하지 않으면 championship 통계는 사용하면 안 됩니다.
+
+---
+
+# 4. P21 field 비교도 현재 같은 문제가 있다
+
+P27 field report에서 P21을 이렇게 돌립니다.
+
+```python
+simulator.run_rolling(
+    b21_m,
+    ...,
+    path_dependent=False,
+)
+```
+
+즉 P21도 명시적으로 경로독립 처리됩니다.
+
+따라서 현재
+
+> P27 vs P21 win_rate = 55%
+
+도 재계산해야 합니다.
+
+다행히 비교 양쪽이 비슷한 방식으로 왜곡되어 있어서 55%가 완전히 무의미하다고 볼 수는 없습니다. 하지만 **채택 근거로 쓰기에는 부족합니다.**
+
+---
+
+# 5. P27 championship PASS에도 구조적 함정이 하나 있다
+
+현재 코드:
+
+```python
+candidate_p27 = list(rolling.returns)
+raw_p27 = list(rolling.returns)
+```
+
+입니다.
+
+그리고:
+
+```python
+evaluate_championship_adoption(
+    candidate_returns=candidate_p27,
+    incumbent_returns=P21,
+    raw_returns=raw_p27,
+)
+```
+
+를 실행합니다.
+
+따라서
 
 $$
-P(\text{win}\mid R=r)=F(r)^N
+R_{candidate}=R_{raw}
 $$
 
-이고,
+입니다.
+
+그러므로 다음 검사는 구조적으로 무조건 통과합니다.
 
 $$
-\boxed{
-J(\theta)
-=
-E[F(R_\theta)^N]
-}
+score(candidate)\ge score(raw)
 $$
 
-를 최대화하는 것이 실제 대회 목적과 맞습니다.
+그리고 paired CI도 정확히 0을 중심으로 하는 동일 비교입니다.
 
-다만 참가자들이 IID는 아니므로 코드에서는 더 현실적으로 **rival-agent field**를 만드는 쪽을 추천합니다.
+### 즉 P27 PASS의 정확한 의미
 
-예를 들어 동일한 역사적 36일 window에서:
+현재 PASS는:
 
-* +2x 섹터 모멘텀
-* +2x 지수 모멘텀
-* 단기 breakout
-* 20/60일 momentum
-* -2x inverse trend
-* 금/원자재 trend
-* contrarian
-* P20~P26 변형
-* 단순 집중매매형
+> **P27 raw가 P21에 비해 championship scenario에서 열등하지 않고, 자기 자신(raw)을 훼손하지 않았다.**
 
-등을 동시에 돌립니다.
+입니다.
 
-그리고 각 window마다 가상의 참가자 집단을 생성해
+다음 뜻은 아닙니다.
 
-$$
-M_w = \max_j R_{j,w}
-$$
+> P27이 P26보다 통계적으로 유의하게 우수하다.
 
-를 만들고,
+P26→P27 승격을 검증하려면 incumbent를 바로 전 전략으로 잡는 게 논리적으로 맞습니다.
 
-$$
-\boxed{
-P_{\rm win}
-=
-\frac{1}{W}
-\sum_w
-I(R_{\theta,w}>M_w)
-}
-$$
+```text
+candidate = P27 identity
+incumbent = P26 executable house-money
+anchor = P21
+raw reference = P26/P27 raw
+```
 
-를 직접 계산하십시오.
+즉:
 
-최적화가 불안정하면 indicator 대신
+### Promotion gate
 
 $$
-J_{\rm soft}
-=
-E\left[
-\sigma\left(
-\frac{R_\theta-M}{\tau}
+P27 > P26
+$$
+
+### Long-term anchor gate
+
+$$
+P27 \not< P21
+$$
+
+를 분리하는 것이 더 깔끔합니다.
+
+---
+
+# 6. `field win_rate=55%, top2=100%`의 해석
+
+현재 field에는 rival이 사실상 P21 하나뿐입니다.
+
+`field_relative_report()`는
+
+```python
+n_agents = 1 + len(rivals)
+```
+
+이고 rank≤2이면 top2로 계산합니다.
+
+지금은:
+
+```text
+P27
+P21
+```
+
+두 명뿐이므로
+
+$$
+P(top2)=100\%
+$$
+
+는 **정의상 무조건 100%**입니다.
+
+따라서 현재 field 지표에서:
+
+* `win_rate=55%` → 정보 있음
+* `top2_rate=100%` → 정보 없음
+* `median_rank_percentile=0.50` → 정보 거의 없음
+
+입니다.
+
+### 그래서 field system을 크게 만드는 것도 아직 권하지 않습니다
+
+저라면 synthetic 참가자 100명을 만드는 것보다 먼저 내부 anchor set만 고정합니다.
+
+예:
+
+```text
+B1
+P21
+P24 raw
+P26 executable
+P27
+```
+
+그리고 각 동일 window에서 pairwise comparison을 합니다.
+
+단 이것을 `P(win)`이라고 부르면 안 되고:
+
+```text
+internal_field_win_rate
+```
+
+정도로만 사용합니다.
+
+---
+
+# 7. 알파 자체에서 제가 지금 가장 집중해서 볼 부분
+
+검증 문제를 제외하면 P27에서 가장 눈에 띄는 약점은 **inverse가 없는 것보다 먼저 이것**입니다.
+
+## P27은 모든 +2x ETF의 momentum이 음수여도 반드시 하나를 산다
+
+`filter_plus2_scores()`는 `mom_60`이 음수라고 제거하지 않습니다.
+
+```python
+out[ticker] = float(fv)
+```
+
+입니다.
+
+그리고 P27은 `allocate()`가 없으므로 generic TOP1 sizing으로 갑니다.
+
+`weights_from_scores(TOP1)`은 점수의 부호와 관계없이 가장 높은 종목 하나를 100% target으로 만듭니다.
+
+예를 들면:
+
+```text
+ETF A mom60 = -12%
+ETF B mom60 = -18%
+ETF C mom60 = -25%
+```
+
+여도 A를 매수합니다.
+
+P27 exposure rule에 의해 사실상:
+
+```text
+95% × +2x
+```
+
+노출을 갖습니다.
+
+### 이건 P27의 중요한 구조적 약점입니다
+
+상승 추세에서는 매우 좋은 convexity를 만들어냅니다.
+
+반대로 시장 전체가 하락/약세인 상황에서는:
+
+> **“좋은 기회가 없음”이라는 상태가 모델에 존재하지 않습니다.**
+
+이건 inverse보다 먼저 실험할 가치가 있습니다.
+
+---
+
+# 8. 제가 P28에서 가장 먼저 실험할 것은 inverse가 아니다
+
+아주 단순한 **absolute momentum gate**입니다.
+
+### P28-A
+
+```python
+if top_mom60 <= 0:
+    return {}
+```
+
+나머지는 P27 그대로:
+
+```text
+mom60
++2x only
+min_gap=.04
+min_hold=2
+95% concentration
+identity overlay
+```
+
+입니다.
+
+이렇게 해야 무엇이 좋아졌는지 명확합니다.
+
+후보는 처음에는 딱 세 개면 충분합니다.
+
+| 후보  | 조건            |
+| ----- | --------------- |
+| P27   | 현재 그대로     |
+| P28-A | top mom60 > 0   |
+| P28-B | top mom60 > +5% |
+
+그리고 **평균수익률을 보고 고르면 안 됩니다.**
+
+P>50/P>60과 tail objective가 유지되면서 ruin/CVaR가 얼마나 줄어드는지를 봐야 합니다.
+
+개인적으로는 이 실험의 정보가 inverse branch보다 훨씬 클 가능성이 있다고 봅니다.
+
+---
+
+# 9. 목적함수는 P27에서 아직 개선할 필요가 있다
+
+현재 championship score는:
+
+$$
+0.1P(R>30)
++0.25P(R>40)
++0.45P(R>50)
++0.2P(R>60)
+$$
+
+형태입니다.
+
+나쁘지 않은 진단값이지만 **hard threshold가 너무 많습니다.**
+
+예를 들어:
+
+```text
++49.9%
++50.1%
+```
+
+가 꽤 다르게 취급되고,
+
+```text
++60%
++110%
+```
+
+은 마지막 threshold 관점에서는 차이가 없습니다.
+
+## 저는 바로 synthetic P(win)까지 가지 않겠습니다
+
+경쟁자 분포 자체가 불확실하기 때문에 잘못 만든 field model은 오히려 목적함수를 더 과적합시킬 수 있습니다.
+
+그 대신 **bounded continuous championship utility**를 추천합니다.
+
+예를 들면:
+
+$$
+u(R)=
+\mathrm{clip}
+\left(
+\frac{R-0.30}{0.50},
+0,
+1
 \right)
-\right]
 $$
-
-같은 soft rank objective를 쓰면 됩니다.
-
-### 최종적으로 보고 싶은 지표
-
-`championship_score`를 없앨 필요는 없습니다. 하지만 **진단지표로 강등**해야 합니다.
-
-Primary metric은 `win_rate`.
-
-Secondary는 `top2_rate`, `median_rank_percentile`, `win_margin`, `P(R<-25%)`.
-
-이렇게 바꾸는 게 맞습니다.
-
----
-
-# 4. 현재 P26의 더 큰 문제는 알파보다 `+50% late lock`일 가능성이 높다
-
-P26에는
-
-```text
-arm = 0.50
-lock_remaining = 5
-```
-
-가 들어가 있습니다. 그리고 실제 live predicate는 사실상
-
-```text
-return >= 50%
-AND
-remaining_sessions <= 5
-=> cash
-```
 
 입니다.
 
-이 규칙은 **자산관리 목적이라면 합리적**입니다.
+그러면:
 
-하지만 1등만 노리는 대회에서는 그렇지 않습니다.
+```text
+R <= 30%   → 0
+40%        → 0.2
+50%        → 0.4
+60%        → 0.6
+70%        → 0.8
+>=80%      → 1
+```
 
-더구나 P26의 championship 실패 원인이 바로 **hot-field에서 raw 전략보다 열세이고 primary CI도 raw보다 열세**라고 저장소에 기록돼 있습니다. 결정 로그도 다음 레버로 `overlay or hot_field scenario alignment`를 명시하고 있습니다.
+이 됩니다.
 
-저라면 다음 실험은 새로운 알파를 추가하지 않고 바로 이렇게 합니다.
-
-| Candidate | 알파 | 종료 정책                     |
-| --------- | ---- | ----------------------------- |
-| A         | P26  | **아무 lock 없음**      |
-| B         | P26  | 현재 +50%, remaining≤5       |
-| C         | P26  | rank-aware dynamic lock       |
-| D         | P26  | estimated P(win)-optimal lock |
-
-여기서 **A를 반드시 기준점**으로 놓으십시오.
-
-현재 결과만 보면 P26에서 제일 좋은 부분은 **95% 집중 + mom60 alpha**, 제일 의심스러운 부분은 **house-money overlay**입니다.
-
----
-
-# 5. 고정 +50%가 특히 위험한 이유
-
-2025년은 정확히 8주 대회였고 최종 1위가 +47.82%, 2위가 +44.64%였습니다. 약 1000명이 참가했습니다. ([머니투데이][2])
-
-그런데 중간 경로를 보면 완전히 다릅니다.
-
-5주차에는 1위가 **+72.28%**, 4위도 +49.17%였습니다. ([머니투데이][3])
-
-6주차에도 상위 5명이 각각 **65.63%, 59.73%, 55.01%, 52.50%, 50.96%**였습니다. ([머니투데이][4])
-
-그런데 7주차 조정으로 1위가 다시 **46.99%**까지 내려갔습니다. ([머니투데이][5])
-
-즉 실제 대회에서는
-
-**“50%면 충분하다”도 틀리고, “현재 1등 65%를 무조건 넘어야 한다”도 틀립니다.**
-
-경쟁자들의 향후 손실 가능성까지 같이 봐야 합니다.
-
-따라서 lock은 절대 수익률이 아니라
+그리고
 
 $$
-P(\text{win}\mid
-R_t,\ rank_t,\ leaderboard_t,\ remaining_t,\ regime_t)
+J=E[u(R)]
 $$
 
-으로 결정하는 게 맞습니다.
+를 계산합니다.
+
+이건 수학적으로 30~80% 구간의 **survival curve 면적**과 같은 형태입니다.
+
+### 장점
+
+* +60%보다 +80%를 제대로 높게 평가
+* +49.9/+50.1 같은 threshold artifact 감소
+* q99 하나에 모델이 끌려가지 않음
+* bounded라 극단적인 단일 사례의 영향 제한
+* 36일 우승권 수익률이라는 목적과 직접 정렬
 
 ---
 
-# 6. 오히려 repo에 이걸 구현하기 위한 흔적은 이미 있다
+# 10. 그런데 point estimate를 최대화하면 또 과적합한다
 
-`AggressionInput`에는 이미
-
-```python
-delta
-n
-remaining
-rank
-```
-
-가 있습니다.
-
-그런데 현재 `risk_multiplier()`는 실제로 `remaining`과 `rank`를 사용하지 않습니다. 사실상
-
-$$
-1 + 2\delta - 0.001n
-$$
-
-이라는 단순식입니다.
-
-여기가 **P27의 핵심 개발 포인트**가 되어야 합니다.
-
-2026 대회는 대회 시작 후 ranking page도 운영한다고 공식 안내했습니다. ([머니투데이][6])
-
-따라서 매일 상태를
-
-```text
-내 수익률
-현재 순위
-1위와 gap
-TOP5 수익률 분포
-남은 거래일
-현재 market regime
-현재 leader ETF의 momentum strength
-```
-
-로 잡고,
-
-각 행동
-
-```text
-cash
-현재 +2x 유지
-다른 +2x leader로 switch
-inverse
-defensive / gold
-```
-
-에 대해 남은 기간 Monte Carlo rollout을 돌린 후
-
-```text
-action = argmax P(final_rank == 1)
-```
-
-로 선택하는 구조가 **대회 목적에 가장 정확하게 맞습니다.**
-
-이건 현재 P26보다 한 단계 큰 개선입니다.
-
----
-
-# 7. P26의 두 번째 구조적 약점: 사실상 long +2x 전용
-
-P26은 강제로
-
-```python
-only_plus_2 = True
-no_inverse = True
-```
-
-입니다.
-
-더 정확히 보면 ETF 필터에서
-
-```python
-if config.only_plus_2 and lev != 2:
-    continue
-```
-
-가 먼저 실행되므로 `no_inverse=False`만 바꿔도 -2x inverse는 들어오지 않습니다. 구조 자체를 바꿔야 합니다.
-
-또 P26의
-
-```text
-cash_drawdown = 0
-impulse_gap = 0
-```
-
-이므로 crash cash도 사실상 비활성, impulse switch도 비활성입니다. Sticky model의 실제 score는 `mom_60` + sticky가 중심입니다.
-
-따라서 P26을 단순화하면:
-
-> **최근 60일 동안 가장 강한 +2x ETF를 거의 올인해서 일정 기간 붙잡는 전략**
-
-에 가깝습니다.
-
-상승 추세가 이어지는 장에서는 강력합니다.
-
-하지만 **대회 중간에 추세가 risk-off로 바뀌면 사용할 무기가 없습니다.**
-
-2026 공식 규칙상 자율형은 레버리지·인버스 사용이 가능합니다. 현재 repo의 `tournament.yaml`에는 두 값이 아직 `unknown`으로 남아 있습니다.  공식 규칙은 자율형 외 부문에서만 레버리지·인버스를 제외한다고 명시합니다. ([머니투데이][1])
-
-그리고 이건 단순 이론 문제가 아닙니다.
-
-2025 최종 우승자는 실제로 레버리지와 인버스 ETF를 모두 거래했고 금 ETF도 활용했습니다. ([머니투데이][2])
-
-조정장이 온 7주차에는 상위 참가자들이 `KODEX 200선물인버스2X` 한 종목에 집중해 순위를 끌어올리는 현상까지 나타났습니다. ([머니투데이][5])
-
-따라서 **inverse branch는 반드시 실험할 가치가 있습니다.**
-
-단, P26에 이것저것 섞지는 마십시오.
-
-`P27-L`: 현재 P26 long-only
-`P27-B`: ±2x signed momentum
-`P27-R`: regime-gated long/inverse/cash
-
-세 후보를 분리해서 비교하는 것이 좋습니다.
-
----
-
-# 8. 통계적으로는 P26 숫자를 아직 많이 믿으면 안 된다
-
-여기가 상당히 중요합니다.
-
-코드의 `effective_sample_size()`는
-
-```python
-n_effective = n_windows // horizon
-```
-
-입니다. 36일 rolling window를 사용하므로 수천 개 rolling window가 있어도 실제 독립 정보량은 대략 수십 개 수준입니다.
-
-그러므로 `P>50%=5.3%`라는 숫자는 실제로는 **독립적인 +50% 사건이 몇 건 안 되는 tail estimate**일 가능성이 높습니다.
-
-stationary bootstrap을 쓰는 건 올바른 방향이지만, 더 큰 문제가 있습니다.
-
-P20 → P21 → P22 → … → P26을 모두 **동일한 KRX 2018–2026 데이터의 결과를 보면서 계속 수정**했습니다.
-
-결정 로그를 보면 실제로:
-
-* P22에서 2025 우승수익률 47.82%를 참고해 lock level 변경
-* P23에서도 `tour_20250922` 결과와 47.82% acceptance 기준 사용
-* P24에서 mom60 선택
-* P25에서 +50% lock
-* P26에서 95%/1.90 exposure 변경
-
-등이 반복됐습니다.
-
-이건 execution look-ahead bug는 아닙니다.
-
-하지만 **연구자 과적합 / multiple-testing bias**입니다.
-
-따라서 2025 대회 구간에서 P26이 잘 나오는 것은 이제 OOS 증거로 취급하면 안 됩니다. 이미 그 결과를 보면서 모델을 만든 셈이기 때문입니다.
-
----
-
-# 9. “실전 딱 한 번”이라는 질문을 검증하는 별도 테스트가 필요하다
-
-현재 rolling 36일 분포는 유용하지만, 사용자가 걱정하는 것과 정확히 같은 질문은 아닙니다.
-
-추가로 **Annual One-Shot Tournament Test**를 만드십시오.
-
-예를 들면 매년:
-
-```text
-2018: 9월 셋째 주 → 36 sessions
-2019: 9월 셋째 주 → 36 sessions
-...
-2025: 실제 9/22 → 11/14
-```
-
-딱 **1년에 1회**만 실행합니다.
-
-각 해에:
-
-| Year | Return | MDD | Peak | Giveback | #Trades | Main ETF | >30 | >40 | >50 |
-| ---- | -----: | --: | ---: | -------: | ------: | -------- | --- | --- | --- |
-
-를 생성하십시오.
-
-샘플이 8개 남짓이라 통계검정용으로는 부족합니다.
-
-하지만 사용자가 묻는
-
-> “실제로 어느 날 시작해서 딱 36일 한 번 수행했을 때 어떤 일이 벌어지는가?”
-
-를 rolling distribution보다 훨씬 직관적으로 보여줍니다.
-
-**rolling distribution + annual one-shot**을 같이 봐야 합니다.
-
----
-
-# 10. P27 개발 우선순위
-
-지금부터는 알파 feature를 계속 추가하기보다는 아래 순서가 낫습니다.
-
-1. **P26 RAW를 별도 champion baseline으로 고정.** 현재 +50/5 house-money overlay를 제거한 결과를 먼저 다시 계산합니다. P26의 championship FAIL이 raw 대비 overlay 열세에서 발생했으므로 최우선입니다.
-2. **현재 threshold championship score 위에 실제 `P(win)` field objective를 구현.** 과거 TOP5 자료 + 경쟁 전략 agent pool로 `field_max_return`을 생성하고 `win_rate`, `top2_rate`, `rank percentile`을 계산합니다.
-3. **실시간 rank-aware policy를 구현.** 현재 사용하지 않는 `rank`, `remaining`을 정책 state에 넣고, 고정 +50% lock을 Monte Carlo continuation 기반 행동 선택으로 교체합니다.
-4. **inverse/risk-off branch를 독립 후보로 추가.** 단순히 `no_inverse=False`가 아니라 +2/-2 후보군을 구분한 signed/regime model로 구현합니다. 2025 실제 대회에서도 이 기능의 실전 가치가 확인됐습니다.
-5. **1.90 gross도 상수가 아니라 최적화 대상 또는 action으로 전환.** 신호가 약한데 무조건 95% +2배를 들 이유는 없습니다. `score_gap × regime × rank × remaining`에 따라 1.2~1.9 사이를 선택하게 할 수 있습니다. 단 평균 Sharpe가 아니라 `P(win)` 기준으로 결정해야 합니다.
-6. **selection-aware nested walk-forward를 다시 구성.** outer fold 안에서는 모델/파라미터 선택을 절대 하지 말고, inner fold에서 P26/P27 후보 선택까지 전부 수행한 뒤 outer에 딱 한 번 적용해야 합니다. 현재의 bootstrap CI만으로 P20~P26 반복 선택 bias가 없어지지는 않습니다.
-7. **9월 17~18일 실제 HTS manifest를 받은 뒤 마지막 execution parity test.** 현재 `universe_manifest=null`이고 exact HTS 종목 리스트가 아직 확정되지 않았습니다.  이때만 최종 universe와 주문 체결 특성을 동결해야 합니다.
-
----
-
-## 최종 판단
-
-현재 저는 **P26 alpha 자체는 버리지 않겠습니다.**
-
-오히려 다음 개발의 anchor로 두겠습니다.
-
-다만 **`P26 = 최종 실전전략`으로 승격하지는 않겠습니다.**
-
-특히 지금은:
+그래서 실제 최적화 목적은
 
 $$
 \boxed{
-\text{새 알파 탐색}
-<
-\text{목적함수 수정}
-+
-\text{fixed lock 제거/개선}
-+
-\text{rank-aware control}
-+
-\text{inverse branch}
-+
-\text{selection-aware validation}
+J_{\rm robust}
+=
+LCB_{95\%}(E[u(R)])
 }
 $$
 
-순으로 중요합니다.
+를 추천합니다.
 
-한 문장으로 정리하면:
+즉 평균 championship utility가 아니라 **block bootstrap의 하단 신뢰한계**를 최대화합니다.
 
-> **현재 P26은 “가끔 우승권 수익률을 만드는 전략”까지는 왔지만, “1000명 안팎의 경쟁자 중 단 한 번의 36일 실전에서 1등 할 확률을 최대화한 전략”은 아직 아닙니다.**
+그리고 ruin은 목적함수에 섞지 않고 hard constraint로 유지합니다.
 
-특히 repo에 기록된 `P>50%=5.3%`는 분명 긍정적인 신호지만, **우승확률 5.3%가 아니며**, 현재 최종 championship gate가 FAIL이라는 점을 무시하면 안 됩니다. 다음 P27은 알파를 한두 개 더 붙이는 버전이 아니라 **`True Win-Probability Objective + Dynamic Tournament Policy`**로 잡는 것을 권합니다.
+예:
 
-원한다면 다음 답변에서는 이 분석을 바탕으로 **P27 개발 명세를 코드 수준으로 설계해서, AI 코딩 에이전트에게 그대로 전달할 수 있는 구현 지시서**까지 만들어드릴 수 있습니다.
+$$
+P(R<-25\%) \le 5\%
+$$
 
-대회 직전에는 HTS 종목 목록과 규칙 확정 여부를 다시 확인하는 것이 필요합니다.
+또는 최소한
 
-[1]: https://www.mt.co.kr/etf/join/index.html?utm_source=chatgpt.com
-[2]: https://www.mt.co.kr/stock/2025/11/19/2025111814504029132?utm_source=chatgpt.com
-[3]: https://www.mt.co.kr/stock/2025/10/25/2025102418201958573?utm_source=chatgpt.com
-[4]: https://www.mt.co.kr/stock/2025/11/02/2025110210422182221?utm_source=chatgpt.com
-[5]: https://www.mt.co.kr/stock/2025/11/09/2025110718053119988?utm_source=chatgpt.com
-[6]: https://www.mt.co.kr/amp/stock/2026/08/14/2026081416135978575?utm_source=chatgpt.com
+$$
+P_{candidate}(R<-25)
+\le
+P_{incumbent}(R<-25)+\epsilon
+$$
+
+을 사용합니다.
+
+결국:
+
+```text
+maximize:
+    bootstrap_LCB(championship_utility)
+
+subject to:
+    ruin constraint
+    execution invariant
+    gross invariant
+    tail non-inferiority
+```
+
+가 됩니다.
+
+이 방식이 현재 championship score보다 **견고성 측면에서 한 단계 낫습니다.**
+
+---
+
+# 11. n_effective=58보다 더 중요한 진단을 하나 추가해야 한다
+
+현재:
+
+```text
+2090 rolling windows
+P>50 = 5.3%
+```
+
+면 raw count 기준으로 약 110개 정도의 +50% window가 존재합니다.
+
+그런데 36일 rolling은 35일이 겹칩니다.
+
+즉 이 110개가 정말 110개의 성공 사례인지,
+
+아니면
+
+```text
+강한 상승장 1
+강한 상승장 2
+강한 상승장 3
+```
+
+에서 연속된 수십 개 window가 발생한 것인지가 매우 중요합니다.
+
+## `tail_episode_report`를 추가하는 것을 강하게 권합니다
+
+예:
+
+```text
+threshold = 50%
+
+raw exceedance windows: 111
+independent tail episodes: ?
+years represented: ?
+max episode concentration: ?
+top-1 episode share: ?
+top-3 episode share: ?
+```
+
+연속된 threshold exceedance window를 하나의 episode로 묶습니다.
+
+더 엄격하게는 start date 간격이 36 sessions 이내면 같은 episode로 묶어도 됩니다.
+
+### 이상적인 모습
+
+```text
+P>50 = 5%
+tail episodes = 10
+여러 시기에 분산
+```
+
+### 위험한 모습
+
+```text
+P>50 = 5%
+tail episodes = 3
+그중 70%가 2025 한 번
+```
+
+후자라면 5.3%라는 숫자는 실제보다 훨씬 강해 보이는 것입니다.
+
+**다음 분석에서 저는 이 지표를 매우 중요하게 보겠습니다.**
+
+---
+
+# 12. parameter stability도 지금부터는 필수다
+
+P27은 이미 P20→P27까지 동일 데이터에서 반복적으로 발전했습니다.
+
+따라서 단순히 P28이 0.064 → 0.068이 됐다고 채택하면 안 됩니다.
+
+P27 주변을 확인해야 합니다.
+
+예:
+
+```text
+mom horizon:
+40 50 60 70 80
+
+min_gap:
+0.00 0.02 0.04 0.06 0.08
+
+min_hold:
+0 1 2 3 5
+
+weight:
+0.80 0.85 0.90 0.95
+```
+
+다만 전체 Cartesian grid에서 최고 하나를 선택하면 또 과적합합니다.
+
+찾아야 하는 건 **peak가 아니라 plateau**입니다.
+
+예를 들어:
+
+```text
+mom50 = .061
+mom60 = .064
+mom70 = .062
+```
+
+면 좋습니다.
+
+반대로:
+
+```text
+mom50 = .043
+mom60 = .064
+mom70 = .039
+```
+
+면 P27은 매우 취약합니다.
+
+### 따라서 새 지표
+
+```text
+parameter_neighborhood_median
+parameter_neighborhood_q25
+parameter_neighborhood_worst
+```
+
+를 추가하십시오.
+
+P27 자체 성능보다 **P27 근처에서도 비슷하게 작동하는가**가 훨씬 중요해졌습니다.
+
+---
+
+# 13. Era gate도 이미 있는데 P27에서 사용하지 않고 있다
+
+`evaluate_championship_adoption()`에는 era별 비교 기능이 이미 있습니다.
+
+하지만 P27에서는:
+
+```python
+era_pairs=None
+```
+
+으로 호출합니다.
+
+따라서 현재 PASS에는 temporal robustness가 들어가지 않습니다.
+
+고정된 구간을 사전에 정해서 넣는 것이 좋습니다.
+
+예:
+
+```text
+2018-2020
+2021-2023
+2024-2026
+```
+
+여기서 매번 이기라는 뜻은 아닙니다.
+
+최소한:
+
+```text
+global PASS
++
+어느 한 era에서 catastrophic deterioration 없음
+```
+
+정도를 확인해야 합니다.
+
+구간을 결과를 보고 바꾸면 안 됩니다.
+
+---
+
+# 14. 우선순위를 다시 매기면
+
+지금은 다음 순서가 맞습니다.
+
+| 순위        | 작업                                                     |            중요도 |
+| ----------- | -------------------------------------------------------- | ----------------: |
+| **1** | StickyLeader path-dependent rolling 수정                 |  **최우선** |
+| **2** | annual one-shot을 fresh portfolio run으로 수정           |  **최우선** |
+| **3** | P21/P26/P27 모두 동일 independent-window 방식으로 재평가 |  **최우선** |
+| **4** | P27→P26 직접 paired promotion gate                      |              높음 |
+| **5** | tail episode concentration 분석                          |              높음 |
+| **6** | continuous championship utility + bootstrap LCB          |              높음 |
+| **7** | parameter plateau 검사                                   |              높음 |
+| **8** | `top_mom60 > 0` cash 후보 실험                         |              높음 |
+| 9           | era robustness wiring                                    |              중상 |
+| 10          | inverse / 복잡한 dynamic policy                          | **그 이후** |
+
+---
+
+# 최종 평가
+
+P26 때보다 평가는 올라갔습니다.
+
+### 제가 보는 현재 상태
+
+**P27 설계 방향:** `A-`
+
+* P26 late-lock 제거: 맞음
+* raw right-tail 유지: 맞음
+* gross 1.90 제한: 합리적
+* 별도 field/oneshot diagnostic 추가: 방향 좋음
+* 복잡한 새 알파를 무작정 추가하지 않은 것: 좋음
+
+하지만
+
+**P27 성과 검증 신뢰도:** 현재 `C+`
+
+입니다.
+
+가장 큰 이유는 **StickyLeader의 상태의존성을 rolling/one-shot 평가가 정확히 반영하지 못할 가능성**입니다.
+
+이것부터 고친 후에도
+
+```text
+P>50 ≈ 5%
+P>60 ≈ 4%
+ruin ≈ 4~5%
+q99 ≈ 90%
+```
+
+가 비슷하게 유지된다면 그때는 P27을 상당히 강한 base champion으로 평가하겠습니다.
+
+그리고 그 다음 로직 개선은 복잡한 inverse나 ML이 아니라:
+
+$$
+\boxed{
+\text{P27} + \text{simple absolute-momentum no-edge gate}
+}
+$$
+
+를 제일 먼저 검증하겠습니다.
+
+특히 코드상 현재 **모든 +2x 후보가 음수 momentum이어도 95%를 투자하는 구조**는 P27에서 제가 가장 먼저 공격해볼 알파 레벨 약점입니다.
+
+그리고 목적함수는 `championship_score`를 없애기보다 **진단지표로 유지하고, 실제 모델 선택은 bounded continuous tail utility의 block-bootstrap LCB로 옮기는 것**이 지금 단계에서 가장 견고한 방향이라고 판단합니다.
