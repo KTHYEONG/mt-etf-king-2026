@@ -47,6 +47,7 @@ def oneshot_independent_window_returns(
     starts: Sequence[date],
     horizon: int,
     calendar: TradingCalendar,
+    session_cache: object | None = None,
 ) -> tuple[tuple[int, date, float], ...]:
     if not starts or horizon <= 0:
         return ()
@@ -65,10 +66,14 @@ def oneshot_independent_window_returns(
     idx_map: dict[date, int] = {s: i for i, s in enumerate(sessions)}
     # build cache once - wiring anchor
     _ = build_session_cache
-    try:
-        cache = build_session_cache(engine, model, panel, config)
-    except Exception:
-        cache = None
+    _ = session_cache
+    if session_cache is not None:
+        cache = session_cache
+    else:
+        try:
+            cache = build_session_cache(engine, model, panel, config)
+        except Exception:
+            cache = None
     if cache is None:
         return ()
     # also support calendar.sessions(start, config.end) fallback if needed but spec says skip not in sessions
