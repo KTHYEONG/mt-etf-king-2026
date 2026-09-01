@@ -22,6 +22,12 @@ from src.features.regime import RegimeSnapshot
 from pathlib import Path
 
 from src.backtest.pnl import compute_next_open_session_return
+from src.execution.ledger import (
+    PortfolioLedgerState,
+    ledger_state_from_weights,
+    resolve_session_intent,
+    transition_portfolio_state,
+)
 from src.portfolio.constraints import apply_portfolio_exposure_limits, load_portfolio_exposure_limits, normalize_weights
 from src.portfolio.intent import CASH_INTENT, HOLD_INTENT, PortfolioIntent, resolve_portfolio_intent
 from src.portfolio.policy import PortfolioPolicy
@@ -57,7 +63,7 @@ class BacktestConfig:
     costs: CostConfig
 
 
-def build_execution_adv(engine: BacktestEngine, tickers: list[str] | set[str] | tuple[str, ...], execution_date: date) -> dict[str, float]:
+def build_execution_adv(engine: BacktestEngine, tickers: list[str] | set[str] | tuple[str, ...], decision_date: date) -> dict[str, float]:
     from collections.abc import Iterable as _Iterable
 
     adv: dict[str, float] = {}
@@ -82,7 +88,7 @@ def build_execution_adv(engine: BacktestEngine, tickers: list[str] | set[str] | 
         pass
     for ticker in all_tickers:
         try:
-            adv_val = engine.universe.adv(str(ticker), execution_date)
+            adv_val = engine.universe.adv(str(ticker), decision_date)
             if adv_val is not None:
                 adv[str(ticker)] = float(adv_val)
         except Exception:
@@ -274,50 +280,80 @@ class BacktestEngine:
         equity = float(config.capital)
         prev_equity = equity
         current_weights: dict[str, float] = {}
-        pending_execution: tuple[list[Fill], float, dict[str, float]] | None = None
-        prev_after_weights: dict[str, float] = {}
+        ledger_state = ledger_state_from_weights(
+            equity=float(config.capital),
+            weights={},
+            mark_prices=close_map.get(sessions[0], {}) if sessions and isinstance(close_map, dict) else {},
+        )
+        pending_intent = HOLD_INTENT
         filt = config.filters
 
         for idx, decision_date in enumerate(sessions):
-            equity_start = prev_equity
-            if pending_execution is not None:
-                _fills, turnover_weight, new_weights = pending_execution
-                traded_notional = turnover_weight * equity_start
-                cost = cost_model.charge(traded_notional) if traded_notional else 0.0
-                equity_start -= cost
-                # handle cash intent: new_weights {} should clear holdings
-                # pending new_weights may be {} for cash liquidation
-                if new_weights is not None:
-                    if len(new_weights) == 0 and current_weights:
-                        # cash liquidation pending: clear
-                        current_weights = {}
-                    elif new_weights:
-                        current_weights = dict(new_weights)
-                pending_execution = None
-
             if idx > 0:
                 prev_date = sessions[idx - 1]
-                cur_closes = close_map.get(decision_date, {}) if isinstance(close_map, dict) else {}
                 prev_closes = close_map.get(prev_date, {}) if isinstance(close_map, dict) else {}
-                opens = open_map.get(decision_date, {}) if isinstance(open_map, dict) else {}
-                try:
-                    _, _, _eff = compute_next_open_session_return(
-                        weights_before_open=prev_after_weights,
-                        weights_after_open=dict(current_weights),
-                        prev_closes=prev_closes,
-                        opens=opens,
-                        closes=cur_closes,
+                opens_today = open_map.get(decision_date, {}) if isinstance(open_map, dict) else {}
+                cur_closes = close_map.get(decision_date, {}) if isinstance(close_map, dict) else {}
+                adv_map_transition: dict[str, float] = {}
+                for ticker in set(ledger_state.shares.keys()) | set(pending_intent.weights.keys()):
+                    adv_val = self.universe.adv(str(ticker), prev_date)
+                    if adv_val is not None:
+                        adv_map_transition[str(ticker)] = float(adv_val)
+                limits = self._portfolio_exposure_limits()
+                multiples = self._leverage_multiples(set(ledger_state.shares.keys()) | set(pending_intent.weights.keys()))
+                transition_result = transition_portfolio_state(
+                    prior_state=ledger_state,
+                    intent=pending_intent,
+                    decision_date=prev_date,
+                    prev_closes=prev_closes,
+                    opens=opens_today,
+                    closes=cur_closes,
+                    cost_model=cost_model,
+                    adv_by_ticker=adv_map_transition,
+                    max_order_to_adv=float(filt.max_order_to_adv),
+                    exposure_limits=limits,
+                    leverage_multiples=multiples,
+                    execution=self.execution,
+                    panel=panel,
+                )
+                ledger_state = transition_result.state
+                equity = float(transition_result.equity_close)
+                daily_ret = float(transition_result.session_return)
+                current_weights = dict(transition_result.weights_after_close)
+                if pending_intent.kind == "cash" or transition_result.diagnostics.turnover_weight > 0:
+                    try:
+                        execution_date = self.calendar.next_session(prev_date)
+                    except Exception:
+                        execution_date = decision_date
+                    tickers_for_trade = sorted(
+                        set(transition_result.weights_after_close.keys())
+                        | {k for k, v in pending_intent.weights.items() if v}
                     )
-                    daily_ret = float(_eff)
-                except Exception:
-                    daily_ret = 0.0
+                    if pending_intent.kind == "cash":
+                        tickers_for_trade = sorted(set(tickers_for_trade) | set(ledger_state.shares.keys()))
+                    for ticker in tickers_for_trade:
+                        w_after = float(transition_result.weights_after_close.get(ticker, 0.0))
+                        if pending_intent.kind != "cash" and abs(w_after) < 1e-12:
+                            continue
+                        trades_records.append(
+                            {
+                                "decision_date": prev_date,
+                                "execution_date": execution_date,
+                                "ticker": ticker,
+                                "side": "SELL" if pending_intent.kind == "cash" else "BUY",
+                                "weight_before": 0.0,
+                                "weight_after": w_after,
+                                "delta_weight": w_after,
+                                "weight": w_after,
+                                "price": opens_today.get(ticker),
+                            }
+                        )
             else:
                 daily_ret = 0.0
-
-            equity = equity_start * (1.0 + daily_ret)
-            if equity < 0:
-                equity = 0.0
+                equity = float(config.capital)
+                current_weights = {}
             effective_ret = (equity / prev_equity - 1.0) if prev_equity != 0 else 0.0
+            equity_start = equity
             daily_rows.append(
                 {
                     "date": decision_date,
@@ -327,7 +363,6 @@ class BacktestEngine:
                 }
             )
             prev_equity = equity
-            prev_after_weights = dict(current_weights)
 
             snap_universe = self.universe.get(decision_date, filt)
             snapshot_exc: Exception | None = None
@@ -467,19 +502,13 @@ class BacktestEngine:
                         _ = "theme_states="
                     except Exception:
                         theme_states = None
-                    # Build execution-date ADV for capacity-aware routing (wiring)
+                    # Build execution-date ADV for capacity-aware routing (wiring) - PIT uses decision_date
                     execution_adv: dict[str, float] | None = None
                     try:
-                        execution_date_tmp = self.calendar.next_session(decision_date)
+                        tickers_for_adv = list(scores.keys()) if scores else []
+                        execution_adv = build_execution_adv(self, tickers_for_adv, decision_date)
                     except Exception:
-                        execution_date_tmp = None
-                    if execution_date_tmp is not None:
-                        try:
-                            # source tickers are scores keys
-                            tickers_for_adv = list(scores.keys()) if scores else []
-                            execution_adv = build_execution_adv(self, tickers_for_adv, execution_date_tmp)
-                        except Exception:
-                            execution_adv = None
+                        execution_adv = None
                     # PortfolioPolicy path: model.allocate with regime and leverage_allowed and theme_states
                     try:
                         alloc = model.allocate(
@@ -626,7 +655,7 @@ class BacktestEngine:
                 if not is_cash and target:
                     adv_map: dict[str, float] = {}
                     for ticker in set(target.keys()) | set(current_weights.keys()):
-                        adv_val = self.universe.adv(str(ticker), execution_date)
+                        adv_val = self.universe.adv(str(ticker), decision_date)
                         if adv_val is not None:
                             adv_map[str(ticker)] = float(adv_val)
                     if adv_map:
@@ -700,10 +729,15 @@ class BacktestEngine:
                             "price": price_by_ticker.get(ticker),
                         }
                     )
-            all_tickers = set(current_weights.keys()) | set(new_weights.keys())
-            turnover_weight = sum(abs(new_weights.get(t, 0.0) - current_weights.get(t, 0.0)) for t in all_tickers)
-            if fills:
-                pending_execution = (fills, turnover_weight, new_weights)
+            try:
+                pending_intent = intent
+            except Exception:
+                pending_intent = resolve_session_intent(
+                    score_result=scores,
+                    alloc_result=alloc_result,
+                    current_weights=current_weights,
+                    score_failed=bool(score_exc is not None or (not scores_is_intent and not scores) or allocate_failed),
+                )
 
             # Trace emission per session (only when enabled)
             if sink.enabled:

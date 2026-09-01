@@ -16,7 +16,14 @@ from src.backtest.metrics import compound_returns, max_drawdown, peak_to_final_g
 from src.backtest.pnl import compute_next_open_session_return
 from src.backtest.session_cache import build_session_cache
 from src.core.calendar import TradingCalendar
-from src.portfolio.constraints import apply_portfolio_exposure_limits, normalize_weights
+from src.execution.ledger import (
+    PortfolioLedgerState,
+    SessionTransitionDiagnostics,
+    aggregate_session_diagnostics,
+    ledger_state_from_weights,
+    transition_portfolio_state,
+)
+from src.portfolio.intent import HOLD_INTENT, resolve_portfolio_intent
 from src.portfolio.policy import PathDependentPolicyError
 from src.portfolio.sizing import SizingScheme, weights_from_scores
 
@@ -140,6 +147,7 @@ def simulate_window_from_cache(
     exposure_limits: tuple[float, float, float] | None = None,
     leverage_multiples_for: Callable[[set[str]], dict[str, int]] | None = None,
     return_daily_path: bool = False,
+    session_diagnostics_out: list[SessionTransitionDiagnostics] | None = None,
 ) -> tuple[float, float, float] | tuple[float, float, float, tuple[float, ...]]:
     # Lightweight per-window PnL without panel scans (INV-PERF-1, INV-PERF-4)
     # Uses precomputed scores/close_map; allocate is the only path-dependent work.
@@ -147,7 +155,6 @@ def simulate_window_from_cache(
     from src.backtest.session_cache import build_session_cache as _bsc_ref  # noqa: F401
 
     _ = _bsc_ref
-    # cache.rules leverage_allowed
     dates = getattr(cache, "dates", ())
     close_map = getattr(cache, "close_map", {})
     scores_map = getattr(cache, "scores", {})
@@ -200,342 +207,180 @@ def simulate_window_from_cache(
 
     scores_path_independent = bool(getattr(model, "scores_path_independent", True))
 
+    ledger_state = ledger_state_from_weights(
+        equity=float(capital),
+        weights={},
+        mark_prices=close_map.get(window_dates[0], {}) if window_dates and isinstance(close_map, dict) else {},
+    )
+    pending_intent = HOLD_INTENT
     current_weights: dict[str, float] = {}
-    pending: tuple[list[object], float, dict[str, float]] | None = None
-
-    equity = float(capital)
-    prev_equity = equity
     daily_rets: list[float] = []
-    equity_series: list[float] = []
-    prev_after_weights: dict[str, float] = {}
 
     for idx, decision_date in enumerate(window_dates):
-        equity_start = prev_equity
-        if pending is not None:
-            _, turnover_weight, new_weights = pending
-            traded_notional = float(turnover_weight) * float(equity_start)
-            try:
-                cost = cost_model.charge(traded_notional) if traded_notional else 0.0
-            except Exception:
-                cost = 0.0
-            equity_start -= float(cost)
-            if new_weights:
-                current_weights = dict(new_weights)
-            else:
-                # cash intent case: new_weights empty means liquidate -> current cleared
-                # pending with empty new_weights indicates cash; clear holdings
-                if pending is not None and isinstance(new_weights, dict) and len(new_weights) == 0:
-                    current_weights = {}
-            pending = None
-
         if idx > 0:
             prev_date = window_dates[idx - 1]
-            cur_closes_h = close_map.get(decision_date, {}) if isinstance(close_map, dict) else {}
-            prev_closes_h = close_map.get(prev_date, {}) if isinstance(close_map, dict) else {}
-            opens_h: dict[str, float] = {}
-            try:
-                om = open_map if isinstance(open_map, dict) else {}
-                opens_h = om.get(decision_date, {}) if isinstance(om, dict) else {}
-                if opens_h is None:
-                    opens_h = {}
-            except Exception:
-                opens_h = {}
-            try:
-                _, _, effective_r = compute_next_open_session_return(
-                    weights_before_open=prev_after_weights,
-                    weights_after_open=dict(current_weights),
-                    prev_closes=prev_closes_h,
-                    opens=opens_h,
-                    closes=cur_closes_h,
-                )
-            except Exception:
-                effective_r = 0.0
-            daily_ret = float(effective_r)
+            prev_closes = close_map.get(prev_date, {}) if isinstance(close_map, dict) else {}
+            opens_today: dict[str, float] = {}
+            if isinstance(open_map, dict):
+                opens_today = open_map.get(decision_date, {}) or {}
+            closes_today = close_map.get(decision_date, {}) if isinstance(close_map, dict) else {}
+            adv_by_ticker: dict[str, float] = {}
+            if isinstance(adv_global, dict):
+                dmap = adv_global.get(prev_date, {})
+                if isinstance(dmap, dict):
+                    adv_by_ticker = {str(k): float(v) for k, v in dmap.items()}
+            leverage_multiples: dict[str, int] = {}
+            if leverage_multiples_for is not None:
+                tickers_for_mult = set(ledger_state.shares.keys()) | set(pending_intent.weights.keys())
+                if tickers_for_mult:
+                    leverage_multiples = leverage_multiples_for(tickers_for_mult)
+            result = transition_portfolio_state(
+                prior_state=ledger_state,
+                intent=pending_intent,
+                decision_date=prev_date,
+                prev_closes=prev_closes,
+                opens=opens_today,
+                closes=closes_today,
+                cost_model=cost_model,
+                adv_by_ticker=adv_by_ticker,
+                max_order_to_adv=float(max_order_to_adv),
+                exposure_limits=exposure_limits,
+                leverage_multiples=leverage_multiples,
+                execution=execution if execution is not None and hasattr(execution, "resolve") else None,
+                panel=panel,
+            )
+            ledger_state = result.state
+            current_weights = dict(result.weights_after_close)
+            daily_rets.append(float(result.session_return))
+            if session_diagnostics_out is not None:
+                session_diagnostics_out.append(result.diagnostics)
         else:
-            daily_ret = 0.0
-        equity = float(equity_start) * (1.0 + float(daily_ret))
-        if equity < 0:
-            equity = 0.0
-        effective_ret = (equity / prev_equity - 1.0) if prev_equity != 0 else 0.0
-        daily_rets.append(float(effective_ret))
-        equity_series.append(float(equity))
-        prev_equity = float(equity)
-        prev_after_weights = dict(current_weights)
+            daily_rets.append(0.0)
 
-        # allocate for next day - branch on scores_path_independent
+        # resolve intent at decision_date close for next session open
+        score_result: object = {}
+        score_failed = False
         if scores_path_independent:
             scores = scores_map.get(decision_date, {}) if isinstance(scores_map, dict) else {}
             if scores is None:
                 scores = {}
+            score_result = scores
+            score_failed = not bool(scores)
         else:
-            # live scoring path
-            # (1) snapshot = cache.snapshots.get(decision_date) or empty DataFrame fail-closed
             try:
                 snapshots = getattr(cache, "snapshots", {})
-                if isinstance(snapshots, dict):
-                    snapshot = snapshots.get(decision_date)
-                else:
-                    snapshot = None
+                snapshot = snapshots.get(decision_date) if isinstance(snapshots, dict) else None
                 if snapshot is None:
                     snapshot = pl.DataFrame()
                 if not isinstance(snapshot, pl.DataFrame):
-                    try:
-                        snapshot = pl.DataFrame(snapshot)  # type: ignore[arg-type]
-                    except Exception:
-                        snapshot = pl.DataFrame()
+                    snapshot = pl.DataFrame(snapshot)  # type: ignore[arg-type]
             except Exception:
                 snapshot = pl.DataFrame()
-            # (2) build DecisionContext
             try:
                 regimes = getattr(cache, "regimes", None)
-                regime_val = None
-                if isinstance(regimes, dict):
-                    regime_val = regimes.get(decision_date)
-                elif regimes is not None:
-                    try:
-                        regime_val = regimes.get(decision_date)  # type: ignore[union-attr]
-                    except Exception:
-                        regime_val = None
+                regime_val = regimes.get(decision_date) if isinstance(regimes, dict) else None
                 rules_val = getattr(cache, "rules", None)
+                equity_for_ctx = ledger_state.equity_at_prices(
+                    close_map.get(decision_date, {}) if isinstance(close_map, dict) else {}
+                )
                 ctx = DecisionContext(
                     decision_date=decision_date,
                     regime=regime_val,
-                    capital=float(equity_start),
+                    capital=float(equity_for_ctx),
                     held=dict(current_weights),
                     rules=rules_val,  # type: ignore[arg-type]
                 )
             except Exception:
-                # fail-closed: try with minimal ctx
-                try:
-                    ctx = DecisionContext(
-                        decision_date=decision_date,
-                        regime=None,
-                        capital=float(equity_start),
-                        held=dict(current_weights),
-                        rules=getattr(cache, "rules", None),  # type: ignore[arg-type]
-                    )
-                except Exception:
-                    ctx = None  # type: ignore[assignment]
-            # (3) scores = model.score(snapshot, ctx) with fail-closed {} on exception
-            try:
-                if ctx is not None:
-                    sc = model.score(snapshot, ctx)  # type: ignore[call-arg]
-                else:
-                    sc = {}
-            except Exception:
-                sc = {}
-            if sc is None:
-                scores = {}
-            else:
-                try:
-                    scores = {str(k): float(v) for k, v in dict(sc).items()}
-                except Exception:
-                    scores = {}
-            # ensure scores variable is defined for wiring check
-            _ = model.score(snapshot, ctx) if False else None  # noqa: F401
-
-        # fail-closed empty scores -> empty weights
-        raw_weights: dict[str, float] = {}
-        if hasattr(model, "allocate") and callable(getattr(model, "allocate", None)):  # noqa: B009
-            try:
-                regime_str = None
-                lev_allowed = None
-                inv_allowed = None
-                try:
-                    cache_regimes = getattr(cache, "regimes", None)
-                    if cache_regimes is not None and isinstance(cache_regimes, dict):
-                        rs = cache_regimes.get(decision_date)
-                        if rs is not None:
-                            regime_str = str(getattr(getattr(rs, "state", rs), "value", str(rs)))
-                    cache_rules = getattr(cache, "rules", None)
-                    if cache_rules is not None:
-                        from src.universe.tournament import UNKNOWN as _UNK
-
-                        la = getattr(cache_rules, "leverage_allowed", None)
-                        if la is _UNK or (isinstance(la, str) and la.lower() == "unknown"):
-                            lev_allowed = None
-                        elif isinstance(la, bool):
-                            lev_allowed = bool(la)
-                        elif la is None:
-                            lev_allowed = None
-                        else:
-                            lev_allowed = bool(la) if str(la) != "UNKNOWN" else None
-                        ia = getattr(cache_rules, "inverse_allowed", None)
-                        if ia is _UNK or (isinstance(ia, str) and ia.lower() == "unknown"):
-                            inv_allowed = None
-                        elif isinstance(ia, bool):
-                            inv_allowed = bool(ia)
-                        elif ia is None:
-                            inv_allowed = None
-                        else:
-                            inv_allowed = bool(ia) if str(ia) != "UNKNOWN" else None
-                except Exception:
-                    pass
-                exec_adv_sim: dict[str, float] | None = None
-                try:
-                    _ = adv_global
-                    if isinstance(adv_global, dict) and window_dates:
-                        idx_tmp = window_dates.index(decision_date) if decision_date in window_dates else -1
-                        if idx_tmp >= 0 and idx_tmp + 1 < len(window_dates):
-                            exec_date_tmp = window_dates[idx_tmp + 1]
-                            dmap = adv_global.get(exec_date_tmp, {}) if isinstance(adv_global, dict) else {}
-                            if isinstance(dmap, dict):
-                                exec_adv_sim = {str(k): float(v) for k, v in dmap.items()}
-                except Exception:
-                    exec_adv_sim = None
-                try:
-                    _part = float(max_order_to_adv)
-                except Exception:
-                    _part = 0.01
-                try:
-                    alloc = model.allocate(
-                        scores,
-                        regime=regime_str,
-                        leverage_allowed=lev_allowed,
-                        inverse_allowed=inv_allowed,
-                        capital=float(equity_start),
-                        adv=exec_adv_sim,
-                        participation=_part,
-                        current_weights=current_weights,
-                    )  # type: ignore[union-attr]
-                    _ = "leverage_allowed"
-                    _ = "current_weights=current_weights"
-                    _ = adv_global
-                except TypeError:
-                    try:
-                        alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)  # type: ignore[union-attr]
-                        _ = "leverage_allowed"
-                    except TypeError:
-                        alloc = model.allocate(scores)  # type: ignore[union-attr]
-                if hasattr(alloc, "weights"):
-                    raw_weights = dict(getattr(alloc, "weights"))  # noqa: B009
-                elif isinstance(alloc, dict):
-                    raw_weights = dict(alloc)
-                else:
-                    raw_weights = {}
-                _ = model.allocate  # wiring anchor
-            except Exception:
-                raw_weights = {}
-        else:
-            try:
-                raw_weights = weights_from_scores(scores, scheme, k)
-            except Exception:
-                raw_weights = {}
-            _ = weights_from_scores
-
-        try:
-            target = normalize_weights(raw_weights, max_weight=max_position_weight)
-        except Exception:
-            target = {}
-
-        # exposure limits before ADV cap
-        if exposure_limits is not None and target:
-            try:
-                max_single, max_gross, min_cash = exposure_limits
-                if leverage_multiples_for is not None:
-                    multiples = leverage_multiples_for(set(target.keys()))
-                else:
-                    multiples = {str(t): 1 for t in target.keys()}
-                target = apply_portfolio_exposure_limits(
-                    target,
-                    multiples,
-                    max_single_weight=float(max_single),
-                    max_gross_exposure=float(max_gross),
-                    min_cash=float(min_cash),
+                ctx = DecisionContext(
+                    decision_date=decision_date,
+                    regime=None,
+                    capital=float(capital),
+                    held=dict(current_weights),
+                    rules=getattr(cache, "rules", None),  # type: ignore[arg-type]
                 )
+            try:
+                score_result = model.score(snapshot, ctx)  # type: ignore[call-arg]
             except Exception:
-                pass
+                score_result = {}
+                score_failed = True
+            if score_result is None:
+                score_result = {}
+                score_failed = True
 
-        # adv cap using cached adv for execution date
-        execution_date = window_dates[idx + 1] if idx + 1 < len(window_dates) else None
-        if execution_date is not None and target:
-            adv_map: dict[str, float] = {}
-            tickers_union = set(target.keys()) | set(current_weights.keys())
-            for tk in tickers_union:
-                adv_val = None
-                if isinstance(adv_global, dict):
-                    dmap = adv_global.get(execution_date, {})
-                    if isinstance(dmap, dict):
-                        adv_val = dmap.get(str(tk))
-                if adv_val is not None:
+        alloc_result: object | None = None
+        if not score_failed:
+            try:
+                from src.portfolio.intent import PortfolioIntent as _PI
+
+                if isinstance(score_result, _PI):
+                    alloc_result = None
+                elif hasattr(model, "allocate") and callable(getattr(model, "allocate", None)):  # noqa: B009
+                    regime_str = None
+                    lev_allowed = None
+                    inv_allowed = None
                     try:
-                        adv_map[str(tk)] = float(adv_val)
+                        cache_regimes = getattr(cache, "regimes", None)
+                        if cache_regimes is not None and isinstance(cache_regimes, dict):
+                            rs = cache_regimes.get(decision_date)
+                            if rs is not None:
+                                regime_str = str(getattr(getattr(rs, "state", rs), "value", str(rs)))
+                        cache_rules = getattr(cache, "rules", None)
+                        if cache_rules is not None:
+                            from src.universe.tournament import UNKNOWN as _UNK
+
+                            la = getattr(cache_rules, "leverage_allowed", None)
+                            lev_allowed = None if la is _UNK else bool(la) if isinstance(la, bool) else None
+                            ia = getattr(cache_rules, "inverse_allowed", None)
+                            inv_allowed = None if ia is _UNK else bool(ia) if isinstance(ia, bool) else None
                     except Exception:
                         pass
-            if adv_map:
-                try:
-                    target = cap_target_weights_by_adv(
-                        target,
-                        current_weights,
-                        float(equity_start),
-                        adv_map,
-                        float(max_order_to_adv),
-                    )
-                except Exception:
-                    pass
-
-        # execution fill: mirror BacktestEngine via NextOpenExecution when available
-        fills: list[object] = []
-        new_weights: dict[str, float] = {}
-        if target and execution is not None and panel is not None and hasattr(execution, "resolve"):
-            try:
-                fill_list, unfilled = execution.resolve(target, panel, decision_date)  # type: ignore[union-attr]
-                new_weights = {f.ticker: float(f.target_weight) for f in fill_list}
-                fills = list(fill_list)
-                _ = unfilled
-            except Exception:
-                new_weights = {}
-                fills = []
-        elif target:
-            if open_map is not None and isinstance(open_map, dict) and execution_date is not None:
-                exec_opens = open_map.get(execution_date, {}) if isinstance(open_map, dict) else {}
-                for tk, w in target.items():
-                    tstr = str(tk)
-                    price = exec_opens.get(tstr) if isinstance(exec_opens, dict) else None
-                    if price is None:
-                        continue
+                    exec_adv_sim: dict[str, float] | None = None
+                    if isinstance(adv_global, dict):
+                        dmap = adv_global.get(decision_date, {})
+                        if isinstance(dmap, dict):
+                            exec_adv_sim = {str(k): float(v) for k, v in dmap.items()}
+                    scores_for_alloc: dict[str, float] = {}
+                    if isinstance(score_result, dict):
+                        scores_for_alloc = {str(k): float(v) for k, v in score_result.items()}
                     try:
-                        pf = float(price)
-                        if pf != pf or pf <= 0:
-                            continue
-                    except Exception:
-                        continue
-                    new_weights[tstr] = float(w)
-                fills = [object() for _ in new_weights]
-            else:
-                new_weights = {str(k): float(v) for k, v in target.items()}
-                fills = [object() for _ in new_weights]
+                        alloc_result = model.allocate(
+                            scores_for_alloc,
+                            regime=regime_str,
+                            leverage_allowed=lev_allowed,
+                            inverse_allowed=inv_allowed,
+                            capital=float(ledger_state.equity_at_prices(close_map.get(decision_date, {}) if isinstance(close_map, dict) else {})),
+                            adv=exec_adv_sim,
+                            participation=float(max_order_to_adv),
+                            current_weights=current_weights,
+                        )  # type: ignore[union-attr]
+                    except TypeError:
+                        try:
+                            alloc_result = model.allocate(scores_for_alloc, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)  # type: ignore[union-attr]
+                        except TypeError:
+                            alloc_result = model.allocate(scores_for_alloc)  # type: ignore[union-attr]
+                elif isinstance(score_result, dict):
+                    from src.portfolio.sizing import weights_from_scores as _wfs
 
-        # post-fill collapse via exposure limits (mirrors BacktestEngine.run)
-        if exposure_limits is not None and new_weights:
-            try:
-                max_single2, max_gross2, min_cash2 = exposure_limits
-                holdings: dict[str, float] = dict(current_weights)
-                for tk, w in new_weights.items():
-                    holdings[str(tk)] = float(w)
-                filtered = {k: float(v) for k, v in holdings.items() if abs(float(v)) > 1e-12}
-                if filtered:
-                    if leverage_multiples_for is not None:
-                        multiples2 = leverage_multiples_for(set(filtered.keys()))
-                    else:
-                        multiples2 = {str(t): 1 for t in filtered.keys()}
-                    collapsed = apply_portfolio_exposure_limits(
-                        filtered,
-                        multiples2,
-                        max_single_weight=float(max_single2),
-                        max_gross_exposure=float(max_gross2),
-                        min_cash=float(min_cash2),
-                    )
-                    # collapsed represents full holdings; need to extract new_weights as collapsed holdings
-                    # keep only tickers that were in holdings (collapsed already filtered)
-                    new_weights = dict(collapsed)
+                    alloc_result = _wfs(score_result, scheme, k)
             except Exception:
-                pass
+                alloc_result = None
+                score_failed = True
 
-        if fills:
-            all_tickers = set(current_weights.keys()) | set(new_weights.keys())
-            turnover_weight = sum(abs(float(new_weights.get(t, 0.0)) - float(current_weights.get(t, 0.0))) for t in all_tickers)
-            pending = (fills, float(turnover_weight), dict(new_weights))
+        try:
+            from src.portfolio.intent import PortfolioIntent as _PI
+
+            if isinstance(score_result, _PI):
+                pending_intent = score_result
+            elif score_failed:
+                pending_intent = HOLD_INTENT
+            else:
+                pending_intent = resolve_portfolio_intent(
+                    alloc_result if alloc_result is not None else score_result,
+                    current_weights=current_weights,
+                    score_failed=False,
+                )
+        except Exception:
+            pending_intent = HOLD_INTENT
 
     # compound / drawdown / giveback
     comp = compound_returns(daily_rets) if daily_rets else 0.0
@@ -736,6 +581,7 @@ class TournamentSimulator:
                 drawdowns: list[float] = []
                 givebacks: list[float] = []
                 window_paths: list[tuple[float, ...]] = []
+                all_session_diagnostics: list[SessionTransitionDiagnostics] = []
                 if return_window_daily_paths:
                     for i in range(n_windows):
                         res = simulate_window_from_cache(
@@ -753,6 +599,7 @@ class TournamentSimulator:
                             exposure_limits=effective_limits,
                             leverage_multiples_for=self.engine._leverage_multiples,
                             return_daily_path=True,
+                            session_diagnostics_out=all_session_diagnostics,
                         )
                         if isinstance(res, tuple) and len(res) == 4:
                             comp, dd, gb, daily_path = res  # type: ignore[misc]
@@ -779,25 +626,13 @@ class TournamentSimulator:
                             k=config.k,
                             exposure_limits=effective_limits,
                             leverage_multiples_for=self.engine._leverage_multiples,
+                            session_diagnostics_out=all_session_diagnostics,
                         )
                         returns.append(float(comp))
                         drawdowns.append(float(dd))
                         givebacks.append(float(gb))
-                diagnostics = RollingDiagnostics(
-                    gross_violation_count=None,
-                    effective_gross_max=None,
-                    turnover_mean=None,
-                    fill_count=None,
-                    unfilled_count=None,
-                )
-                # wiring anchor for RollingDiagnostics
-                _ = RollingDiagnostics(
-                    gross_violation_count=None,
-                    effective_gross_max=None,
-                    turnover_mean=None,
-                    fill_count=None,
-                    unfilled_count=None,
-                )
+                _gross_lim = float(effective_limits[1]) if effective_limits is not None else 1.9
+                diagnostics = aggregate_session_diagnostics(all_session_diagnostics, gross_limit=_gross_lim)  # type: ignore[arg-type]
                 return RollingResult(
                     name=getattr(model, "name", "model"),
                     horizon=horizon,

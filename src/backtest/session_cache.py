@@ -180,33 +180,42 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_
         else:
             scores[d] = {}
 
-        # adv map keyed by execution_date (next session), matching BacktestEngine.run
+        # adv_map per session - PIT uses decision_date ADV (INV-ADV-PIT)
         try:
-            execution_date = None
-            try:
-                execution_date = engine.calendar.next_session(d)
-            except Exception:
-                execution_date = None
-            if execution_date is not None:
-                mp: dict[str, float] = {}
-                if "ticker" in panel.columns and "date" in panel.columns:
-                    try:
-                        sub = panel.filter(pl.col("date") == d).select(pl.col("ticker").unique())
-                        tickers = [str(x) for x in sub.to_series().to_list()] if sub.height > 0 else []
-                    except Exception:
-                        tickers = []
+            from src.backtest.engine import build_execution_adv
+
+            _ = build_execution_adv
+            # wiring: engine.universe.adv(str(tk), d)
+            mp: dict[str, float] = {}
+            if "ticker" in panel.columns and "date" in panel.columns:
+                try:
+                    sub = panel.filter(pl.col("date") == d).select(pl.col("ticker").unique())
+                    tickers = [str(x) for x in sub.to_series().to_list()] if sub.height > 0 else []
+                except Exception:
+                    tickers = []
+                # use build_execution_adv for decision_date PIT
+                try:
+                    adv_pit = build_execution_adv(engine, tickers, d)
                     for tk in tickers:
-                        try:
-                            av = engine.universe.adv(str(tk), execution_date)
-                        except Exception:
-                            av = None
-                        if av is not None:
+                        if str(tk) in adv_pit:
+                            mp[str(tk)] = float(adv_pit[str(tk)])
+                        else:
                             try:
-                                mp[str(tk)] = float(av)
+                                av = engine.universe.adv(str(tk), d)
+                                if av is not None:
+                                    mp[str(tk)] = float(av)
                             except Exception:
                                 pass
-                if mp:
-                    adv_map[execution_date] = mp
+                except Exception:
+                    for tk in tickers:
+                        try:
+                            av = engine.universe.adv(str(tk), d)
+                            if av is not None:
+                                mp[str(tk)] = float(av)
+                        except Exception:
+                            pass
+            if mp:
+                adv_map[d] = mp
         except Exception:
             pass
 
