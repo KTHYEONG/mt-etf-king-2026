@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_34_BACKTEST_FULL_PERF",
+      "date": "2026-09-01",
+      "adr_id": "ADR_20260901_34_BACKTEST_FULL_PERF",
+      "domain": "tournament",
+      "title": "P27 Adoption Full Backtest Perf — fast incumbent + shared cache + oneshot JSON",
+      "why": "P27 correctness fix left P21 incumbent on slow path (2090× engine.run ~41min); sticky models skipped shared session_cache (_is_pd and _scores_pi); oneshot rows embedded date objects causing summary.json write TypeError.",
+      "resolution": "Added resolve_path_dependent_mode(), removed P27 incumbent slow override, build session_cache for all path_dependent models and pass to candidate/incumbent/oneshot, serialize_oneshot_rows() for JSON-safe summary; lean_check+tests PASS; KRX 2018-2026 e2e 423s (7.0min) vs prior 2739s (45.6min) championship PASS P>50%=4.8%.",
+      "impact": "L5 tournament: P27 adoption full backtest ≤10min target met; data/results summary.json write restored; ADR-33 oneshot serialisation gap closed."
+    },
+    {
       "task_id": "TASK_33_P27_INDEPENDENT_EVAL_FAST_PATH",
       "date": "2026-09-01",
       "adr_id": "ADR_20260901_33_P27_INDEPENDENT_EVAL_FAST_PATH",
