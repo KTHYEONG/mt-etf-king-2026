@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_32_P27_IDENTITY_OVERLAY_FIELD_REPORT",
+      "date": "2026-09-01",
+      "adr_id": "ADR_20260901_32_P27_IDENTITY_OVERLAY_FIELD_REPORT",
+      "domain": "tournament",
+      "title": "P27 Identity Overlay — raw baseline · field-relative · annual oneshot",
+      "why": "P26 championship FAIL on overlay vs raw (hot_field, primary CI); house-money late-lock censors P>60 tail; feedback flagged championship score ≠ P(win) and need identity baseline + rival diagnostics.",
+      "resolution": "Implemented P27 StickyLeaderModel (P26 alpha clone), overlay_should_cash(identity), field_relative_report, oneshot_anchor_starts/oneshot_window_returns, load_p27_overlay_mode/exposure_limits, CLI decide+backtest wiring; lean_check+tests PASS; KRX 2018-2026 P27 raw P>50%=5.3% champ=0.064 ruin=4.5% gross_viol=0 championship PASS vs P26 FAIL (overlay); field win_rate vs P21=55.0%; 2025 oneshot=+43.1%.",
+      "impact": "L5 tournament+alpha: P27 operational identity-overlay candidate; P26 house-money path retained for contrast; championship score diagnostic only; field/oneshot reports added; inverse branch and MC P(win) deferred."
+    },
+    {
       "task_id": "TASK_31_P26_CHAMPIONSHIP_CONCENTRATION",
       "date": "2026-09-01",
       "adr_id": "ADR_20260901_31_P26_CHAMPIONSHIP_CONCENTRATION",

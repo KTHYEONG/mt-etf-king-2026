@@ -102,6 +102,8 @@ CRITICAL → **Parquet 쓰기 중단** + exit code ≠ 0.
 | G3 | Robustness grid 전 조합 PASS | 기각 |
 | G4 | 2025 replay > median anchor | 경고 (단독 기각 아님) |
 | G5 | Structural + Deploy median R > 0 | 기각 |
+| overlay vs raw | primary CI vs raw $\ge 0$ | overlay 기각, identity/raw live |
+| field win_rate | 구현 rival 대비 | 진단 (기각 아님) |
 | G6~G8 | ML 전용 (purged fold IC·안정성·baseline 초과) | 기각 |
 
 CVaR(5%)·MDD는 진단 지표로 항상 리포트하되 기각 사유는 아닙니다. G4는 경고.
@@ -121,7 +123,7 @@ CVaR(5%)·MDD는 진단 지표로 항상 리포트하되 기각 사유는 아닙
 | R7: 2025→2026 레짐 변화 | 중 | replay 무의미 | structural backtest 병행 |
 | R8: 휴장일 TRAP-1 | 확정 | 데이터 오염 | valid_price_ratio gate |
 | R9: 구현 일정 | 중 | 미완성 | spec 순차, ML 은 W3 완료 후 착수 |
-| R10: 경쟁자 unknown | 확정 | 순위 예측 불가 | $P(R>θ)$ 분포 최적화 |
+| R10: 경쟁자 unknown | 확정 | 순위 예측 불가 | $P(R>\theta)$ 대리 + window-aligned rival 진단. $F(r)^N$ 금지 |
 | **R11: 레버리지 변동성 감쇠** | 높 | 2x 수익률 과대추정 | 실제 ETF 가격만 사용 (INV-14) |
 | **R12: 배수 파싱 오류** | 중 | `인버스2X` → `+2` 오판 | 순서 의존 규칙 + Confidence, LOW 는 `+1` 강제 (INV-19) |
 | **R13: ML 라벨 누출** | 높 | 검증 결과 전면 무효 | purge + embargo (INV-13), nested 선택 (INV-15) |

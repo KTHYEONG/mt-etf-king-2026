@@ -40,6 +40,7 @@
 | `07_leadership_engine` | 07 |
 | `08_portfolio_tournament` | 07, 11 |
 | `09_ml_ranker` (예정) | 12 |
+| `p27_identity_overlay_field_report` | 01, 07, 08, 10, 11 |
 
 ---
 
@@ -57,4 +58,5 @@
 | 레버리지 primary | Unknown 의 primary scenario 를 deny → **allow** | 배제 시 유동성 유니버스 26 → 15 ([05 §4.3](05-universe-and-instruments.md)) |
 | LeverageFamily 도입 | alpha 는 지수를, overlay 는 배수를 선택 | 동일 기초지수 다중 배수 패밀리 8개 실측 |
 | G2 게이트 재정의 | CVaR 대칭 게이트 → 파산 제약(G2a) + 보상 정합(G2b) | 대회 보상은 순위 계단 함수 ([08 §8.1](08-research-harness.md)) |
+| P27 identity overlay | live 정책에서 house-money late-lock 제거. $F(r)^N$·MC rank policy 는 채택 게이트가 아님 | P26 championship FAIL = overlay < raw ([11](11-implementation-roadmap.md)) |
 | 후원사 universe | deployment = 후원 운용사 ETF, structural = 전체 | `sponsor_brands.yaml` + HTS manifest ([05 §6](05-universe-and-instruments.md)) |

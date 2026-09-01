@@ -12,7 +12,9 @@ This document defines quantitative and financial directives for the **36-session
 
 ## 0. Tournament Objective & Decision Philosophy
 1. **Distribution Optimization Over Scalar Metrics:**
-   - The primary objective is maximizing prize expectation $\mathbb{E}[\text{Prize}]$ by lifting right-tail outcome probability ($P(R_{36d} > 30\%\sim 40\%)$) while capping lower-tail catastrophe risk ($P(R_{36d} < -25\%) \le 5\%$).
+   - The primary adoption proxy is the 36-session exceedance curve $P(R_{36d} > \theta)$ for $\theta \in \{0.30,0.40,0.50,0.60\}$, with ruin cap $P(R_{36d} < -25\%) \le 5\%$. Championship score is a weighted diagnostic of that curve, not $P(\text{win})$.
+   - Do not replace adoption gates with $F(r)^N$, a synthetic N-IID competitor field, or daily Monte Carlo $P(\text{rank}=1)$. Window-aligned `win_rate` vs implemented rivals is diagnostic only.
+   - Overlay that fails non-inferiority vs raw (primary scenario CI) must not be live. Identity/raw is the P27 candidate; P26 house-money stays a frozen comparison path.
    - Mean, Sharpe ratio, or long-term CAGR are secondary diagnostic metrics; they must never override 36-session return distribution criteria (G1~G5 gates).
 2. **Strict Layer Separation (ARCH-1 / INV-24):**
    - Keep `Signal (Alpha)` $\to$ `Portfolio (Allocation/Sizing)` $\to$ `Tournament Policy (Regime/Overlay)` strictly decoupled.
