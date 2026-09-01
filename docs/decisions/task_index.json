@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_35_P27_EXECUTION_REBASELINE",
+      "date": "2026-09-01",
+      "adr_id": "ADR_20260901_35_P27_EXECUTION_REBASELINE",
+      "domain": "quant",
+      "title": "P27 Execution-Rebaseline — Next-Open P&L · intent split · explicit exposure",
+      "why": "NextOpenExecution credited overnight gap to new positions via close/prev_close; {} conflated hold/cash/error; P21 incumbent inherited engine-global P27 exposure (0.95/1.90); fast rolling gross_violation_count defaulted to 0.",
+      "resolution": "Added compute_next_open_session_return + engine/simulator overnight→trade→intraday P&L; PortfolioIntent HOLD/TARGET/CASH + resolve_portfolio_intent; resolve_exposure_limits_for_model(alpha_equal/full_strategy_own) wired to run_rolling and P21 incumbent; GROSS_METRIC_UNAVAILABLE fail-closed gate; RollingDiagnostics/window_daily_paths scaffolding; lean_check+focused pytest+runtime checks PASS.",
+      "impact": "L2 execution+L5 eval: P&L causally matches next-open fills; P21 vs P27 alpha comparison uses explicit equal exposure (0.95/1.90/0.05); championship gate no longer accepts unverified gross_viol=0; full 2018-2026 rebaseline pending."
+    },
+    {
       "task_id": "TASK_34_BACKTEST_FULL_PERF",
       "date": "2026-09-01",
       "adr_id": "ADR_20260901_34_BACKTEST_FULL_PERF",
