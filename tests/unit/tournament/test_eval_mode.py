@@ -205,3 +205,14 @@ def test_scenario_wrapper(scenario_id: str) -> None:
         test_simulate_window_vehicle_rate_aggressive()
     elif scenario_id == "test_run_rolling_leverage_propagation_single_protocol":
         test_run_rolling_leverage_propagation_single_protocol()
+
+
+def test_resolve_path_dependent_mode_sticky_returns_fast() -> None:
+    from src.alpha.baselines import BASELINES
+    from src.tournament.eval_mode import EvalMode, resolve_path_dependent_mode
+
+    p27 = BASELINES["P27"]()
+    p21 = BASELINES["P21"]()
+    assert p27.scores_path_independent is False
+    assert resolve_path_dependent_mode(p27, mode=EvalMode.ADOPTION) == "fast"
+    assert resolve_path_dependent_mode(p21, mode=EvalMode.ADOPTION) == "fast"

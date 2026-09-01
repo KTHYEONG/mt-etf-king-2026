@@ -39,6 +39,27 @@ def test_SCENARIO_DSR_04_write_and_refuse(tmp_path: Path) -> None:  # noqa: N802
     assert "\n  " in raw_meta or '  "' in raw_meta  # indent
 
 
+def test_write_backtest_result_serializes_oneshot_rows(tmp_path: Path) -> None:
+    import json
+    from datetime import date
+
+    from src.tournament.distribution import serialize_oneshot_rows
+
+    paths = DataPaths(root=tmp_path)
+    run_id = make_backtest_run_id("P27", date(2018, 1, 2), date(2026, 8, 27))
+    rows = ((2024, date(2024, 9, 23), 0.431),)
+    summary = {
+        "oneshot": {
+            "starts": ["2024-09-23"],
+            "rows": serialize_oneshot_rows(rows),
+        }
+    }
+    dest = write_backtest_result(paths, run_id=run_id, meta={"model": "P27"}, summary=summary)
+    with open(dest / "summary.json", encoding="utf-8") as f:
+        loaded = json.load(f)
+    assert loaded["oneshot"]["rows"] == [[2024, "2024-09-23", 0.431]]
+
+
 def test_make_backtest_run_id_safe(tmp_path: Path) -> None:  # noqa: ANN001, ARG001
     ids = make_backtest_run_id("B2", date(2026, 1, 1), date(2026, 2, 1))
     assert "/" not in ids

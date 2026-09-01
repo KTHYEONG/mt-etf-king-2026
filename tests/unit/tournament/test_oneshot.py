@@ -26,6 +26,19 @@ def test_oneshot_window_returns_compounds_and_skips_short() -> None:
     assert oneshot_window_returns(daily, sessions, (date(2024, 9, 30),), horizon=2) == ()
 
 
+def test_serialize_oneshot_rows_json_safe() -> None:
+    import json
+    from datetime import date
+
+    from src.tournament.distribution import serialize_oneshot_rows
+
+    rows = ((2024, date(2024, 9, 23), 0.21), (2025, date(2025, 9, 22), -0.05))
+    serialized = serialize_oneshot_rows(rows)
+    assert serialized == [[2024, "2024-09-23", 0.21], [2025, "2025-09-22", -0.05]]
+    payload = {"oneshot": {"starts": ["2024-09-23"], "rows": serialized}}
+    json.dumps(payload)
+
+
 def test_oneshot_independent_window_returns_matches_fresh_engine() -> None:
     from datetime import date
 
@@ -195,4 +208,54 @@ def test_oneshot_independent_window_returns_uses_cache_not_engine() -> None:
     rows = oneshot_independent_window_returns(mock_engine, model, panel, config, starts, 5, cal2)
     assert len(rows) == 2
     assert mock_engine.run.call_count == 0
+
+
+def test_oneshot_independent_window_returns_reuses_cache() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.backtest.costs import CostConfig
+    from src.backtest.engine import BacktestConfig
+    from src.backtest.session_cache import build_session_cache
+    from src.core.calendar import TradingCalendar
+    from src.portfolio.sizing import SizingScheme
+    from src.tournament.distribution import oneshot_anchor_starts
+    from src.tournament.simulator import oneshot_independent_window_returns
+    from tests.unit.backtest.conftest import build_engine, panel_row
+
+    class _Sticky:
+        name = "sticky"
+        path_dependent = True
+        scores_path_independent = False
+
+        def reset_trackers(self) -> None:
+            self._held = None
+
+        def score(self, snapshot: object, context: object) -> dict[str, float]:
+            return {"069500": 1.0}
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 2, 28))
+    panel = pl.DataFrame(
+        [panel_row(day=d, ticker="069500", close=30000.0 + i, mom_20=0.2) for i, d in enumerate(sessions)]
+    )
+    engine, cal2, filt = build_engine(panel)
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1_000_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+    model = _Sticky()
+    starts = oneshot_anchor_starts(sessions, month=1, day=2, horizon=5)
+    fresh = oneshot_independent_window_returns(engine, model, panel, config, starts, 5, cal2)
+    cache = build_session_cache(engine, model, panel, config)
+    reused = oneshot_independent_window_returns(
+        engine, model, panel, config, starts, 5, cal2, session_cache=cache
+    )
+    assert fresh == reused
 
