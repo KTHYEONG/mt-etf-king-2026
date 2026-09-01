@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_31_P26_CHAMPIONSHIP_CONCENTRATION",
+      "date": "2026-09-01",
+      "adr_id": "ADR_20260901_31_P26_CHAMPIONSHIP_CONCENTRATION",
+      "domain": "quant",
+      "title": "P26 Championship Concentration — mom_60 w95 alpha · model-local gross cap · adoption wiring",
+      "why": "P25 championship FAIL on GROSS_EXPOSURE (switch overlap gross>1.60) and identical P24 alpha; probe showed mom_60 w95 lifts P>50% to ~4.9% champ~0.060 while 1.60 cap structurally censors +50% portfolio paths.",
+      "resolution": "Implemented P26 StickyLeaderModel (mom_60, crash-cash=0, min_gap=0.04), model-local exposure 0.95/1.90/0.05 via load_p26_exposure_limits + engine set_portfolio_exposure_limits + post-fill overlap collapse; P25 house-money overlay loaders; CLI decide/backtest championship adoption wiring with max_gross=1.90; contract tests + lean_check PASS; KRX 2018-2026 champ=0.064 P>50%=5.3% gross_viol=0 ruin=4.5% championship FAIL (hot_field vs raw, primary CI vs raw) objective PASS.",
+      "impact": "L5 tournament+alpha: P26 doubles championship tail vs P25 (P>30% 11.2% vs 7.8%); gross blocker cleared; P20-P25 global 0.80/1.60 unchanged; overlay ratchet still fails championship CI vs raw — next lever is overlay or hot_field scenario alignment."
+    },
+    {
       "task_id": "TASK_30_P25_CHAMPIONSHIP_OBJECTIVE",
       "date": "2026-09-01",
       "adr_id": "ADR_20260901_30_P25_CHAMPIONSHIP_OBJECTIVE",
