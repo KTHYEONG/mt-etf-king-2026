@@ -466,3 +466,101 @@ def test_run_rolling_sticky_live_fast_matches_slow() -> None:
     for a, b in zip(fast.returns, slow.returns, strict=True):
         assert abs(float(a) - float(b)) < 1e-10
 
+
+def test_run_rolling_explicit_exposure_limits() -> None:
+    from datetime import date
+    from unittest.mock import patch
+
+    import polars as pl
+
+    from src.backtest.costs import CostConfig
+    from src.backtest.engine import BacktestConfig
+    from src.core.calendar import TradingCalendar
+    from src.portfolio.sizing import SizingScheme
+    from src.tournament.simulator import TournamentSimulator
+    from tests.unit.backtest.conftest import build_engine, panel_row
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 2, 28))
+    panel = pl.DataFrame([panel_row(day=d, ticker="A", close=100.0 + i) for i, d in enumerate(sessions)])
+    engine, cal2, filt = build_engine(panel)
+    engine.set_portfolio_exposure_limits((0.5, 1.0, 0.5))
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+
+    class _Simple:
+        name = "simple"
+        path_dependent = True
+        scores_path_independent = True
+
+        def score(self, snapshot: object, context: object) -> dict[str, float]:
+            return {"A": 1.0}
+
+        def allocate(self, scores: dict[str, float], **kwargs: object) -> dict[str, float]:
+            return {"A": 0.9}
+
+    sim = TournamentSimulator(engine, cal2)
+    limits = (0.95, 1.9, 0.05)
+    with patch("src.tournament.simulator.simulate_window_from_cache", wraps=__import__("src.tournament.simulator", fromlist=["simulate_window_from_cache"]).simulate_window_from_cache) as mocked:
+        sim.run_rolling(_Simple(), panel, config, horizon=5, path_dependent=True, path_dependent_mode="fast", exposure_limits=limits)
+        assert mocked.call_args.kwargs.get("exposure_limits") == limits
+
+
+def test_rolling_window_daily_paths_optional() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.backtest.costs import CostConfig
+    from src.backtest.engine import BacktestConfig
+    from src.core.calendar import TradingCalendar
+    from src.portfolio.sizing import SizingScheme
+    from src.tournament.simulator import TournamentSimulator
+    from tests.unit.backtest.conftest import build_engine, panel_row
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 2, 28))
+    panel = pl.DataFrame([panel_row(day=d, ticker="A", close=100.0 + i) for i, d in enumerate(sessions)])
+    engine, cal2, filt = build_engine(panel)
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+
+    class _Simple:
+        name = "simple"
+        path_dependent = True
+        scores_path_independent = True
+
+        def score(self, snapshot: object, context: object) -> dict[str, float]:
+            return {"A": 1.0}
+
+        def allocate(self, scores: dict[str, float], **kwargs: object) -> dict[str, float]:
+            return {"A": 1.0}
+
+    sim = TournamentSimulator(engine, cal2)
+    rolling = sim.run_rolling(
+        _Simple(),
+        panel,
+        config,
+        horizon=5,
+        path_dependent=True,
+        path_dependent_mode="fast",
+        return_window_daily_paths=True,
+    )
+    assert rolling.window_daily_paths is not None
+    assert len(rolling.window_daily_paths) == len(rolling.returns)
+    assert all(len(path) == 5 for path in rolling.window_daily_paths)
+
