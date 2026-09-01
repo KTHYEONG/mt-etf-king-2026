@@ -19,7 +19,9 @@ from src.core.logging_setup import tagged_log
 from src.core.trace import CANDIDATE_CAP, CandidateTrace, GateTrace, NullTraceSink, SessionTrace, TraceSink
 from src.features.builder import FeatureBuilder
 from src.features.regime import RegimeSnapshot
-from src.portfolio.constraints import normalize_weights
+from pathlib import Path
+
+from src.portfolio.constraints import apply_portfolio_exposure_limits, load_portfolio_exposure_limits, normalize_weights
 from src.portfolio.policy import PortfolioPolicy
 from src.portfolio.selection import explain_selection_drops
 from src.portfolio.sizing import SizingScheme, weights_from_scores
@@ -105,6 +107,31 @@ class BacktestEngine:
         self.regimes: Mapping[date, RegimeSnapshot] | None = regimes
         self.leverage_allowed = leverage_allowed
         self.inverse_allowed = inverse_allowed
+        self._portfolio_limits: tuple[float, float, float] | None = None
+
+    def _portfolio_exposure_limits(self) -> tuple[float, float, float] | None:
+        if self._portfolio_limits is not None:
+            return self._portfolio_limits
+        try:
+            self._portfolio_limits = load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
+        except Exception:
+            self._portfolio_limits = None
+        return self._portfolio_limits
+
+    def _leverage_multiples(self, tickers: set[str]) -> dict[str, int]:
+        master = getattr(self.universe, "master", None)
+        multiples: dict[str, int] = {}
+        for ticker in tickers:
+            mult = 1
+            if master is not None:
+                try:
+                    attr = master.attributes.get(str(ticker))  # type: ignore[attr-defined]
+                    if attr is not None:
+                        mult = int(getattr(attr, "leverage_multiple", 1))
+                except Exception:
+                    mult = 1
+            multiples[str(ticker)] = int(mult)
+        return multiples
 
     def _resolve_allocate_leverage(
         self,
@@ -413,6 +440,17 @@ class BacktestEngine:
                 target = normalize_weights(raw_weights, max_weight=filt.max_position_weight)
             except Exception:
                 target = {}
+            limits = self._portfolio_exposure_limits()
+            if target and limits is not None:
+                max_single, max_gross, min_cash = limits
+                multiples = self._leverage_multiples(set(target.keys()))
+                target = apply_portfolio_exposure_limits(
+                    target,
+                    multiples,
+                    max_single_weight=float(max_single),
+                    max_gross_exposure=float(max_gross),
+                    min_cash=float(min_cash),
+                )
             target_before_adv = dict(target)
 
             try:

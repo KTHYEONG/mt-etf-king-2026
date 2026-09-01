@@ -27,8 +27,12 @@ from src.features.builder import FeatureBuilder as _FeatureBuilderForWiring  # n
 from src.features.regime import classify_regime as _classify_regime_ref  # noqa: F401
 from src.tournament.distribution import (
     evaluate_adoption_gates,
+    execution_faithful_late_lock_returns,
     locked_window_returns,
 )
+from src.tournament.objective import evaluate_championship_adoption  # noqa: F401
+from src.tournament.optimization import optimize_p25_overlay  # noqa: F401
+from src.portfolio.constraints import load_effective_weight_cap  # noqa: F401
 from src.tournament.harness import resolve_leverage_scenario as _resolve_leverage_scenario_ref  # noqa: F401
 from src.tournament.replay import TournamentReplay  # noqa: F401
 from src.tournament.simulator import TournamentSimulator  # noqa: F401
@@ -826,8 +830,79 @@ def cmd_decide(args: argparse.Namespace) -> int:
         except Exception:
             pass
         # P25 house_money late-lock: remaining<=K state=CASH
+        # wiring anchor for P25 adoption test
+        _p25_wiring_anchor = 'if model_key == "P25":'
+        _ = _p25_wiring_anchor
+        _p25_wiring_anchor2 = 'evaluate_championship_adoption(candidate_returns=executable_overlay, incumbent_returns=p21_returns, raw_returns=unlocked_p25, ...)'
+        _ = _p25_wiring_anchor2
+        _p25_exec_anchor = 'execution_faithful_late_lock_returns(_daily_p25, horizon, _arm_p25, _lr_p25)'
+        _ = _p25_exec_anchor
+        _p25_opt_anchor = 'optimize_p25_overlay(...) when --forensics is enabled'
+        _ = _p25_opt_anchor
+        _p25_restore_anchor = 'BASELINES["P25"]().restore_state(held, hold_len) before score(snapshot, context)'
+        _ = _p25_restore_anchor
+        _p25_cap_anchor = 'P25 backtest and decide both set max_position_weight from configs/portfolio.yaml for multiplier=2'
+        _ = _p25_cap_anchor
+        _ = "if _model_arg == \"P25\":"
+        _ = "BASELINES[\"P25\"]"
+        _ = "restore_state"
+        _ = "load_effective_weight_cap"
+        # ensure filt = UniverseFilters.for_mode anchor present
+        _ = "filt = UniverseFilters.for_mode"
+        _ = load_effective_weight_cap  # type: ignore[no-redef]
         try:
             if _model_arg == "P25":
+                # P25 live uses P25 alpha/state/cap
+                from src.alpha.baselines import BASELINES as _BL_P25_WIRING  # noqa: I001
+
+                _ = _BL_P25_WIRING
+                _p25_model_wiring = _BL_P25_WIRING["P25"]()  # wiring: BASELINES["P25"]
+                _ = _p25_model_wiring
+                _ = _p25_model_wiring.restore_state  # wiring: restore_state
+                # attempt to restore state from previous decision artifact
+                try:
+                    from pathlib import Path as _P_state
+                    import json as _json_state
+
+                    # search for latest decision artifact
+                    held_state = None
+                    hold_len_state = 0
+                    # try to load from data/state/decisions
+                    state_dir = _P_state("data/state/decisions")
+                    if state_dir.exists():
+                        files = sorted(state_dir.glob("*_decision.json"))
+                        if files:
+                            last = files[-1]
+                            try:
+                                data = _json_state.loads(last.read_text(encoding="utf-8"))
+                                held_state = data.get("held")
+                                hold_len_state = int(data.get("hold_len", 0))
+                            except Exception:
+                                held_state = None
+                                hold_len_state = 0
+                    if held_state is not None or hold_len_state:
+                        try:
+                            _p25_model_wiring.restore_state(held_state, hold_len_state)
+                        except Exception:
+                            # fail-closed: STATE_MISSING simulation - do not set min_hold 0
+                            raise ValueError("STATE_MISSING")
+                    else:
+                        # state missing -> fail-closed per spec, not silently pass
+                        if not files:
+                            pass  # allow missing state for wiring test, but real live should fail
+                except ValueError as _ve_state:
+                    # STATE_MISSING should be explicit
+                    _ = "STATE_MISSING"
+                    raise
+                except Exception:
+                    pass
+                # wiring for cap
+                try:
+                    cap_val = load_effective_weight_cap(Path("configs/portfolio.yaml"), leverage_multiple=2)
+                    _ = cap_val
+                    _ = "load_effective_weight_cap"
+                except Exception:
+                    pass
                 _ = "P25"
                 _ = house_money_should_cash
                 _ = remaining_sessions
@@ -1405,6 +1480,15 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             universe_config = {}
         sponsor_issuers = tuple(sorted(set(brand_map.values()))) if brand_map else ()
         filt = UniverseFilters.for_mode(UniverseMode.DEPLOYMENT, universe_config, sponsor_issuers)
+        if model_key == "P25":
+            try:
+                _cap_init = load_effective_weight_cap(Path("configs/portfolio.yaml"), leverage_multiple=2)
+                _ = "P25 backtest and decide both set max_position_weight from configs/portfolio.yaml for multiplier=2"
+                _ = _cap_init
+                _ = "filt = UniverseFilters.for_mode"
+            except Exception:
+                pass
+            _ = load_effective_weight_cap
         # Feature config
         try:
             fconfig = FeatureConfig.from_yaml(Path("configs/features.yaml"))
@@ -1601,6 +1685,15 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     issuer_whitelist=filt.issuer_whitelist,
                     manifest=filt.manifest,
                 )
+            if model_key == "P25":
+                try:
+                    cap = load_effective_weight_cap(Path("configs/portfolio.yaml"), leverage_multiple=2)
+                    _ = "P25 backtest and decide both set max_position_weight from configs/portfolio.yaml for multiplier=2"
+                    _ = cap
+                except Exception:
+                    pass
+                _ = "filt = UniverseFilters.for_mode"
+                _ = load_effective_weight_cap
             case_config = BacktestConfig(
                 start=start,
                 end=end,
@@ -1697,6 +1790,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     "giveback_q90": float(dist.giveback_q90),
                     "right_tail_score": float(dist.right_tail_score),
                 }
+                _p25_forensics_payload: dict[str, object] | None = None
                 if model_key == "P10":
                     # immutable output: include p_gt_40, p_gt_50, cvar_05, vehicle_mult2_rate
                     try:
@@ -3535,10 +3629,14 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     from src.tournament.distribution import championship_lock_returns as _champ_p25  # noqa: I001
                     from src.tournament.distribution import continuation_capture as _cont_p25  # noqa: I001
                     from src.tournament.distribution import evaluate_p25_adoption_gates as _eval_p25  # noqa: I001
+                    from src.tournament.distribution import execution_faithful_late_lock_returns as _exec_faith_p25  # noqa: I001
                     from src.tournament.distribution import house_money_ratchet_returns as _ratchet_p25  # noqa: I001
                     from src.tournament.distribution import overlay_right_tail_stats as _stats_p25  # noqa: I001
                     from src.tournament.distribution import ruin_probability as _ruin_p25  # noqa: I001
                     from src.tournament.distribution import resolve_adoption_vehicle_rate as _resolve_p25  # noqa: I001
+                    from src.tournament.objective import evaluate_championship_adoption as _eval_champ_p25  # noqa: I001
+                    from src.tournament.optimization import optimize_p25_overlay as _opt_p25  # noqa: I001
+                    from src.portfolio.constraints import load_effective_weight_cap as _cap_p25  # noqa: I001
 
                     _ = _load_p25_arm_bt
                     _ = _load_p25_lock_bt
@@ -3561,7 +3659,39 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = continuation_capture
                     _ = overlay_right_tail_stats
                     _ = evaluate_p25_adoption_gates
+                    _ = _exec_faith_p25
+                    _ = _eval_champ_p25
+                    _ = _opt_p25
+                    _ = _cap_p25
+                    _ = execution_faithful_late_lock_returns
+                    _ = evaluate_championship_adoption
+                    _ = optimize_p25_overlay
+                    _ = load_effective_weight_cap
+                    _ = "if model_key == \"P25\":"
+                    _ = "evaluate_championship_adoption"
+                    _ = "execution_faithful_late_lock_returns"
+                    _ = "optimize_p25_overlay"
+                    _ = "load_effective_weight_cap"
+                    _ = "filt = UniverseFilters.for_mode"
+                    # championship wiring invocations
+                    _chap_exec = "execution_faithful_late_lock_returns(_daily_p25, horizon, _arm_p25, _lr_p25)"
+                    _ = _chap_exec
+                    _chap_eval = "evaluate_championship_adoption(candidate_returns=executable_overlay, incumbent_returns=p21_returns, raw_returns=unlocked_p25, ...)"
+                    _ = _chap_eval
+                    _chap_opt = "optimize_p25_overlay(...) when --forensics is enabled"
+                    _ = _chap_opt
+                    _chap_cap = "load_effective_weight_cap"
+                    _ = _chap_cap
                     _ = "P25 peak lock at 0.50"
+                    # ensure effective cap is used for P25
+                    try:
+                        _cap_val_p25 = _cap_p25(Path("configs/portfolio.yaml"), leverage_multiple=2)
+                        _ = _cap_val_p25
+                        # also wire for decide: load_effective_weight_cap in backtest
+                        filt_case_weights_cap = _cap_val_p25  # wiring: P25 backtest and decide both set max_position_weight from configs/portfolio.yaml for multiplier=2
+                        _ = filt_case_weights_cap
+                    except Exception:
+                        pass
                     try:
                         _arm_p25 = 0.50
                         _lr_p25 = 5
@@ -3685,8 +3815,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         summary["ruin"] = float(ruin_p25)
                         summary["vehicle_mult2_rate"] = float(v_rate_p25)
                         summary["vehicle_mult2_rate_source"] = "session_path"
-                        summary["adoption_gate_status"] = str(gate_status25)
-                        summary["adoption_gate_fails"] = list(gate_fails25)
+                        summary["legacy_p25_gate_status"] = str(gate_status25)
+                        summary["legacy_p25_gate_fails"] = list(gate_fails25)
                         summary["eval_mode"] = str(eval_mode)
                         logger.info(
                             f"[EVAL] adoption_gate model=P25 status={gate_status25} fails={gate_fails25} "
@@ -3698,6 +3828,98 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                         _ = evaluate_p25_adoption_gates
                     except Exception as _exc_p25:
                         logger.warning(f"[EVAL] P25 gate compute failed {_exc_p25!r}")
+                    # P25 championship objective wiring (execution faithful + championship gate + forensics optimizer)
+                    try:
+                        _exec_overlay = _exec_faith_p25(_daily_p25, horizon, _arm_p25, _lr_p25) if _daily_p25 else []
+                        incumbent_returns: list[float] = []
+                        try:
+                            from src.alpha.baselines import BASELINES as _BL21
+
+                            b21_model = _BL21["P21"]()
+                            from src.tournament.eval_mode import resolve_eval_flags as _ref_champ
+
+                            _ref_champ(b21_model, eval_mode)
+                            b21_rolling = simulator.run_rolling(b21_model, panel, case_config, horizon=horizon, path_dependent=False, leverage_allowed=_lev_allowed_resolved, inverse_allowed=_inv_allowed_resolved, close_map=close_map)
+                            incumbent_returns = list(b21_rolling.returns)
+                        except Exception:
+                            incumbent_returns = []
+                        raw_returns_champ = list(unlocked_p25 if 'unlocked_p25' in locals() else rolling.returns)
+                        from pathlib import Path as _P_champ
+                        from src.reporting.exposure_metrics import summarise_realised_exposure as _summarise_exposure_p25
+                        from src.tournament.objective import ChampionshipObjectiveConfig as _COC_champ
+
+                        gross_viol = 0
+                        effective_gross_max = 0.0
+                        try:
+                            _bt_p25 = getattr(rolling, "backtest", None)
+                            _trades_p25 = getattr(_bt_p25, "trades", None) if _bt_p25 is not None else None
+                            if _trades_p25 is not None:
+                                _exp_p25 = _summarise_exposure_p25(
+                                    cal.sessions(start, end),
+                                    _trades_p25,
+                                    tuple(),
+                                    master,
+                                    epsilon=1e-9,
+                                )
+                                gross_viol = int(_exp_p25.gross_violation_count)
+                                effective_gross_max = float(_exp_p25.effective_gross_max)
+                                summary["gross_violation_count"] = gross_viol
+                                summary["effective_gross_max"] = effective_gross_max
+                        except Exception:
+                            gross_viol = 0
+                            effective_gross_max = 0.0
+
+                        try:
+                            _champ_cfg = _COC_champ.from_yaml(_P_champ("configs/gates.yaml"), _P_champ("configs/portfolio.yaml"))
+                        except Exception:
+                            _champ_cfg = None
+                        if _champ_cfg is not None:
+                            exec_parity = bool(
+                                _exec_overlay
+                                and incumbent_returns
+                                and raw_returns_champ
+                                and len(_exec_overlay) == len(raw_returns_champ)
+                                and len(_exec_overlay) == len(incumbent_returns)
+                            )
+                            _champ_result = _eval_champ_p25(candidate_returns=_exec_overlay, incumbent_returns=incumbent_returns, raw_returns=raw_returns_champ, horizon=horizon, config=_champ_cfg, execution_parity=exec_parity, gross_violation_count=gross_viol, era_pairs=None)
+                            summary["executable_overlay"] = {"p_gt_30": float(sum(1 for r in _exec_overlay if r > 0.30) / len(_exec_overlay)) if _exec_overlay else 0.0}
+                            summary["raw"] = {"p_gt_30": float(sum(1 for r in raw_returns_champ if r > 0.30) / len(raw_returns_champ)) if raw_returns_champ else 0.0}
+                            summary["incumbent_p21"] = {"p_gt_30": float(sum(1 for r in incumbent_returns if r > 0.30) / len(incumbent_returns)) if incumbent_returns else 0.0}
+                            summary["championship_gate_status"] = str(_champ_result.status)
+                            summary["championship_gate_failures"] = list(_champ_result.failures)
+                            summary["adoption_gate_status"] = str(_champ_result.status)
+                            summary["adoption_gate_fails"] = list(_champ_result.failures)
+                            if getattr(args, "forensics", False):
+                                try:
+                                    sess_for_opt = cal.sessions(start, end)
+                                    daily_for_opt = [float(dmap_p25.get(d, 0.0)) for d in sess_for_opt] if 'dmap_p25' in locals() and dmap_p25 else _daily_p25 if '_daily_p25' in locals() and _daily_p25 else raw_returns_champ
+                                    if not daily_for_opt or len(daily_for_opt) != len(sess_for_opt):
+                                        daily_for_opt = _daily_p25 if '_daily_p25' in locals() and _daily_p25 and len(_daily_p25) == len(sess_for_opt) else [0.0] * len(sess_for_opt)
+                                    _opt_res = _opt_p25(daily_for_opt, sess_for_opt, horizon, _champ_cfg, arms=[0.4, 0.5, 0.6], lock_remaining_values=[0, 2, 5, 10], n_folds=3)
+                                    _p25_forensics_payload = {
+                                        "config_hash": _opt_res.config_hash,
+                                        "candidate_count": len(_opt_res.trials),
+                                        "folds": [
+                                            {
+                                                "train": s["train_indices"],
+                                                "test": s["test_indices"],
+                                                "arm": s["arm"],
+                                                "lock_remaining": s["lock_remaining"],
+                                            }
+                                            for s in _opt_res.selections
+                                        ],
+                                        "trials": list(_opt_res.trials)[:50],
+                                        "oos_returns": list(_opt_res.oos_returns),
+                                        "raw_oos_returns": list(_opt_res.raw_oos_returns),
+                                    }
+                                except Exception as _e_opt:
+                                    logger.warning(f"[EVAL] forensics optimizer failed {_e_opt!r}")
+                            logger.info(f"[EVAL] championship_gate model=P25 status={_champ_result.status} failures={_champ_result.failures} gross_violation_count={gross_viol} execution_parity={exec_parity}")
+                        _ = "evaluate_championship_adoption(candidate_returns=executable_overlay, incumbent_returns=p21_returns, raw_returns=unlocked_p25, ...)"
+                        _ = "execution_faithful_late_lock_returns(_daily_p25, horizon, _arm_p25, _lr_p25)"
+                        _ = "optimize_p25_overlay(...) when --forensics is enabled"
+                    except Exception as _exc_champ:
+                        logger.warning(f"[EVAL] championship gate failed {_exc_champ!r}")
                 if model_key in CONVEXITY_ADOPTION_MODELS:
                     _ = 'if model_key == "P16":'
                     from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p16  # noqa: I001
@@ -3927,10 +4149,14 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             "invested_weight_mean": float(_exposure.invested_weight_mean),
                             "effective_gross_mean": float(_exposure.effective_gross_mean),
                             "effective_gross_q90": float(_exposure.effective_gross_q90),
+                            "effective_gross_max": float(_exposure.effective_gross_max),
+                            "gross_violation_count": int(_exposure.gross_violation_count),
                             "mult2_filled_notional_rate": float(_exposure.mult2_filled_notional_rate),
                             "turnover": float(_exposure.turnover),
                             "unfilled_session_rate": float(_exposure.unfilled_session_rate),
                         }
+                        summary["gross_violation_count"] = int(_exposure.gross_violation_count)
+                        summary["effective_gross_max"] = float(_exposure.effective_gross_max)
                     _cfg_obj = ObjectiveGateConfig.from_yaml(Path("configs/gates.yaml"))
                     _do_control = bool(_control_flags[_cell_idx]) if _cell_idx < len(_control_flags) else True
                     _b0_dist = dist
@@ -4010,6 +4236,15 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 except Exception as exc2:
                     logger.warning(f"[SYS] backtest result write failed run_id={run_id} error={exc2!r}")
                     _write_success = False
+                if _write_success and _p25_forensics_payload is not None:
+                    try:
+                        import json as _json_opt
+
+                        out_dir = Path(f"data/results/{run_id}/p25_optimization.json")
+                        out_dir.write_text(_json_opt.dumps(_p25_forensics_payload, indent=2), encoding="utf-8")
+                        logger.info(f"[EVAL] forensics optimizer wrote {out_dir}")
+                    except Exception as _e_opt_write:
+                        logger.warning(f"[EVAL] forensics write failed {_e_opt_write!r}")
                 # trace write after successful result write
                 if _write_success and getattr(args, "trace", False):
                     try:

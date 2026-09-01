@@ -767,6 +767,71 @@ def house_money_ratchet_returns(
     return out
 
 
+def execution_faithful_late_lock_returns(
+    daily_rets: Sequence[float], horizon: int, arm: float, lock_remaining: int
+) -> list[float]:
+    try:
+        h = int(horizon)
+    except Exception:
+        return []
+    if h <= 0:
+        return []
+    if not daily_rets:
+        return []
+    try:
+        n = len(daily_rets)  # type: ignore[arg-type]
+    except Exception:
+        return []
+    if n < h:
+        return []
+    try:
+        ll = float(arm)  # type: ignore[arg-type]
+    except Exception:
+        return []
+    if not math.isfinite(ll) or ll <= 0:
+        return []
+    try:
+        lf = float(lock_remaining)  # type: ignore[arg-type]
+        if not math.isfinite(lf) or lf < 0:
+            lr = 5
+        else:
+            lr = int(lf)
+    except Exception:
+        lr = 5
+    # use live predicate without floor invention
+    from src.tournament.policy import house_money_should_cash
+
+    out: list[float] = []
+    for i in range(n - h + 1):
+        equity = 1.0
+        cashed = False
+        cashed_equity = 1.0
+        for k in range(h):
+            if cashed:
+                break
+            try:
+                r = float(daily_rets[i + k])  # type: ignore[index]
+            except Exception:
+                r = 0.0
+            if not math.isfinite(r):
+                r = 0.0
+            equity *= 1.0 + r
+            ret_from_start = float(equity - 1.0)
+            remaining_after = h - 1 - k
+            try:
+                if house_money_should_cash(ret_from_start, remaining_after, ll, lr):
+                    cashed = True
+                    cashed_equity = float(equity)
+                    break
+            except Exception:
+                continue
+        if cashed:
+            out.append(float(cashed_equity - 1.0))
+        else:
+            out.append(float(equity - 1.0))
+    return out
+
+
 def continuation_capture(
     unlocked: Sequence[float],
     freeze: Sequence[float],
