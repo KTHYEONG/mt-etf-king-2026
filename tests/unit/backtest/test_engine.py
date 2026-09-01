@@ -39,7 +39,8 @@ def test_cost_applied_on_execution_date_not_signal_date() -> None:
     daily = result.daily.sort("date")
     first_day_equity = float(daily.filter(pl.col("date") == sessions[0]).select("equity").item())
     second_day_equity = float(daily.filter(pl.col("date") == sessions[1]).select("equity").item())
-    expected_cost = CostModel(costs).charge(1_000_000_000.0)
+    first_trade_weight = float(result.trades.sort("execution_date").select("weight").item(0, 0))
+    expected_cost = CostModel(costs).charge(1_000_000_000.0 * first_trade_weight)
     assert first_day_equity == 1_000_000_000.0
     assert second_day_equity == 1_000_000_000.0 - expected_cost
 
