@@ -79,3 +79,29 @@ def test_realised_exposure_metrics_ignore_zero_weights() -> None:
     assert abs(summary.effective_gross_mean - (0.5 / 3)) < 1e-9
     assert abs(summary.turnover - 1.0) < 1e-9
     assert summary.active_family_mean <= summary.active_name_mean + 1e-9
+
+
+def test_summarise_realised_exposure_uses_max_gross_threshold() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.reporting.exposure_metrics import summarise_realised_exposure
+
+    master = _master_with_family()
+    dates = [date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)]
+    trades = pl.DataFrame(
+        {
+            "decision_date": [dates[0]],
+            "execution_date": [dates[1]],
+            "ticker": ["T2"],
+            "weight_after": [0.95],
+            "weight_before": [0.0],
+            "delta_weight": [0.95],
+        }
+    )
+    defaulted = summarise_realised_exposure(dates, trades, tuple(), master, epsilon=1e-9)
+    assert defaulted.gross_violation_count >= 1
+    relaxed = summarise_realised_exposure(dates, trades, tuple(), master, epsilon=1e-9, max_gross=1.90)
+    assert relaxed.gross_violation_count == 0
+    assert relaxed.effective_gross_max <= 1.90 + 1e-9

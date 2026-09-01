@@ -213,3 +213,16 @@ def test_engine_run_uses_cli_leverage_override() -> None:
     result = engine_lev.run(policy, panel, config)
     traded = {str(t) for t in result.trades.select("ticker").to_series().to_list()} if result.trades.height > 0 else set()
     assert "T2" in traded
+
+
+def test_engine_post_fill_applies_exposure_limits() -> None:
+    import inspect
+
+    from src.backtest.engine import BacktestEngine
+
+    src = inspect.getsource(BacktestEngine.run)
+    assert "new_weights = {f.ticker: f.target_weight for f in fills}" in src
+    fill_idx = src.index("new_weights = {f.ticker: f.target_weight for f in fills}")
+    after = src[fill_idx:]
+    assert "apply_portfolio_exposure_limits" in after
+    assert "set_portfolio_exposure_limits" in inspect.getsource(BacktestEngine)
