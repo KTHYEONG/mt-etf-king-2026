@@ -74,3 +74,13 @@ def test_load_rebalance_threshold_reads_nested_value_and_fails_closed(tmp_path) 
     invalid.write_text("portfolio:\n  rebalance_threshold: 1.10\n", encoding="utf-8")
     with pytest.raises(ValueError, match="rebalance_threshold"):
         load_rebalance_threshold(invalid)
+
+
+def test_effective_weight_cap_combines_all_portfolio_limits() -> None:
+    from pathlib import Path
+
+    from src.portfolio.constraints import load_effective_weight_cap
+
+    cap = load_effective_weight_cap(Path('configs/portfolio.yaml'), leverage_multiple=2)
+
+    assert cap == 0.80
