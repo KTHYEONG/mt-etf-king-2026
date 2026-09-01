@@ -75,6 +75,17 @@ portfolio:
     mom_col: mom_60
     arm: 0.50
     lock_remaining: 5
+  p26:
+    mom_col: mom_60
+    cash_drawdown: 0.0
+    min_gap: 0.04
+    min_hold: 2
+    impulse_gap: 0.0
+    arm: 0.50
+    lock_remaining: 5
+    max_single_weight: 0.95
+    max_gross_exposure: 1.90
+    min_cash: 0.05
   convexity_hold:
     enabled: true
     min_gap: 0.0

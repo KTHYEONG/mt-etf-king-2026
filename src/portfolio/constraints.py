@@ -181,6 +181,45 @@ def load_portfolio_exposure_limits(path: Path) -> tuple[float, float, float]:
     return float(max_single), float(max_gross), float(min_cash)
 
 
+def load_p26_exposure_limits(path: Path | None = None) -> tuple[float, float, float]:
+    try:
+        p = Path(path) if path is not None else Path("configs/strategies.yaml")
+        with open(p, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        if not isinstance(raw, dict):
+            raise ValueError("root not mapping")
+        port = raw.get("portfolio")
+        if not isinstance(port, dict):
+            raise ValueError("portfolio missing")
+        p26 = port.get("p26")
+        if not isinstance(p26, dict):
+            raise ValueError("p26 missing")
+        for kk in ("max_single_weight", "max_gross_exposure", "min_cash"):
+            if kk not in p26:
+                raise ValueError(f"p26.{kk} missing")
+        ms = p26["max_single_weight"]
+        mg = p26["max_gross_exposure"]
+        mc = p26["min_cash"]
+        if isinstance(ms, bool) or isinstance(mg, bool) or isinstance(mc, bool):
+            raise ValueError("bool not allowed")
+        max_single = float(ms)  # type: ignore[arg-type]
+        max_gross = float(mg)  # type: ignore[arg-type]
+        min_cash = float(mc)  # type: ignore[arg-type]
+        if not math.isfinite(max_single) or not math.isfinite(max_gross) or not math.isfinite(min_cash):
+            raise ValueError("non-finite")
+        if max_single <= 0 or max_single > 1:
+            raise ValueError("max_single out of range")
+        if max_gross <= 0:
+            raise ValueError("max_gross out of range")
+        if min_cash < 0 or min_cash >= 1:
+            raise ValueError("min_cash out of range")
+        if max_single > 1.0 - float(min_cash) + 1e-12:
+            raise ValueError("max_single > 1-min_cash")
+        return float(max_single), float(max_gross), float(min_cash)
+    except Exception:
+        return load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
+
+
 def apply_portfolio_exposure_limits(
     weights: Mapping[str, float],
     multiples: Mapping[str, int],

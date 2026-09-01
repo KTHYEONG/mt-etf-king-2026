@@ -332,6 +332,68 @@ def load_p25_lock_remaining(*, default: int = 5) -> int:
         return int(default)
 
 
+def load_p26_arm(*, default: float = 0.50) -> float:
+    try:
+        from pathlib import Path
+
+        import yaml
+
+        fp = Path("configs/strategies.yaml")
+        if not fp.exists():
+            return float(default)
+        with open(fp, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        if not isinstance(raw, dict):
+            return float(default)
+        port = raw.get("portfolio")
+        if not isinstance(port, dict):
+            return float(default)
+        p26 = port.get("p26")
+        if not isinstance(p26, Mapping) or "arm" not in p26:
+            return float(default)
+        v = p26["arm"]
+        try:
+            fv = float(v)  # type: ignore[arg-type]
+            if not math.isfinite(fv) or fv <= 0:
+                return float(default)
+            return float(fv)
+        except Exception:
+            return float(default)
+    except Exception:
+        return float(default)
+
+
+def load_p26_lock_remaining(*, default: int = 5) -> int:
+    try:
+        from pathlib import Path
+
+        import yaml
+
+        fp = Path("configs/strategies.yaml")
+        if not fp.exists():
+            return int(default)
+        with open(fp, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        if not isinstance(raw, dict):
+            return int(default)
+        port = raw.get("portfolio")
+        if not isinstance(port, dict):
+            return int(default)
+        p26 = port.get("p26")
+        if not isinstance(p26, Mapping) or "lock_remaining" not in p26:
+            return int(default)
+        v = p26["lock_remaining"]
+        try:
+            fv = float(v)  # type: ignore[arg-type]
+            if not math.isfinite(fv) or fv < 0:
+                return int(default)
+            return int(fv)
+        except Exception:
+            return int(default)
+    except Exception:
+        return int(default)
+
+
 def load_p24_mom_col(*, default: str = "mom_60") -> str:
     try:
         from pathlib import Path
