@@ -84,3 +84,57 @@ def test_effective_weight_cap_combines_all_portfolio_limits() -> None:
     cap = load_effective_weight_cap(Path('configs/portfolio.yaml'), leverage_multiple=2)
 
     assert cap == 0.80
+
+
+def test_load_p26_exposure_limits_from_config() -> None:
+    from pathlib import Path
+
+    from src.portfolio.constraints import load_p26_exposure_limits, load_portfolio_exposure_limits
+
+    single, gross, cash = load_p26_exposure_limits(Path("configs/strategies.yaml"))
+    assert abs(single - 0.95) < 1e-12
+    assert abs(gross - 1.90) < 1e-12
+    assert abs(cash - 0.05) < 1e-12
+    g_single, g_gross, g_cash = load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
+    assert abs(g_single - 0.80) < 1e-12
+    assert abs(g_gross - 1.60) < 1e-12
+    assert abs(g_cash - 0.05) < 1e-12
+
+
+def test_load_p26_exposure_limits_fail_closed(tmp_path) -> None:
+    from pathlib import Path
+
+    from src.portfolio.constraints import load_p26_exposure_limits, load_portfolio_exposure_limits
+
+    missing = tmp_path / "nope.yaml"
+    fallback = load_p26_exposure_limits(missing)
+    global_limits = load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
+    assert fallback == global_limits
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("portfolio:\n  p26:\n    max_single_weight: nan\n    max_gross_exposure: 1.90\n    min_cash: 0.05\n", encoding="utf-8")
+    assert load_p26_exposure_limits(bad) == global_limits
+
+
+def test_apply_portfolio_exposure_limits_collapses_switch_overlap() -> None:
+    from src.portfolio.constraints import apply_portfolio_exposure_limits, gross_exposure
+
+    leftover = {"OLD": 0.271665, "NEW": 0.80}
+    multiples = {"OLD": 2, "NEW": 2}
+    assert gross_exposure(leftover, multiples) > 1.90
+    capped = apply_portfolio_exposure_limits(
+        leftover,
+        multiples,
+        max_single_weight=0.95,
+        max_gross_exposure=1.90,
+        min_cash=0.05,
+    )
+    assert gross_exposure(capped, multiples) <= 1.90 + 1e-9
+    assert sum(capped.values()) <= 0.95 + 1e-9
+    tight = apply_portfolio_exposure_limits(
+        leftover,
+        multiples,
+        max_single_weight=0.80,
+        max_gross_exposure=1.60,
+        min_cash=0.05,
+    )
+    assert gross_exposure(tight, multiples) <= 1.60 + 1e-9
