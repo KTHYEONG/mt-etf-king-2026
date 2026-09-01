@@ -351,6 +351,22 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
 
         with open(fh) as sf:
             sf_content = sf.read()
+            if kind == "config":
+                leaf = name.split(".")[-1] if "." in name else name
+                # for yaml config, check leaf key appears as "leaf:" in file
+                pat_cfg = rf"\b{re.escape(leaf)}\s*:"
+                if re.search(pat_cfg, sf_content):
+                    continue
+                # fall through to diagnostic if not found
+                msg = f"Spec: {kind} '{name}' not implemented"
+                d = {
+                    "file": fh,
+                    "line": 0,
+                    "error": msg,
+                    "fix_hint": f"Implement {kind} {name} in {fh}",
+                }
+                diagnostics.append(d)
+                continue
             if kind in ("field", "dataclass_field"):
                 field_name = name.split(".")[-1] if "." in name else name
                 pat = rf"\b{re.escape(field_name)}[\"']?\s*(?::|=)"
