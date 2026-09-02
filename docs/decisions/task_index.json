@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_38_P28A_SAME_LEADER_HOLD",
+      "date": "2026-09-02",
+      "adr_id": "ADR_20260902_38_P28A_SAME_LEADER_HOLD",
+      "domain": "alpha",
+      "title": "P28-A Same-Leader HOLD + P27-R Gross Diagnostics Wiring",
+      "why": "feedback.md: P27 daily 95% retarget erodes winner convexity; GROSS_METRIC_UNAVAILABLE blocked P27-R certification; P28-A is zero-parameter HOLD when sticky leader unchanged.",
+      "resolution": "Implemented apply_same_leader_hold + StickyLeaderConfig.same_leader_hold, P28A factory (P27 clone), CLI adoption/championship wiring (candidate=P28A, champion=P27-R, anchor=P21), fixed P27/P28A gross diagnostics NameError/UnboundLocal bugs; lean_check+22 tests PASS; KRX 2018-2026 P27-R q50=+0.12% P>50=4.7% gross_viol=1958; P28A q50=+0.16% P>50=4.8% q99=90.2% championship FAIL GROSS_EXPOSURE+PRIMARY_CI_VS_INCUMBENT.",
+      "impact": "L5 alpha+eval: P28A operational first structural A/B vs P27-R; gross metric now collected (no GROSS_METRIC_UNAVAILABLE); tail micro-lift but no promotion; gross_violation_count semantics need follow-up before adoption gate."
+    },
+    {
       "task_id": "TASK_37_EXECUTION_CORRECTNESS",
       "date": "2026-09-02",
       "adr_id": "ADR_20260902_37_EXECUTION_CORRECTNESS",
