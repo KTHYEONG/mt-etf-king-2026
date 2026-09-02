@@ -267,3 +267,34 @@ def test_gross_violation_only_on_post_fill_not_close_drift() -> None:
     assert result.diagnostics.post_fill_gross <= 1.90 + 1e-9
     assert result.diagnostics.gross_violation is False
     assert result.diagnostics.close_realized_gross > result.diagnostics.post_fill_gross
+
+
+def test_hold_drift_does_not_flag_gross_violation() -> None:
+    from datetime import date
+
+    from src.backtest.costs import CostConfig, CostModel
+    from src.execution.ledger import PortfolioLedgerState, transition_portfolio_state
+    from src.portfolio.intent import HOLD_INTENT
+
+    state = PortfolioLedgerState(cash=0.05, shares={"069500": 100.0})
+    opens = {"069500": 200.0}
+    closes = {"069500": 210.0}
+    prev_closes = {"069500": 190.0}
+    adv = {"069500": 1e12}
+    result = transition_portfolio_state(
+        prior_state=state,
+        intent=HOLD_INTENT,
+        decision_date=date(2026, 1, 2),
+        prev_closes=prev_closes,
+        opens=opens,
+        closes=closes,
+        cost_model=CostModel(CostConfig(0.0, 0.0, 0.0)),
+        adv_by_ticker=adv,
+        max_order_to_adv=0.01,
+        exposure_limits=(0.95, 1.90, 0.05),
+        leverage_multiples={"069500": 2},
+        execution=None,
+        panel=None,
+    )
+    assert result.diagnostics.fill_count == 0
+    assert result.diagnostics.gross_violation is False
