@@ -91,3 +91,24 @@ def test_sticky_shared_session_cache_wiring() -> None:
     assert "if _is_pd and _scores_pi:" not in bt
     assert "if _is_pd" in bt
     assert "session_cache=_shared_cache" in bt
+
+
+def test_p27_cli_gross_diagnostics_avoids_undefined_name() -> None:
+    import inspect
+    import re
+
+    from src.cli import STICKY_ADOPTION_MODELS, cmd_backtest
+
+    bt = inspect.getsource(cmd_backtest)
+    end_p27 = bt.find("if model_key in CONVEXITY_ADOPTION_MODELS")
+    assert end_p27 > 0
+    p27_idx = bt.rfind('if model_key == "P27"', 0, end_p27)
+    assert p27_idx > 0
+    p27_src = bt[p27_idx:end_p27]
+    p28_idx = p27_src.find('if model_key == "P28A"')
+    if p28_idx >= 0:
+        p27_src = p27_src[:p28_idx]
+    assert 'getattr(rolling, "diagnostics"' in p27_src
+    assert re.search(r"^\s*_ = diagnostics\b", p27_src, flags=re.M) is None
+    assert "gross_violation_count" in p27_src
+    assert "P27" in STICKY_ADOPTION_MODELS

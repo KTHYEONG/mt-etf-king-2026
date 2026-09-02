@@ -48,3 +48,72 @@ def test_sticky_leader_declares_path_dependent_and_reset_trackers() -> None:
         model.reset_trackers()
         assert model._held is None
         assert int(model._hold_len) == 0
+
+
+def test_p27_factory_same_leader_hold_disabled() -> None:
+    from src.alpha.baselines import BASELINES
+    from src.alpha.sticky import StickyLeaderModel
+
+    p27 = BASELINES["P27"]()
+    assert isinstance(p27, StickyLeaderModel)
+    assert p27.name == "P27"
+    assert bool(getattr(p27.config, "same_leader_hold", False)) is False
+    assert str(p27.config.mom_col) == "mom_60"
+    assert float(p27.config.min_gap) == 0.04
+    assert int(p27.config.min_hold) == 2
+
+
+def test_p27_score_emits_mapping_when_sticky_stays() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.alpha.base import DecisionContext
+    from src.alpha.baselines import BASELINES
+    from src.portfolio.intent import PortfolioIntent
+    from src.portfolio.sizing import SizingScheme, weights_from_scores
+    from src.universe.tournament import TournamentRules
+
+    snap = pl.DataFrame(
+        {
+            "ticker": ["SLOW", "FAST"],
+            "name": ["KODEX 레버리지", "KODEX 코스닥150레버리지"],
+            "mom_20": [0.50, 0.10],
+            "mom_60": [0.10, 0.40],
+            "mom_5": [0.01, 0.02],
+            "volume_expansion": [0.1, 0.1],
+            "drawdown_20": [0.0, 0.0],
+        }
+    )
+    rules = TournamentRules(
+        name="t",
+        start_date=date(2026, 9, 21),
+        end_date=date(2026, 11, 13),
+        initial_capital=1_000_000_000,
+        category="autonomous",
+        leverage_allowed=True,
+        inverse_allowed=True,
+        max_weight=1.0,
+        cash_allowed=True,
+        sponsor_etf_only=True,
+        manifest_path=None,
+        issuer_whitelist=None,
+        commission_bps=3.0,
+        slippage_bps=5.0,
+        max_order_to_adv=0.01,
+        stress_grid=(0.01, 0.02, 0.05),
+    )
+    ctx = DecisionContext(
+        decision_date=date(2026, 1, 2),
+        regime=None,
+        capital=1.0e9,
+        held={"FAST": 0.95},
+        rules=rules,
+    )
+    p27 = BASELINES["P27"]()
+    scores = p27.score(snap, ctx)
+    assert not isinstance(scores, PortfolioIntent)
+    assert isinstance(scores, dict)
+    assert scores
+    w = weights_from_scores(scores, SizingScheme.TOP1, k=1)
+    assert set(w.keys()) == {"FAST"}
