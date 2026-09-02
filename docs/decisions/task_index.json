@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_37_EXECUTION_CORRECTNESS",
+      "date": "2026-09-02",
+      "adr_id": "ADR_20260902_37_EXECUTION_CORRECTNESS",
+      "domain": "execution",
+      "title": "Execution Correctness — Causal Open Fill · Pre-Start Entry · Ledger Single Source",
+      "why": "feedback.md P0/P1: next-open is_tradable look-ahead, 36-day window first-session skip, open-weight turnover/ADV, gross drift vs violation conflation, legacy engine execution duplicate path.",
+      "resolution": "Added is_open_fillable + NextOpenExecution causal fill; transition_portfolio_state splits weights_before_open/close and post_fill/close_realized gross; resolve_prestart_intent + simulate_window_from_cache t-1 bootstrap; BacktestEngine pre-start entry and trades solely from transition_result.fills; 7 contract scenarios + lean_check PASS; P27-R rebaseline KRX 2018-2026 q50=+0.12% P>30=11.1% execution_parity=True.",
+      "impact": "L2 execution: full/fast parity preserved; oneshot 2020 +6.3pp from first-session entry; championship gate still GROSS_METRIC_UNAVAILABLE pending summary wiring; P28 alpha work unblocked."
+    },
+    {
       "task_id": "TASK_36_EXECUTION_LEDGER_PARITY",
       "date": "2026-09-01",
       "adr_id": "ADR_20260901_36_EXECUTION_LEDGER_PARITY",
