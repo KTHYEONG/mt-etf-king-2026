@@ -4,7 +4,7 @@ def test_p28b_cli_championship_wires_p27_champion() -> None:
 
     from src.cli import STICKY_ADOPTION_MODELS
 
-    bt = Path("src/cli.py").read_text(encoding="utf-8")
+    bt = Path("src/cli/_impl.py").read_text(encoding="utf-8")
     assert "P28B" in STICKY_ADOPTION_MODELS
     assert 'if model_key == "P28B"' in bt
     idx = bt.find('if model_key == "P28B"')

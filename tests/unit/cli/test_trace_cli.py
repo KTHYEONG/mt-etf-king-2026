@@ -16,7 +16,7 @@ def test_parser_trace_and_log_level_defaults() -> None:
 def test_cmd_backtest_skips_trace_write_without_flag() -> None:
     from pathlib import Path
 
-    text = Path("src/cli.py").read_text(encoding="utf-8")
+    text = Path("src/cli/_impl.py").read_text(encoding="utf-8")
     assert "write_trace_artifacts(" in text
     # ensure branch references trace flag
     assert "trace" in text and ("args.trace" in text or "getattr(args" in text)
