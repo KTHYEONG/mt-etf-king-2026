@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_39_P28B_ABS_MOM_CASH",
+      "date": "2026-09-02",
+      "adr_id": "ADR_20260902_39_P28B_ABS_MOM_CASH",
+      "domain": "alpha",
+      "title": "P28-B Absolute-Momentum Cash Gate + HOLD Gross-Drift Fix",
+      "why": "Oracle gap (2090 windows): selection/timing dominates (combined P>50%=20.1%); inverse oracle P>50%=0.4%; forced-long in 2.9% windows. P28-A gross_viol=33397 from HOLD price drift blocked adoption.",
+      "resolution": "Implemented apply_abs_mom_cash (threshold=0), P28B factory (P28A+HOLD), CLI championship wiring (candidate=P28B, champion=P27-R, anchor=P21), ledger INV-GROSS-HOLD (fill_count=0 → no gross_viol), 7 contract tests + lean_check PASS; KRX 2018-2026 rebaseline P>50=4.1% q99=76.7% gross_viol=87 ruin=2.6% vs P27-R P>50=4.7% q99=86.9% gross_viol=1958 — tail below P27/P28A, gross gate largely fixed.",
+      "impact": "L5 alpha+eval: P28B operational, no championship promotion; HOLD gross-drift fix validated (87 vs 33397 P28A); abs mom gate reduces ruin but cuts right tail vs P28A (q99 90.2%→76.7%); P28-A+gross-fix remains preferred tail candidate."
+    },
+    {
       "task_id": "TASK_38_P28A_SAME_LEADER_HOLD",
       "date": "2026-09-02",
       "adr_id": "ADR_20260902_38_P28A_SAME_LEADER_HOLD",
