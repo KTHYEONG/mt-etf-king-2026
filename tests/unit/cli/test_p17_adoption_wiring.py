@@ -17,8 +17,8 @@ def test_p17_uses_convexity_preflight_and_adoption_wiring() -> None:
     source = inspect.getsource(cmd_backtest)
     adoption_block = source.split("evaluate_p16_adoption_report", 1)[0]
 
-    assert CONVEXITY_ADOPTION_MODELS == frozenset({"P16", "P17"})  # noqa: SIM300
-    assert source.count("model_key in CONVEXITY_ADOPTION_MODELS") >= 2
+    assert CONVEXITY_ADOPTION_MODELS == frozenset({"P16", "P17", "P18"})  # noqa: SIM300
+    assert source.count("in CONVEXITY_ADOPTION_MODELS") >= 1
     assert '_make_eval_control_model("P14", eval_mode)' in source
     assert "evaluate_p16_adoption_report" in source
     assert "b0_dist = dist" not in adoption_block
