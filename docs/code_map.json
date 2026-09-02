@@ -192,7 +192,8 @@
       "tests/unit/alpha/test_p20.py",
       "tests/unit/alpha/test_p21.py",
       "tests/unit/alpha/test_p22.py",
-      "tests/unit/alpha/test_p28a.py"
+      "tests/unit/alpha/test_p28a.py",
+      "tests/unit/alpha/test_p28b.py"
     ]
   },
   "src/portfolio/split_fill.py": {
