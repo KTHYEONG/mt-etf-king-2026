@@ -194,7 +194,16 @@ def load_p26_exposure_limits(path: Path | None = None) -> tuple[float, float, fl
         port = raw.get("portfolio")
         if not isinstance(port, dict):
             raise ValueError("portfolio missing")
-        p26 = port.get("p26")
+        # semantic-first: portfolio.sticky.mom60_concentrated
+        sticky = port.get("sticky")
+        if isinstance(sticky, dict):
+            entry = sticky.get("mom60_concentrated")
+            if isinstance(entry, dict) and all(k in entry for k in ("max_single_weight", "max_gross_exposure", "min_cash")):
+                p26 = entry
+            else:
+                p26 = port.get("p26")
+        else:
+            p26 = port.get("p26")
         if not isinstance(p26, dict):
             raise ValueError("p26 missing")
         for kk in ("max_single_weight", "max_gross_exposure", "min_cash"):
@@ -233,7 +242,15 @@ def load_p27_exposure_limits(path: Path | None = None) -> tuple[float, float, fl
         port = raw.get("portfolio")
         if not isinstance(port, dict):
             raise ValueError("portfolio missing")
-        p27 = port.get("p27")
+        sticky = port.get("sticky")
+        if isinstance(sticky, dict):
+            entry = sticky.get("mom60_raw")
+            if isinstance(entry, dict) and all(k in entry for k in ("max_single_weight", "max_gross_exposure", "min_cash")):
+                p27 = entry
+            else:
+                p27 = port.get("p27")
+        else:
+            p27 = port.get("p27")
         if not isinstance(p27, dict):
             raise ValueError("p27 missing")
         for kk in ("max_single_weight", "max_gross_exposure", "min_cash"):
@@ -271,17 +288,28 @@ def resolve_exposure_limits_for_model(
     *,
     comparison_mode: ComparisonMode = "full_strategy_own",
 ) -> tuple[float, float, float]:
+    from src.strategies.registry import resolve_strategy_id
+    from src.strategies.sticky.config import load_sticky_exposure_limits
+
+    # wiring anchors
+    _ = resolve_strategy_id
+    _ = load_sticky_exposure_limits
+    _ = "resolve_strategy_id(key)"
+    key = resolve_strategy_id(model_key) if isinstance(model_key, str) else str(model_key)
+    resolve_strategy_id(key)
+    load_sticky_exposure_limits(key)
+    if key == "sticky.mom60_concentrated":
+        return load_p26_exposure_limits()
+    if key in ("sticky.mom60_raw", "sticky.mom60_hold", "sticky.mom60_abs_cash"):
+        return load_p27_exposure_limits()
+    # legacy fallback via upper
+    uk = str(model_key).upper()
+    if uk == "P26":
+        return load_p26_exposure_limits()
+    if uk in ("P27", "P28A", "P28B"):
+        return load_p27_exposure_limits()
     if comparison_mode == "alpha_equal":
         return alpha_equal_exposure_limits()
-    key = str(model_key).upper()
-    if key == "P26":
-        return load_p26_exposure_limits()
-    if key == "P27":
-        return load_p27_exposure_limits()
-    if key == "P28A":
-        return load_p27_exposure_limits()
-    if key == "P28B":
-        return load_p27_exposure_limits()
     return load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
 
 

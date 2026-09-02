@@ -1,8 +1,7 @@
-# Strategy parameters — leadership (spec 07) and portfolio (spec 08, future)
 leadership:
   sector_score_weights:
     rs: 0.45
-    accel: 0.30
+    accel: 0.3
     breadth: 0.25
     breakout: 0.0
     flow: 0.0
@@ -13,7 +12,7 @@ leadership:
     rs_out: 0.35
     rs_hi: 0.75
     accel_in: -0.08
-    accel_out: -0.20
+    accel_out: -0.2
     breadth_in: 0.65
     breadth_out: 0.45
     ext_in: 2.5
@@ -21,26 +20,83 @@ leadership:
     dd_in: 0.08
     dd_out: 0.05
     patience: 3
-
 intensity:
   mom_col: mom_20
-  allowed_multiples: [1, 2]
+  allowed_multiples:
+  - 1
+  - 2
   exclude_inverse: true
   exclude_synthetic: true
   exclude_low_confidence: true
-
 portfolio:
+  sticky:
+    leader_base:
+      mom_col: mom_20
+      only_plus_2: true
+      no_inverse: true
+      min_gap: 0.08
+      min_hold: 3
+    impulse_crash:
+      impulse_gap: 0.04
+      impulse_require_volx: true
+      impulse_col: mom_5
+      cash_drawdown: -0.12
+      peak_lock: 0.4
+    family_peak_lock:
+      collapse_family: true
+      min_gap: 0.0
+      min_hold: 0
+      lock_level: 0.5
+    split_fill_lock:
+      score_max_order_to_adv: 0.05
+      lock_level: 0.4
+      collapse_family: true
+    mom60_peak_lock:
+      mom_col: mom_60
+      lock_level: 0.5
+      trail: 0.0
+    house_money:
+      mom_col: mom_60
+      arm: 0.5
+      lock_remaining: 5
+    mom60_concentrated:
+      mom_col: mom_60
+      cash_drawdown: 0.0
+      min_gap: 0.04
+      min_hold: 2
+      impulse_gap: 0.0
+      arm: 0.5
+      lock_remaining: 5
+      max_single_weight: 0.95
+      max_gross_exposure: 1.9
+      min_cash: 0.05
+    mom60_raw:
+      mom_col: mom_60
+      cash_drawdown: 0.0
+      min_gap: 0.04
+      min_hold: 2
+      impulse_gap: 0.0
+      overlay_mode: identity
+      max_single_weight: 0.95
+      max_gross_exposure: 1.9
+      min_cash: 0.05
   adoption:
     vehicle_conf_min: 0.85
   tail_concentration:
     enabled: true
-    tradable_states: ["LEADING", "RECOVERY"]
-    risk_on_regimes: ["RISK_ON", "STRONG_RISK_ON"]
+    tradable_states:
+    - LEADING
+    - RECOVERY
+    risk_on_regimes:
+    - RISK_ON
+    - STRONG_RISK_ON
     w_top_full: 1.0
     k_full: 1
   lottery_exposure:
     enabled: true
-    risk_on_regimes: ["RISK_ON", "STRONG_RISK_ON"]
+    risk_on_regimes:
+    - RISK_ON
+    - STRONG_RISK_ON
     w_top: 1.0
     max_gross: 2.0
     suppress_vehicle_gate: true
@@ -52,61 +108,17 @@ portfolio:
     no_inverse: true
     min_gap: 0.08
     min_hold: 3
-  p21:
-    impulse_gap: 0.04
-    impulse_require_volx: true
-    impulse_col: mom_5
-    cash_drawdown: -0.12
-    peak_lock: 0.40
-  p22:
-    collapse_family: true
-    min_gap: 0.0
-    min_hold: 0
-    lock_level: 0.50
-  p23:
-    score_max_order_to_adv: 0.05
-    lock_level: 0.40
-    collapse_family: true
-  p24:
-    mom_col: mom_60
-    lock_level: 0.50
-    trail: 0.0
-  p25:
-    mom_col: mom_60
-    arm: 0.50
-    lock_remaining: 5
-  p26:
-    mom_col: mom_60
-    cash_drawdown: 0.0
-    min_gap: 0.04
-    min_hold: 2
-    impulse_gap: 0.0
-    arm: 0.50
-    lock_remaining: 5
-    max_single_weight: 0.95
-    max_gross_exposure: 1.90
-    min_cash: 0.05
-  p27:
-    mom_col: mom_60
-    cash_drawdown: 0.0
-    min_gap: 0.04
-    min_hold: 2
-    impulse_gap: 0.0
-    overlay_mode: identity
-    max_single_weight: 0.95
-    max_gross_exposure: 1.90
-    min_cash: 0.05
   convexity_hold:
     enabled: true
     min_gap: 0.0
-    score_drop_pct: 0.30
-    crisis_regimes: [STRONG_RISK_OFF]
+    score_drop_pct: 0.3
+    crisis_regimes:
+    - STRONG_RISK_OFF
     w_top: 1.0
     max_gross: 2.0
     skip_capacity_route: true
-
 right_tail_weights:
   0.75: 0.2
-  0.90: 0.3
+  0.9: 0.3
   0.95: 0.3
   0.99: 0.2
