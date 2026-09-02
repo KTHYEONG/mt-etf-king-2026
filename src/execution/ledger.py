@@ -9,7 +9,8 @@ from datetime import date
 import polars as pl
 
 from src.backtest.costs import CostModel
-from src.backtest.execution import NextOpenExecution
+from src.backtest.execution import NextOpenExecution, is_open_fillable
+from src.backtest.liquidity import cap_target_weights_by_adv
 from src.portfolio.intent import CASH_INTENT, HOLD_INTENT, PortfolioIntent, resolve_portfolio_intent
 
 
@@ -51,7 +52,6 @@ class PortfolioLedgerState:
                 out[tkr] = 0.0
                 continue
             out[tkr] = float(shf * pf / eq) if eq != 0 else 0.0
-        # filter tiny?
         return {k: float(v) for k, v in out.items()}
 
 
@@ -61,6 +61,9 @@ class SessionTransitionDiagnostics:
     transaction_cost: float
     fill_count: int
     unfilled_count: int
+    target_gross: float
+    post_fill_gross: float
+    close_realized_gross: float
     effective_gross: float
     gross_violation: bool
     cash_session: bool
@@ -73,6 +76,8 @@ class PortfolioTransitionResult:
     session_return: float
     weights_after_close: dict[str, float]
     diagnostics: SessionTransitionDiagnostics
+    fills: tuple[Fill, ...]
+    unfilled: tuple[str, ...]
 
 
 def ledger_state_from_weights(*, equity: float, weights: Mapping[str, float], mark_prices: Mapping[str, float]) -> PortfolioLedgerState:
@@ -97,7 +102,6 @@ def ledger_state_from_weights(*, equity: float, weights: Mapping[str, float], ma
         sh = wf * eq / pf
         shares[str(tkr)] = float(sh)
     cash = eq * (1.0 - total_w)
-    # clamp cash?
     return PortfolioLedgerState(cash=float(cash), shares=dict(shares))
 
 
@@ -133,7 +137,6 @@ def transition_portfolio_state(
     execution: NextOpenExecution | None,
     panel: pl.DataFrame | None,
 ) -> PortfolioTransitionResult:
-    # equity levels
     try:
         equity_prev = prior_state.equity_at_prices(prev_closes) if prev_closes else prior_state.equity_at_prices(opens)
     except Exception:
@@ -144,27 +147,27 @@ def transition_portfolio_state(
         equity_open = equity_prev
     if equity_open == 0 or equity_open != equity_open:
         equity_open = equity_prev
-    # weights before
+    # INV-WEIGHT-1 split
     try:
-        weights_before = prior_state.weights_at_prices(prev_closes) if prev_closes else prior_state.weights_at_prices(opens)
+        weights_before_close = prior_state.weights_at_prices(prev_closes) if prev_closes else prior_state.weights_at_prices(opens)
     except Exception:
-        weights_before = {}
+        weights_before_close = {}
+    try:
+        weights_before_open = prior_state.weights_at_prices(opens) if opens else dict(weights_before_close)
+    except Exception:
+        weights_before_open = dict(weights_before_close)
 
     is_hold = bool(getattr(intent, "kind", "") == "hold")
     is_cash = bool(getattr(intent, "kind", "") == "cash")
 
     target: dict[str, float] = {}
-    # build target
     if is_hold:
         target = {}
     elif is_cash:
-        # liquidate all holdings
         target = {str(k): 0.0 for k in prior_state.shares.keys()}
-        # also consider intent weights if any non-empty (should be empty for cash)
         try:
             w_int = dict(getattr(intent, "weights", {}))
             for k, v in w_int.items():
-                # cash intent ignores weights, keep 0
                 target[str(k)] = 0.0
         except Exception:
             pass
@@ -174,7 +177,6 @@ def transition_portfolio_state(
             raw = dict(getattr(intent, "weights", {})) if getattr(intent, "weights", None) is not None else {}
         except Exception:
             raw = {}
-        # normalize
         try:
             from src.portfolio.constraints import normalize_weights
 
@@ -184,7 +186,6 @@ def transition_portfolio_state(
                 target = {}
         except Exception:
             target = {str(k): float(v) for k, v in raw.items()} if raw else {}
-        # exposure limits
         if exposure_limits is not None and target:
             try:
                 max_single, max_gross, min_cash = exposure_limits
@@ -201,19 +202,19 @@ def transition_portfolio_state(
             except Exception:
                 pass
 
-    # ADV cap
+    # INV-GROSS-4 target_gross before execution
+    target_gross = _gross_exposure(target, leverage_multiples if isinstance(leverage_multiples, Mapping) else {})
+
+    # INV-WEIGHT-2 ADV cap uses weights_before_open
     if not is_hold and not is_cash and target is not None and adv_by_ticker is not None and max_order_to_adv is not None:
         if target:
             try:
-                from src.backtest.liquidity import cap_target_weights_by_adv
-
-                # equity for cap is equity_open
                 adv_map = {str(k): float(v) for k, v in dict(adv_by_ticker).items() if v is not None}
-                target = cap_target_weights_by_adv(target, weights_before, float(equity_open), adv_map, float(max_order_to_adv))
+                target = cap_target_weights_by_adv(target, weights_before_open, float(equity_open), adv_map, float(max_order_to_adv))
             except Exception:
                 pass
 
-    fills: list = []
+    fills: list[Fill] = []
     unfilled: tuple[str, ...] = ()
     if is_hold:
         fills = []
@@ -233,23 +234,14 @@ def transition_portfolio_state(
                     fills = []
                     unfilled = tuple(sorted(target.keys()))
             else:
-                # fallback: fill if open exists
                 fills = []
                 unfilled_list: list[str] = []
                 for tk, w in target.items():
                     op = opens.get(str(tk)) if isinstance(opens, Mapping) else None
-                    if op is None:
+                    if not is_open_fillable(op):
                         unfilled_list.append(str(tk))
                         continue
-                    try:
-                        pf = float(op)
-                        if pf <= 0 or pf != pf:
-                            unfilled_list.append(str(tk))
-                            continue
-                    except Exception:
-                        unfilled_list.append(str(tk))
-                        continue
-                    from src.backtest.execution import Fill
+                    from src.backtest.execution import Fill as _Fill
 
                     exec_date = decision_date
                     try:
@@ -257,40 +249,37 @@ def transition_portfolio_state(
                             exec_date = execution.calendar.next_session(decision_date)
                     except Exception:
                         exec_date = decision_date
-                    fills.append(Fill(ticker=str(tk), execution_date=exec_date, price=float(pf), target_weight=float(w)))
+                    fills.append(_Fill(ticker=str(tk), execution_date=exec_date, price=float(op), target_weight=float(w)))  # type: ignore[arg-type]
                 unfilled = tuple(sorted(unfilled_list))
         else:
             fills = []
             unfilled = ()
         new_weights = {str(f.ticker): float(f.target_weight) for f in fills} if fills else {}
 
-    # weights_after_open
+    # INV-WEIGHT-3 weights_after_open uses weights_before_open baseline
     weights_after_open: dict[str, float] = {}
     turnover_weight = 0.0
     if is_hold:
-        weights_after_open = {}
+        # HOLD intent sessions produce post_fill_gross equal to open effective gross without turnover
+        # For hold, weights_after_open is weights_before_open filtered
+        weights_after_open = {k: float(v) for k, v in weights_before_open.items() if abs(float(v)) > 1e-12}
         turnover_weight = 0.0
         transaction_cost = 0.0
     else:
-        # build weights_after_open merging
-        # union of weights_before, target, new_weights, unfilled
-        union_keys = set(weights_before.keys()) | set(target.keys()) | set(new_weights.keys()) | set(unfilled)
+        union_keys = set(weights_before_open.keys()) | set(target.keys()) | set(new_weights.keys()) | set(unfilled)
         for tk in union_keys:
             tk_s = str(tk)
             if tk_s in unfilled:
-                weights_after_open[tk_s] = float(weights_before.get(tk_s, 0.0))
+                weights_after_open[tk_s] = float(weights_before_open.get(tk_s, 0.0))
             elif tk_s in new_weights:
                 weights_after_open[tk_s] = float(new_weights[tk_s])
             elif tk_s in target:
                 weights_after_open[tk_s] = float(target[tk_s])
             else:
-                # prior holding not in target (should have been in target as 0 after cap), but if missing treat as 0
                 weights_after_open[tk_s] = 0.0
-        # filter zero
         weights_after_open = {k: float(v) for k, v in weights_after_open.items() if abs(float(v)) > 1e-12}
-        # turnover
-        all_t = set(weights_before.keys()) | set(weights_after_open.keys())
-        turnover_weight = sum(abs(float(weights_after_open.get(t, 0.0)) - float(weights_before.get(t, 0.0))) for t in all_t)
+        all_t = set(weights_before_open.keys()) | set(weights_after_open.keys())
+        turnover_weight = sum(abs(float(weights_after_open.get(t, 0.0)) - float(weights_before_open.get(t, 0.0))) for t in all_t)
         try:
             traded_notional = float(turnover_weight) * float(equity_open)
             transaction_cost = float(cost_model.charge(traded_notional)) if traded_notional else 0.0
@@ -303,38 +292,24 @@ def transition_portfolio_state(
     if equity_after_cost < 0:
         equity_after_cost = 0.0
 
-    # build shares_after and cash_after
     shares_after: dict[str, float] = {}
     cash_after: float
     if is_hold:
         shares_after = dict(prior_state.shares)
-        # cash reduced by cost
         cash_after = float(prior_state.cash) - float(transaction_cost) if transaction_cost else float(prior_state.cash)
-        # ensure cash doesn't go negative due to cost > cash? equity_after_cost already ensures
-        # adjust cash to keep equity_after_cost invariant: cash_after = equity_after_cost - sum shares*open
-        # but for hold we keep shares, so cash_after should be prior cash - cost
-        # verify equity_after_cost == cash_after + sum shares*open
-        # if mismatch due to prior cash not equal equity_open - shares*open? It should match
     else:
-        # for non-hold, compute shares from weights_after_open
-        # For unfilled, keep prior shares instead of recomputed
         cash_after = float(equity_after_cost)
-        # first handle unfilled: keep prior shares
         unfilled_set = set(unfilled)
         for tk in list(weights_after_open.keys()):
             if tk in unfilled_set:
                 prior_sh = float(prior_state.shares.get(tk, 0.0))
                 shares_after[tk] = prior_sh
-                # cash not yet adjusted for these shares? We'll adjust later via subtraction of open value
-                # We'll need to handle cash After as equity_after - sum shares*open
-                # So we can't subtract using recomputed weight method for unfilled
                 continue
             w = float(weights_after_open[tk])
             if abs(w) < 1e-12:
                 continue
             op = opens.get(tk) if isinstance(opens, Mapping) else None
-            if op is None:
-                # no open price, keep prior share if any
+            if op is None or not is_open_fillable(op):
                 prior_sh = float(prior_state.shares.get(tk, 0.0))
                 if abs(prior_sh) > 1e-12:
                     shares_after[tk] = prior_sh
@@ -348,7 +323,6 @@ def transition_portfolio_state(
             sh = w * float(equity_after_cost) / float(opf)
             if abs(sh) > 1e-12:
                 shares_after[tk] = float(sh)
-        # cash_after is equity_after_cost minus market value at open of shares_after
         open_value = 0.0
         for tk, sh in shares_after.items():
             op = opens.get(tk) if isinstance(opens, Mapping) else None
@@ -360,14 +334,11 @@ def transition_portfolio_state(
             except Exception:
                 continue
         cash_after = float(equity_after_cost) - float(open_value)
-        # handle case where shares_after empty (cash session) -> cash_after == equity_after_cost
 
-    # equity_close = cash_after + sum shares*closes
     equity_close = float(cash_after)
     for tk, sh in shares_after.items():
         cl = closes.get(tk) if isinstance(closes, Mapping) else None
         if cl is None:
-            # if no close, use open? fallback to open value
             cl = opens.get(tk) if isinstance(opens, Mapping) else None
         if cl is None:
             continue
@@ -379,17 +350,14 @@ def transition_portfolio_state(
             equity_close += shf * clf
         except Exception:
             continue
-    # if no shares (all cash), equity_close == cash_after
     if equity_close < 0:
         equity_close = 0.0
 
-    # session return relative to equity_prev
     if equity_prev != 0:
         session_return = float(equity_close / float(equity_prev) - 1.0)
     else:
         session_return = 0.0
 
-    # weights_after_close for diagnostics and result
     weights_after_close: dict[str, float] = {}
     if equity_close != 0:
         for tk, sh in shares_after.items():
@@ -406,18 +374,18 @@ def transition_portfolio_state(
                     weights_after_close[tk] = float(w)
             except Exception:
                 continue
-    # effective gross
-    effective_gross = _gross_exposure(weights_after_close, leverage_multiples if isinstance(leverage_multiples, Mapping) else {})
-    gross_limit = None
+    # INV-GROSS-2 post_fill_gross from open
+    post_fill_gross = _gross_exposure(weights_after_open, leverage_multiples if isinstance(leverage_multiples, Mapping) else {})
+    close_realized_gross = _gross_exposure(weights_after_close, leverage_multiples if isinstance(leverage_multiples, Mapping) else {})
+    effective_gross = float(close_realized_gross)
     gross_violation = False
     if exposure_limits is not None:
         try:
             _, max_gross, _ = exposure_limits
             gross_limit = float(max_gross)
-            gross_violation = bool(effective_gross > gross_limit + 1e-9)
+            gross_violation = bool(post_fill_gross > gross_limit + 1e-9)
         except Exception:
             gross_violation = False
-    # diagnostics
     fill_count = len(fills)
     unfilled_count = len(unfilled)
     diagnostics = SessionTransitionDiagnostics(
@@ -425,6 +393,9 @@ def transition_portfolio_state(
         transaction_cost=float(transaction_cost),
         fill_count=int(fill_count),
         unfilled_count=int(unfilled_count),
+        target_gross=float(target_gross),
+        post_fill_gross=float(post_fill_gross),
+        close_realized_gross=float(close_realized_gross),
         effective_gross=float(effective_gross),
         gross_violation=bool(gross_violation),
         cash_session=bool(is_cash),
@@ -436,6 +407,8 @@ def transition_portfolio_state(
         session_return=float(session_return),
         weights_after_close=dict(weights_after_close),
         diagnostics=diagnostics,
+        fills=tuple(fills),
+        unfilled=tuple(unfilled),
     )
 
 
@@ -463,11 +436,9 @@ def resolve_session_intent(
 
 
 def aggregate_session_diagnostics(sessions: Sequence[SessionTransitionDiagnostics], *, gross_limit: float) -> object:
-    # import locally to avoid circular
     try:
         from src.tournament.simulator import RollingDiagnostics
     except Exception:
-        # fallback define minimal
         from dataclasses import dataclass
 
         @dataclass(frozen=True)
@@ -493,11 +464,14 @@ def aggregate_session_diagnostics(sessions: Sequence[SessionTransitionDiagnostic
     unfilled_sum = 0
     for s in sessions:
         try:
-            eg = float(getattr(s, "effective_gross", 0.0) or 0.0)
+            # per INV-GROSS-3 violation count based on post_fill gross violation flag, not close drift
+            if bool(getattr(s, "gross_violation", False)):
+                gross_violation_count += 1
+            eg = float(getattr(s, "close_realized_gross", getattr(s, "effective_gross", 0.0)) or 0.0)
+            # effective_gross_max should be max of close_realized_gross (alias effective_gross)
             if eg > effective_gross_max:
                 effective_gross_max = float(eg)
-            if bool(getattr(s, "gross_violation", False)) or eg > float(gross_limit) + 1e-9:
-                gross_violation_count += 1
+            # also track post_fill max? spec says effective_gross_max, use close
             turnover_sum += float(getattr(s, "turnover_weight", 0.0) or 0.0)
             fill_sum += int(getattr(s, "fill_count", 0) or 0)
             unfilled_sum += int(getattr(s, "unfilled_count", 0) or 0)
@@ -511,4 +485,3 @@ def aggregate_session_diagnostics(sessions: Sequence[SessionTransitionDiagnostic
         fill_count=int(fill_sum),
         unfilled_count=int(unfilled_sum),
     )
-
