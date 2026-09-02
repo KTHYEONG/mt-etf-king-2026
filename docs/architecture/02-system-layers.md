@@ -221,3 +221,39 @@ BacktestEngine / TournamentSimulator / DailyDecision
 | 기간 | 2024-01 ~ 현재 | 2018-01 ~ 현재 |
 | 목적 | **이번 대회 전략 검증** | 아이디어 구조적 존재 여부 |
 | survivorship bias | 의도적 허용 | 없음 |
+
+## 8. Refactor R2-R5 Module Map (Updated)
+
+```
+src/
+├── strategies/
+│   ├── ids.py                # semantic StrategyId constants
+│   ├── registry.py           # LEGACY_ALIASES, resolve_strategy_id, STRATEGIES
+│   ├── baselines/
+│   │   ├── core.py           # BuyAndHoldBaseline, B0-B5, M07 shims
+│   │   └── portfolio.py      # P08-P19 portfolio factories
+│   └── sticky/
+│       ├── config.py         # load_overlay_mode, read_sticky_yaml_block (semantic-first)
+│       ├── model.py          # StickyLeaderModel, StickyLeaderConfig
+│       ├── overlays.py       # impulse/crash/abs-mom/same-leader overlays
+│       └── factories.py      # P20-P28b factories, FACTORY_REGISTRY
+├── cli/
+│   ├── dispatch.py           # family_of, normalize_cli_model_arg, STICKY_*_HANDLERS
+│   ├── constants.py          # CHAMPION_STRATEGY semantic
+│   ├── main.py               # build_parser + SUBCOMMANDS
+│   └── commands/
+│       ├── backtest.py       # cmd_backtest (normalize semantic)
+│       ├── decide.py         # cmd_decide
+│       ├── config.py         # config-check, calendar
+│       ├── data.py           # ingest, normalize
+│       ├── universe.py       # universe
+│       ├── features.py       # features
+│       ├── replay.py         # replay
+│       └── storage.py        # storage-migrate
+└── tournament/
+    ├── distribution_core.py  # ReturnDistribution, evaluate_adoption_gates
+    ├── overlay_returns.py    # locked_window etc, execution_faithful
+    ├── objective_core.py     # ObjectiveGateConfig, evaluate_objective_gates
+    ├── championship.py       # evaluate_championship_adoption, field_relative_report
+    └── adoption_reports.py   # p15/p16/p24/p25 reports
+```

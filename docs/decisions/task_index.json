@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_40_PROJECT_REFACTOR",
+      "date": "2026-09-02",
+      "adr_id": "ADR_20260902_40_PROJECT_REFACTOR",
+      "domain": "architecture",
+      "title": "Project Refactor R1–R5 (Semantic IDs, CLI/Tournament Split, Strategies Package)",
+      "why": "P-codes (P27/P28B) and monolithic cli.py (5.7k lines) blocked readability; R1–R5 contract required semantic strategy IDs, strategies/* package, CLI dispatch layer, and tournament shims without breaking adoption/championship wiring.",
+      "resolution": "R1: semantic registry (resolve_strategy_id, LEGACY_ALIASES, CHAMPION/ANCHOR constants). R2 transitional: sticky model/overlays + baselines core moved to src/strategies/*; alpha shims re-export. R3: cli package (_impl.py + dispatch + commands wrappers, normalize_cli_model_arg). R4: distribution_core/objective_impl/championship shims. R5: strategies.yaml semantic keys + meta strategy_id wiring. lean_check PASS (both contracts).",
+      "impact": "L0 architecture: semantic IDs at CLI boundary; legacy P-codes still accepted via registry; _impl.py retained until full cmd_* split; financial invariants unchanged."
+    },
+    {
       "task_id": "TASK_39_P28B_ABS_MOM_CASH",
       "date": "2026-09-02",
       "adr_id": "ADR_20260902_39_P28B_ABS_MOM_CASH",
