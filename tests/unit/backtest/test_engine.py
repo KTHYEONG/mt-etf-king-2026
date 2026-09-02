@@ -219,10 +219,64 @@ def test_engine_post_fill_applies_exposure_limits() -> None:
     import inspect
 
     from src.backtest.engine import BacktestEngine
+    from src.execution.ledger import transition_portfolio_state
 
-    src = inspect.getsource(BacktestEngine.run)
-    assert "new_weights = {f.ticker: f.target_weight for f in fills}" in src
-    fill_idx = src.index("new_weights = {f.ticker: f.target_weight for f in fills}")
-    after = src[fill_idx:]
-    assert "apply_portfolio_exposure_limits" in after
+    ledger_src = inspect.getsource(transition_portfolio_state)
+    assert "apply_portfolio_exposure_limits" in ledger_src
+    run_src = inspect.getsource(BacktestEngine.run)
+    assert "transition_portfolio_state" in run_src
+    assert "transition_result.fills" in run_src or "_append_trades_from_transition" in run_src
     assert "set_portfolio_exposure_limits" in inspect.getsource(BacktestEngine)
+
+
+def test_engine_trades_sourced_from_transition_result() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.backtest.costs import CostConfig
+    from src.backtest.engine import BacktestConfig
+    from src.portfolio.sizing import SizingScheme
+    from tests.unit.backtest.conftest import build_engine, panel_row
+
+    cal_sessions = __import__("src.core.calendar", fromlist=["TradingCalendar"]).TradingCalendar().sessions(
+        date(2026, 1, 2), date(2026, 2, 10)
+    )
+    rows = []
+    for i, d in enumerate(cal_sessions):
+        px = 30000.0 + i * 50.0
+        rows.append(panel_row(day=d, ticker="069500", close=px, open_=px, mom_20=0.10, name="KODEX 200", theme="KOSPI"))
+        rows.append(panel_row(day=d, ticker="122630", close=20000.0 + i * 80.0, open_=20000.0 + i * 80.0, mom_20=0.20, name="LEV", theme="LEV"))
+    panel = pl.DataFrame(rows)
+    engine, _, filt = build_engine(panel, warmup_sessions=1)
+    config = BacktestConfig(
+        start=cal_sessions[0],
+        end=cal_sessions[-1],
+        capital=1_000_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+
+    class _SwitchOnce:
+        name = "switch_once"
+        scores_path_independent = True
+
+        def score(self, snapshot: object, context: object) -> dict[str, float]:
+            day = getattr(context, "decision_date", None)
+            if day == cal_sessions[2]:
+                return {"122630": 1.0}
+            return {"069500": 1.0}
+
+    result = engine.run(_SwitchOnce(), panel, config)
+    trades_df = getattr(result, "trades", None)
+    if isinstance(trades_df, pl.DataFrame):
+        trades = trades_df.to_dicts()
+    else:
+        trades = list(trades_df or [])
+    assert len(trades) >= 1
+    first = trades[0]
+    assert "execution_date" in first
+    assert "weight_after" in first
+    assert float(first["weight_after"]) > 0.0
