@@ -198,3 +198,72 @@ def test_fast_slow_parity_hold_switch_after_ledger() -> None:
     from tests.unit.tournament.test_simulator import test_simulate_window_live_scores_match_engine_slow
 
     test_simulate_window_live_scores_match_engine_slow()
+
+
+def test_turnover_uses_open_weights_after_gap() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.backtest.costs import CostConfig, CostModel
+    from src.backtest.execution import NextOpenExecution
+    from src.core.calendar import TradingCalendar
+    from src.execution.ledger import PortfolioLedgerState, transition_portfolio_state
+    from src.portfolio.intent import PortfolioIntent
+
+    cal = TradingCalendar()
+    d0 = date(2026, 1, 2)
+    d1 = date(2026, 1, 5)
+    state = PortfolioLedgerState(cash=50_000.0, shares={"A": 9500.0})
+    w_close = state.weights_at_prices({"A": 100.0})
+    w_open = state.weights_at_prices({"A": 110.0})
+    assert abs(w_close["A"] - 0.95) < 1e-9
+    assert w_open["A"] > 0.95
+    intent = PortfolioIntent(kind="target", weights={"A": 0.95})
+    result = transition_portfolio_state(
+        prior_state=state,
+        intent=intent,
+        decision_date=d0,
+        prev_closes={"A": 100.0},
+        opens={"A": 110.0},
+        closes={"A": 112.0},
+        cost_model=CostModel(CostConfig(commission_bps=10.0, slippage_bps=0.0, tax_bps=0.0)),
+        adv_by_ticker={"A": 1e12},
+        max_order_to_adv=1.0,
+        exposure_limits=None,
+        leverage_multiples={"A": 1},
+        execution=NextOpenExecution(cal),
+        panel=pl.DataFrame([{"date": d1, "ticker": "A", "open": 110.0, "close": 112.0, "is_tradable": True}]),
+    )
+    expected_turnover = abs(0.95 - w_open["A"])
+    assert abs(result.diagnostics.turnover_weight - expected_turnover) < 1e-6
+    assert result.diagnostics.turnover_weight < abs(0.95 - 0.95) + 1e-9 or expected_turnover > 1e-6
+
+
+def test_gross_violation_only_on_post_fill_not_close_drift() -> None:
+    from datetime import date
+
+    from src.backtest.costs import CostConfig, CostModel
+    from src.execution.ledger import PortfolioLedgerState, transition_portfolio_state
+    from src.portfolio.intent import HOLD_INTENT
+
+    state = PortfolioLedgerState(cash=50_000.0, shares={"A": 9500.0})
+    limits = (0.95, 1.90, 0.05)
+    result = transition_portfolio_state(
+        prior_state=state,
+        intent=HOLD_INTENT,
+        decision_date=date(2026, 1, 2),
+        prev_closes={"A": 100.0},
+        opens={"A": 100.0},
+        closes={"A": 101.0},
+        cost_model=CostModel(CostConfig(0.0, 0.0, 0.0)),
+        adv_by_ticker={},
+        max_order_to_adv=0.05,
+        exposure_limits=limits,
+        leverage_multiples={"A": 2},
+        execution=None,
+        panel=None,
+    )
+    assert result.diagnostics.post_fill_gross <= 1.90 + 1e-9
+    assert result.diagnostics.gross_violation is False
+    assert result.diagnostics.close_realized_gross > result.diagnostics.post_fill_gross

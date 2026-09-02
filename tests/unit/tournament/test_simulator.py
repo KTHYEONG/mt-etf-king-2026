@@ -564,3 +564,68 @@ def test_rolling_window_daily_paths_optional() -> None:
     assert len(rolling.window_daily_paths) == len(rolling.returns)
     assert all(len(path) == 5 for path in rolling.window_daily_paths)
 
+
+def test_first_session_executes_prestart_intent() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.backtest.costs import CostConfig
+    from src.backtest.engine import BacktestConfig
+    from src.backtest.session_cache import build_session_cache
+    from src.core.calendar import TradingCalendar
+    from src.portfolio.sizing import SizingScheme
+    from src.tournament.simulator import simulate_window_from_cache
+    from tests.unit.backtest.conftest import build_engine, panel_row
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 1, 20))
+    rows = []
+    for i, d in enumerate(sessions):
+        px = 100.0 + i * 2.0
+        rows.append(panel_row(day=d, ticker="069500", close=px, open_=px, mom_20=0.10, name="KODEX 200", theme="KOSPI"))
+    panel = pl.DataFrame(rows)
+    engine, _, filt = build_engine(panel, warmup_sessions=1)
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1_000_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+
+    class _StaticLeader:
+        name = "static"
+        scores_path_independent = True
+
+        def score(self, snapshot: object, context: object) -> dict[str, float]:
+            return {"069500": 1.0}
+
+    cache = build_session_cache(engine, _StaticLeader(), panel, config)
+    start_idx = 2
+    horizon = 3
+    res = simulate_window_from_cache(
+        _StaticLeader(),
+        cache,
+        start_idx,
+        horizon,
+        float(config.capital),
+        config.filters,
+        config.costs,
+        panel=panel,
+        execution=engine.execution,
+        scheme=config.scheme,
+        k=config.k,
+        return_daily_path=True,
+    )
+    if isinstance(res, tuple) and len(res) == 4:
+        comp, _, _, daily_path = res  # type: ignore[misc]
+    else:
+        comp, _, daily_path = res  # type: ignore[misc]
+    assert daily_path is not None
+    assert len(daily_path) == horizon
+    assert any(abs(float(x)) > 1e-12 for x in daily_path)
+    assert abs(float(comp)) > 1e-12
+
