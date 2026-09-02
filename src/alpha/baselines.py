@@ -2284,6 +2284,16 @@ def _make_p27() -> StickyLeaderModel:
     return StickyLeaderModel(name="P27", config=cfg)
 
 
+def _make_p28a() -> StickyLeaderModel:
+    from src.alpha.sticky import StickyLeaderModel
+
+    _ = StickyLeaderModel
+    model = _make_p27()
+    model.name = "P28A"
+    model.config.same_leader_hold = True
+    return model
+
+
 BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "B0": _make_b0,
     "B1": _make_b1,
@@ -2312,4 +2322,5 @@ BASELINES: Final[Mapping[str, Callable[[], object]]] = {
     "P25": _make_p25,
     "P26": _make_p26,
     "P27": _make_p27,
+    "P28A": _make_p28a,
 }
