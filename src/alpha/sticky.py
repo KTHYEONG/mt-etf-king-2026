@@ -28,6 +28,7 @@ class StickyLeaderConfig:
     cash_drawdown: float = 0.0
     collapse_family: bool = False
     lock_level: float = 0.0
+    same_leader_hold: bool = False
 
     @classmethod
     def from_yaml(cls, raw: Mapping[str, object]) -> StickyLeaderConfig:
@@ -168,6 +169,7 @@ class StickyLeaderConfig:
             cash_drawdown=float(cash_drawdown),
             collapse_family=bool(collapse_family),
             lock_level=float(defaults.lock_level),
+            same_leader_hold=False,
         )
 
 
@@ -854,6 +856,92 @@ def apply_crash_cash(
     return dict(scores)
 
 
+def apply_same_leader_hold(scores: Mapping[str, float] | object, held: str | None, enabled: bool) -> dict[str, float] | object:
+    try:
+        from src.portfolio.intent import HOLD_INTENT
+    except Exception:
+        HOLD_INTENT = None  # type: ignore[assignment]
+    # FAIL-CLOSED: if scores is PortfolioIntent, return unchanged
+    try:
+        if scores is not None and hasattr(scores, "kind"):
+            k = getattr(scores, "kind", None)
+            if k in ("cash", "hold", "target"):
+                return scores
+            # also check instance of PortfolioIntent generically
+            try:
+                from src.portfolio.intent import PortfolioIntent as _PI
+                if isinstance(scores, _PI):
+                    return scores
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # Also if not Mapping, treat as intent
+    if not isinstance(scores, Mapping):
+        return scores
+    if not bool(enabled):
+        try:
+            return dict(scores)  # type: ignore[arg-type]
+        except Exception:
+            return scores
+    # empty mapping -> {}
+    try:
+        if len(scores) == 0:  # type: ignore[arg-type]
+            return {}
+    except Exception:
+        try:
+            return dict(scores)  # type: ignore[arg-type]
+        except Exception:
+            return scores
+    # held None or blank -> return dict(scores)
+    if held is None:
+        try:
+            return dict(scores)  # type: ignore[arg-type]
+        except Exception:
+            return scores
+    try:
+        hs = str(held).strip()
+        if not hs:
+            return dict(scores)  # type: ignore[arg-type]
+    except Exception:
+        try:
+            return dict(scores)  # type: ignore[arg-type]
+        except Exception:
+            return scores
+    # leader determination with non-finite skip
+    try:
+        finite_items: list[tuple[str, float]] = []
+        for k, v in scores.items():  # type: ignore[union-attr]
+            try:
+                fv = float(v)  # type: ignore[arg-type]
+                if math.isfinite(fv):
+                    finite_items.append((str(k), float(fv)))
+            except Exception:
+                continue
+        if not finite_items:
+            return dict(scores)  # type: ignore[arg-type]
+        sorted_items = sorted(finite_items, key=lambda kv: (-float(kv[1]), str(kv[0])))
+        leader = str(sorted_items[0][0])
+    except Exception:
+        try:
+            return dict(scores)  # type: ignore[arg-type]
+        except Exception:
+            return scores
+    try:
+        if str(leader) == str(held).strip() and bool(enabled):
+            if HOLD_INTENT is not None:
+                return HOLD_INTENT
+            from src.portfolio.intent import HOLD_INTENT as _HI
+
+            return _HI
+    except Exception:
+        pass
+    try:
+        return dict(scores)  # type: ignore[arg-type]
+    except Exception:
+        return scores
+
+
 class StickyLeaderModel:
     name: str
     config: StickyLeaderConfig
@@ -891,7 +979,7 @@ class StickyLeaderModel:
         self._held = held
         self._hold_len = int(hl)
 
-    def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float]:
+    def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float] | object:
         filtered = filter_plus2_scores(snapshot, self.config)
         if getattr(self.config, "collapse_family", False):
             try:
@@ -935,4 +1023,4 @@ class StickyLeaderModel:
         sticky = apply_sticky_leader(filtered, held, self.config, self._hold_len)
         impulsed = apply_impulse_switch(sticky, held, snapshot, self.config)
         crashed = apply_crash_cash(impulsed, held, snapshot, self.config)
-        return crashed
+        return apply_same_leader_hold(crashed, held, bool(getattr(self.config, "same_leader_hold", False)))
