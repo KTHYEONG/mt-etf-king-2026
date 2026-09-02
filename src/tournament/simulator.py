@@ -131,6 +131,97 @@ def oneshot_independent_window_returns(
     return tuple(out)
 
 
+def resolve_prestart_intent(
+    *,
+    model: object,
+    cache: object,
+    pre_decision_date: date,
+    capital: float,
+    scheme: SizingScheme,
+    k: int,
+) -> object:
+    from src.portfolio.intent import PortfolioIntent as _PI
+    from src.portfolio.intent import HOLD_INTENT as _HOLD
+
+    scores_map = getattr(cache, "scores", {}) if isinstance(getattr(cache, "scores", None), dict) else {}
+    scores_path_independent = bool(getattr(model, "scores_path_independent", True))
+    score_result: object = {}
+    score_failed = False
+    if scores_path_independent:
+        scores = scores_map.get(pre_decision_date, {}) if isinstance(scores_map, dict) else {}
+        if scores is None:
+            scores = {}
+        score_result = scores
+        score_failed = not bool(scores)
+    else:
+        try:
+            snapshots = getattr(cache, "snapshots", {})
+            snapshot = snapshots.get(pre_decision_date) if isinstance(snapshots, dict) else None
+            if snapshot is None:
+                snapshot = pl.DataFrame()
+            if not isinstance(snapshot, pl.DataFrame):
+                snapshot = pl.DataFrame(snapshot)  # type: ignore[arg-type]
+        except Exception:
+            snapshot = pl.DataFrame()
+        try:
+            regimes = getattr(cache, "regimes", None)
+            regime_val = regimes.get(pre_decision_date) if isinstance(regimes, dict) else None
+            rules_val = getattr(cache, "rules", None)
+            ctx = DecisionContext(
+                decision_date=pre_decision_date,
+                regime=regime_val,
+                capital=float(capital),
+                held={},
+                rules=rules_val,  # type: ignore[arg-type]
+            )
+        except Exception:
+            ctx = DecisionContext(
+                decision_date=pre_decision_date,
+                regime=None,
+                capital=float(capital),
+                held={},
+                rules=getattr(cache, "rules", None),  # type: ignore[arg-type]
+            )
+        try:
+            score_result = model.score(snapshot, ctx)  # type: ignore[call-arg]
+        except Exception:
+            score_result = {}
+            score_failed = True
+        if score_result is None:
+            score_result = {}
+            score_failed = True
+    if isinstance(score_result, _PI):
+        return score_result
+    if score_failed:
+        return _HOLD
+    # allocate path
+    alloc_result: object | None = None
+    if hasattr(model, "allocate") and callable(getattr(model, "allocate", None)):  # noqa: B009
+        try:
+            scores_for_alloc: dict[str, float] = {}
+            if isinstance(score_result, dict):
+                scores_for_alloc = {str(k): float(v) for k, v in score_result.items()}
+            try:
+                alloc_result = model.allocate(scores_for_alloc, regime=None, leverage_allowed=None, inverse_allowed=None, capital=float(capital), adv=None, participation=0.05, current_weights={})  # type: ignore[union-attr]
+            except TypeError:
+                try:
+                    alloc_result = model.allocate(scores_for_alloc, regime=None, leverage_allowed=None, inverse_allowed=None)  # type: ignore[union-attr]
+                except TypeError:
+                    alloc_result = model.allocate(scores_for_alloc)  # type: ignore[union-attr]
+        except Exception:
+            alloc_result = None
+        if alloc_result is not None:
+            return resolve_portfolio_intent(alloc_result, current_weights={}, score_failed=False)
+    if isinstance(score_result, dict):
+        try:
+            raw_weights = weights_from_scores(score_result, scheme, k)
+            return resolve_portfolio_intent(raw_weights, current_weights={}, score_failed=False)
+        except Exception:
+            pass
+        return resolve_portfolio_intent(score_result, current_weights={}, score_failed=False)
+    return _HOLD
+
+
 def simulate_window_from_cache(
     model: object,
     cache: object,
@@ -216,8 +307,68 @@ def simulate_window_from_cache(
     current_weights: dict[str, float] = {}
     daily_rets: list[float] = []
 
+    # INV-WINDOW-1: resolve pre-start intent
+    pre_intent = HOLD_INTENT
+    pre_decision_date: date | None = None
+    if start_idx > 0:
+        try:
+            pre_decision_date = dates[start_idx - 1]  # type: ignore[index]
+            pre_intent = resolve_prestart_intent(
+                model=model,
+                cache=cache,
+                pre_decision_date=pre_decision_date,
+                capital=float(capital),
+                scheme=scheme,
+                k=k,
+            )
+            # wiring anchor
+            _ = resolve_prestart_intent
+        except Exception:
+            pre_intent = HOLD_INTENT
+            pre_decision_date = None
+        if not isinstance(pre_intent, HOLD_INTENT.__class__) and not hasattr(pre_intent, "kind"):
+            pre_intent = HOLD_INTENT
+
     for idx, decision_date in enumerate(window_dates):
-        if idx > 0:
+        # handle pre-start execution on first window date
+        if idx == 0 and start_idx > 0 and pre_decision_date is not None:
+            prev_date = pre_decision_date
+            prev_closes = close_map.get(prev_date, {}) if isinstance(close_map, dict) else {}
+            opens_today: dict[str, float] = {}
+            if isinstance(open_map, dict):
+                opens_today = open_map.get(decision_date, {}) or {}
+            closes_today = close_map.get(decision_date, {}) if isinstance(close_map, dict) else {}
+            adv_by_ticker: dict[str, float] = {}
+            if isinstance(adv_global, dict):
+                dmap = adv_global.get(prev_date, {})
+                if isinstance(dmap, dict):
+                    adv_by_ticker = {str(k): float(v) for k, v in dmap.items()}
+            leverage_multiples: dict[str, int] = {}
+            if leverage_multiples_for is not None:
+                tickers_for_mult = set(ledger_state.shares.keys()) | set(getattr(pre_intent, "weights", {}).keys() if hasattr(pre_intent, "weights") else set())
+                if tickers_for_mult:
+                    leverage_multiples = leverage_multiples_for(tickers_for_mult)
+            result = transition_portfolio_state(
+                prior_state=ledger_state,
+                intent=pre_intent,
+                decision_date=prev_date,
+                prev_closes=prev_closes,
+                opens=opens_today,
+                closes=closes_today,
+                cost_model=cost_model,
+                adv_by_ticker=adv_by_ticker,
+                max_order_to_adv=float(max_order_to_adv),
+                exposure_limits=exposure_limits,
+                leverage_multiples=leverage_multiples,
+                execution=execution if execution is not None and hasattr(execution, "resolve") else None,
+                panel=panel,
+            )
+            ledger_state = result.state
+            current_weights = dict(result.weights_after_close)
+            daily_rets.append(float(result.session_return))
+            if session_diagnostics_out is not None:
+                session_diagnostics_out.append(result.diagnostics)
+        elif idx > 0:
             prev_date = window_dates[idx - 1]
             prev_closes = close_map.get(prev_date, {}) if isinstance(close_map, dict) else {}
             opens_today: dict[str, float] = {}
