@@ -280,6 +280,8 @@ def resolve_exposure_limits_for_model(
         return load_p27_exposure_limits()
     if key == "P28A":
         return load_p27_exposure_limits()
+    if key == "P28B":
+        return load_p27_exposure_limits()
     return load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
 
 

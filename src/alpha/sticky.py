@@ -856,6 +856,71 @@ def apply_crash_cash(
     return dict(scores)
 
 
+def apply_abs_mom_cash(scores: Mapping[str, float] | object, config: StickyLeaderConfig) -> dict[str, float] | object:
+    try:
+        from src.portfolio.intent import PortfolioIntent as _PI
+        if isinstance(scores, _PI):
+            return scores
+    except Exception:
+        pass
+    try:
+        if scores is not None and hasattr(scores, "kind"):
+            k = getattr(scores, "kind", None)
+            if k in ("cash", "hold", "target"):
+                return scores
+            try:
+                from src.portfolio.intent import PortfolioIntent as _PI2
+                if isinstance(scores, _PI2):
+                    return scores
+            except Exception:
+                pass
+    except Exception:
+        pass
+    if not isinstance(scores, Mapping):
+        return scores
+    try:
+        if len(scores) == 0:  # type: ignore[arg-type]
+            from src.portfolio.intent import CASH_INTENT
+
+            return CASH_INTENT
+    except Exception:
+        try:
+            from src.portfolio.intent import CASH_INTENT
+
+            return CASH_INTENT
+        except Exception:
+            return scores
+    max_finite: float | None = None
+    has_finite = False
+    for v in scores.values():  # type: ignore[union-attr]
+        try:
+            fv = float(v)  # type: ignore[arg-type]
+            if math.isfinite(fv):
+                has_finite = True
+                if max_finite is None or fv > max_finite:
+                    max_finite = float(fv)
+        except Exception:
+            continue
+    if not has_finite:
+        try:
+            from src.portfolio.intent import CASH_INTENT
+
+            return CASH_INTENT
+        except Exception:
+            return scores
+    if max_finite is not None and float(max_finite) <= 0.0:
+        try:
+            from src.portfolio.intent import CASH_INTENT
+
+            return CASH_INTENT
+        except Exception:
+            return scores
+    try:
+        return dict(scores)  # type: ignore[arg-type]
+    except Exception:
+        return scores
+
+
 def apply_same_leader_hold(scores: Mapping[str, float] | object, held: str | None, enabled: bool) -> dict[str, float] | object:
     try:
         from src.portfolio.intent import HOLD_INTENT
@@ -1023,4 +1088,5 @@ class StickyLeaderModel:
         sticky = apply_sticky_leader(filtered, held, self.config, self._hold_len)
         impulsed = apply_impulse_switch(sticky, held, snapshot, self.config)
         crashed = apply_crash_cash(impulsed, held, snapshot, self.config)
-        return apply_same_leader_hold(crashed, held, bool(getattr(self.config, "same_leader_hold", False)))
+        abs_gated = apply_abs_mom_cash(crashed, self.config)
+        return apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
