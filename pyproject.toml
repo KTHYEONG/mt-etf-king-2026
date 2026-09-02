@@ -112,7 +112,10 @@ ignore_errors = true
 cache-dir = "scratch/uv-cache"
 
 [project.scripts]
-mt-etf = "src.cli:main"
+mt-etf = "src.cli.main:main"
+# wiring anchors
+# src.cli.main:main
+# mt-etf = "src.cli.main:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

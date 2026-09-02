@@ -37,6 +37,7 @@ from src.tournament.harness import resolve_leverage_scenario as _resolve_leverag
 from src.tournament.replay import TournamentReplay  # noqa: F401
 from src.tournament.simulator import RollingDiagnostics, TournamentSimulator  # noqa: F401
 from src.universe.provider import PointInTimeUniverse  # noqa: F401
+from src.strategies.registry import resolve_strategy_id  # noqa: F401
 
 # wiring for RollingDiagnostics
 _ = RollingDiagnostics
@@ -51,6 +52,16 @@ CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18
 LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
 
 STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27", "P28A", "P28B"})
+
+
+def _normalize_cli_model_arg(args: argparse.Namespace) -> None:
+    from src.strategies.registry import branch_model_key, resolve_strategy_id
+
+    raw = getattr(args, "model", None)
+    if raw is None:
+        return
+    semantic = resolve_strategy_id(str(raw))
+    args.model = branch_model_key(semantic)
 
 
 def _make_eval_control_model(model_key: str, eval_mode: str) -> object:
@@ -486,6 +497,7 @@ def _scores_from_deployment_universe(panel: object, decision_date: date) -> dict
 
 
 def cmd_decide(args: argparse.Namespace) -> int:
+    _normalize_cli_model_arg(args)
     try:
         from datetime import date as _date
         from pathlib import Path as _Path
@@ -1357,6 +1369,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
 
 def cmd_backtest(args: argparse.Namespace) -> int:
+    _normalize_cli_model_arg(args)
     try:
         from src.tournament.harness import resolve_leverage_scenario
         from src.tournament.objective import evaluate_p16_adoption_report  # noqa: F401
@@ -2153,6 +2166,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 run_id = f"{base_id}_{suffix}"
                 meta = {
                     "model": model_key,
+                    "strategy_id": resolve_strategy_id(model_key),
+                    "legacy_model_id": model_key,
                     "start": str(start),
                     "end": str(end),
                     "horizon": int(horizon),
@@ -2161,6 +2176,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     "participation": float(participation),
                     "created_at": datetime.now(UTC).isoformat(),
                 }
+                meta["strategy_id"] = resolve_strategy_id(model_key)
                 summary = {
                     "n_windows": int(dist.n_windows),
                     "n_effective": int(dist.n_effective),
@@ -5448,6 +5464,7 @@ def cmd_storage_migrate(args: argparse.Namespace) -> int:
 
 
 def cmd_replay(args: argparse.Namespace) -> int:
+    _normalize_cli_model_arg(args)
     try:
         model_name = getattr(args, "model", None)
         year_raw = getattr(args, "year", None)
