@@ -386,6 +386,13 @@ def transition_portfolio_state(
             gross_violation = bool(post_fill_gross > gross_limit + 1e-9)
         except Exception:
             gross_violation = False
+    # INV-GROSS-HOLD: HOLD with fill_count 0 must not flag gross violation from price drift
+    try:
+        if bool(getattr(intent, "kind", "") == "hold"):
+            if len(fills) == 0:
+                gross_violation = False
+    except Exception:
+        pass
     fill_count = len(fills)
     unfilled_count = len(unfilled)
     diagnostics = SessionTransitionDiagnostics(
