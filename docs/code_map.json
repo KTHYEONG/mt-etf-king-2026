@@ -214,5 +214,54 @@
   },
   "src/execution/ledger.py": {
     "testing": "tests/unit/execution/test_ledger.py"
+  },
+  "src/strategies/baselines/core.py": {
+    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
+  },
+  "src/strategies/baselines/portfolio.py": {
+    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
+  },
+  "src/strategies/sticky/model.py": {
+    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
+  },
+  "src/strategies/sticky/overlays.py": {
+    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
+  },
+  "src/strategies/sticky/factories.py": {
+    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
+  },
+  "src/strategies/sticky/config.py": {
+    "testing": "tests/unit/strategies/test_sticky_config.py"
+  },
+  "src/cli/dispatch.py": {
+    "testing": "tests/unit/cli/test_r3_cli_split.py"
+  },
+  "src/cli/commands/backtest.py": {
+    "testing": "tests/unit/cli/test_r3_cli_split.py"
+  },
+  "src/cli/commands/decide.py": {
+    "testing": "tests/unit/cli/test_r3_cli_split.py"
+  },
+  "src/cli/main.py": {
+    "testing": "tests/unit/cli/test_refactor_wiring.py"
+  },
+  "src/tournament/distribution_core.py": {
+    "testing": "tests/unit/tournament/test_r4_split.py"
+  },
+  "src/tournament/overlay_returns.py": {
+    "testing": "tests/unit/tournament/test_r4_split.py"
+  },
+  "src/tournament/championship.py": {
+    "testing": "tests/unit/tournament/test_r4_split.py"
+  },
+  "src/tournament/objective_core.py": {
+    "testing": "tests/unit/tournament/test_r4_split.py"
+  },
+  "src/reporting/results.py": {
+    "testing": "tests/unit/reporting/test_r5_meta_strategy_id.py"
+  },
+  "src/strategies/registry.py": {
+    "architecture": "docs/architecture/02-system-layers.md",
+    "testing": "tests/unit/strategies/test_registry.py"
   }
 }
