@@ -25,7 +25,7 @@ def test_SCENARIO_10_07_cli_leverage_scenario() -> None:
         parser.parse_args(
             ["backtest", "--model", "B1", "--start", "2026-01-02", "--end", "2026-01-08", "--leverage-scenario", "invalid"]
         )
-    txt = Path("src/cli.py").read_text()
+    txt = Path("src/cli/_impl.py").read_text()
     assert "resolve_leverage_scenario" in txt
     assert "measure_vehicle_activity_from_allocate" in txt
     assert "measure_vehicle_activity_from_session_cache" in txt

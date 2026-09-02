@@ -28,7 +28,7 @@ def test_cli_accepts_p13_model() -> None:
     # wiring literal check
     import pathlib
 
-    cli_text = pathlib.Path("src/cli.py").read_text(encoding="utf-8")
+    cli_text = pathlib.Path("src/cli/_impl.py").read_text(encoding="utf-8")
     assert 'model_key == "P13"' in cli_text
     assert "resolve_adoption_vehicle_rate" in cli_text
     assert "measure_vehicle_activity_from_session_cache" in cli_text
@@ -41,7 +41,7 @@ def test_cli_accepts_p14_model() -> None:
     assert args.eval_mode == "adoption"
     import pathlib
 
-    cli_text = pathlib.Path("src/cli.py").read_text(encoding="utf-8")
+    cli_text = pathlib.Path("src/cli/_impl.py").read_text(encoding="utf-8")
     assert 'model_key == "P14"' in cli_text
     assert "resolve_adoption_vehicle_rate" in cli_text
     assert "evaluate_adoption_gates" in cli_text
