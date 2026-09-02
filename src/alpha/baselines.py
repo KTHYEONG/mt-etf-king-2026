@@ -12,24 +12,8 @@ from src.alpha.leadership import SectorLeadershipModel  # noqa: F401
 from src.alpha.state import TransitionConfig, transition  # noqa: F401
 from src.alpha.theme import ThemePanel  # noqa: F401
 from src.features.regime import RegimeState
+from src.strategies.baselines.core import BuyAndHoldBaseline
 from src.universe.instruments import InstrumentMaster  # noqa: F401
-from src.universe.taxonomy import Taxonomy  # noqa: F401
-
-
-class BuyAndHoldBaseline:
-    def __init__(self, ticker: str, name: str = "B0") -> None:
-        self.ticker = ticker
-        self.name = name
-
-    def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float]:
-        # Hold single ticker if present in snapshot
-        if snapshot.height > 0 and "ticker" in snapshot.columns:
-            tickers = snapshot.select(pl.col("ticker")).to_series().to_list()
-            if self.ticker in tickers:
-                return {self.ticker: 1.0}
-        return {self.ticker: 1.0} if self.ticker else {}
-
-
 class TopKMomentum:
     def __init__(self, horizon: int = 20, name: str = "B1") -> None:
         self.horizon = horizon
@@ -2305,34 +2289,41 @@ def _make_p28b() -> StickyLeaderModel:
     return model
 
 
-BASELINES: Final[Mapping[str, Callable[[], object]]] = {
-    "B0": _make_b0,
-    "B1": _make_b1,
-    "B2": _make_b2,
-    "B3": _make_b3,
-    "B4": _make_b4,
-    "B5": _make_b5,
-    "M07": _make_m07,
-    "M13": _make_m13,
-    "P08": _make_p08,
-    "P10": _make_p10,
-    "P11": _make_p11,
-    "P12": _make_p12,
-    "P13": _make_p13,
-    "P14": _make_p14,
-    "P15": _make_p15,
-    "P16": _make_p16,
-    "P17": _make_p17,
-    "P18": _make_p18,
-    "P19": _make_p19,
-    "P20": _make_p20,
-    "P21": _make_p21,
-    "P22": _make_p22,
-    "P23": _make_p23,
-    "P24": _make_p24,
-    "P25": _make_p25,
-    "P26": _make_p26,
-    "P27": _make_p27,
-    "P28A": _make_p28a,
-    "P28B": _make_p28b,
-}
+from src.strategies.registry import LEGACY_ALIASES, build_strategy_registry, resolve_strategy_id
+
+
+class _LegacyRegistryProxy(Mapping[str, Callable[[], object]]):
+    def __init__(
+        self,
+        strategies: Mapping[str, Callable[[], object]],
+        legacy: Mapping[str, str],
+    ) -> None:
+        self._strategies = strategies
+        self._legacy = legacy
+
+    def __getitem__(self, key: str) -> Callable[[], object]:
+        semantic = resolve_strategy_id(key)
+        if semantic in self._strategies:
+            return self._strategies[semantic]
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter(self._legacy)
+
+    def __len__(self) -> int:
+        return len(self._legacy)
+
+    def __contains__(self, key: object) -> bool:
+        if not isinstance(key, str):
+            return False
+        try:
+            semantic = resolve_strategy_id(key)
+            return semantic in self._strategies
+        except ValueError:
+            return False
+
+
+BASELINES: Final[Mapping[str, Callable[[], object]]] = _LegacyRegistryProxy(
+    build_strategy_registry(),
+    LEGACY_ALIASES,
+)
