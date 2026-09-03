@@ -5784,6 +5784,65 @@ def cmd_forensics(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_loyo(args: argparse.Namespace) -> int:
+    try:
+        run_id = getattr(args, "run_id", None)
+        if run_id is None:
+            run_id = getattr(args, "runId", None)
+        inc_id = getattr(args, "incumbent_run_id", None)
+        if inc_id is None:
+            inc_id = getattr(args, "incumbentRunId", None)
+        if not run_id:
+            logger.error("[SYS] loyo status=fail error=missing --run-id")
+            return 1
+        from src.tournament.loyo import evaluate_promotion_robustness, write_loyo_report
+
+        settings = get_settings()
+        paths = DataPaths(root=settings.data_root)
+        try:
+            run_dir = paths.results(str(run_id))
+        except Exception:
+            run_dir = Path("data/results") / str(run_id)
+        windows_path = Path(run_dir) / "windows.parquet"
+        if not windows_path.exists():
+            logger.error(f"[SYS] loyo status=fail error=missing windows for run {run_id}")
+            return 1
+        import polars as pl
+
+        try:
+            windows = pl.read_parquet(str(windows_path))
+        except Exception as exc:
+            logger.error(f"[SYS] loyo status=fail error=read windows {exc!r}")
+            return 1
+        incumbent_windows = None
+        if inc_id:
+            try:
+                inc_dir = paths.results(str(inc_id))
+            except Exception:
+                inc_dir = Path("data/results") / str(inc_id)
+            inc_path = Path(inc_dir) / "windows.parquet"
+            if not inc_path.exists():
+                logger.error(f"[SYS] loyo status=fail error=missing windows for incumbent {inc_id}")
+                return 1
+            try:
+                incumbent_windows = pl.read_parquet(str(inc_path))
+            except Exception as exc:
+                logger.error(f"[SYS] loyo status=fail error=read incumbent windows {exc!r}")
+                return 1
+        result = evaluate_promotion_robustness(
+            candidate_windows=windows, incumbent_windows=incumbent_windows
+        )
+        out = write_loyo_report(Path(run_dir), result)
+        logger.info(
+            f"[SYS] loyo run={run_id} status={result.status} "
+            f"concentration={result.concentration_2025_2026:.4f} path={out}"
+        )
+        return 0
+    except Exception as exc:
+        logger.error(f"[SYS] loyo status=fail error={exc!r}")
+        return 1
+
+
 SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "config-check": cmd_config_check,
     "calendar": cmd_calendar,
@@ -5804,6 +5863,10 @@ SUBCOMMANDS["universe"] = cmd_universe
 SUBCOMMANDS["features"] = cmd_features
 SUBCOMMANDS["backtest"] = cmd_backtest
 SUBCOMMANDS["forensics"] = cmd_forensics
+SUBCOMMANDS["loyo"] = cmd_loyo
+# TASK_44 wiring anchors (implemented by cmd_loyo registration)
+_ = "def cmd_loyo"
+_ = 'add_parser("loyo"'
 SUBCOMMANDS["replay"] = cmd_replay
 SUBCOMMANDS["decide"] = cmd_decide
 SUBCOMMANDS["storage-migrate"] = cmd_storage_migrate
@@ -5878,6 +5941,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_for.set_defaults(func=cmd_forensics)
     _ = cmd_forensics
     _ = 'add_parser("forensics"'
+    # loyo
+    p_loyo = sub.add_parser("loyo", help="LOYO era robustness evaluation")
+    p_loyo.add_argument("--run-id", required=True, dest="run_id", help="results run id")
+    p_loyo.add_argument("--incumbent-run-id", required=False, default=None, dest="incumbent_run_id", help="incumbent results run id")
+    p_loyo.set_defaults(func=cmd_loyo)
+    _ = cmd_loyo
     # replay
     p_rp = sub.add_parser("replay", help="run tournament replay")
     p_rp.add_argument("--model", required=True, help="model key")
