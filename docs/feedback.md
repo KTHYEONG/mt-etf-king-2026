@@ -1,470 +1,973 @@
-현재 저장소의 `latest.md`, 전략/실행/토너먼트 코드, 최근 작업 이력, 그리고 2026년 대회 공식 규칙과 2025년 실제 우승 패턴까지 같이 보면 결론은 꽤 명확합니다.
+최신 코드와 `latest.md`를 다시 기준점으로 잡으면, 이전 답변과 우선순위가 달라집니다.
 
-## 결론
+## 핵심 판단
 
-**현재 P27은 “우승권 전략”이라기보다 “우측 꼬리가 존재하는 고변동성 후보”입니다. 아직 실전 champion으로 확정하면 안 됩니다.**
+**TASK_41의 sell-first 수정은 실제 개선입니다.** P27의 gross violation이 `1,958 → 0`, ruin이 `4.21% → 2.54%`로 낮아지고, 동시에 `P>50% 4.69% → 4.26%`, q99 `86.9% → 80.8%`로 떨어졌습니다. 즉 과도한 노출이 제거되면서 성과도 함께 정상화됐습니다. 현재 P27은 처음으로 “백테스트 엔진 오류 때문에 좋아 보이는 전략”에서 벗어났다고 봐도 됩니다.
 
-가장 중요한 이유는 다음입니다.
+하지만 이제 `latest.md`가 제안하는
 
-| 항목                |                   P27 현재 상태 | 해석                         |
-| ----------------- | --------------------------: | -------------------------- |
-| `P(R>50%)`        |                       4.69% | 우승권 proxy는 존재하지만 낮음        |
-| q50               |                      +0.12% | 평범한 36일 구간은 사실상 수익 없음      |
-| q95               |                      +48.6% | 상위 5%에서만 우승권               |
-| q99               |                      +86.9% | right-tail은 강함             |
-| `P(R<-25%)`       |                       4.21% | 우승권 발생확률과 파산성 tail이 비슷한 수준 |
-| CVaR 5%           |                      -37.2% | 실패 시 손실 매우 큼               |
-| gross violation   |                  **1,958회** | 현재 가장 큰 blocker            |
-| championship gate |                    **FAIL** | 아직 strict champion 아님      |
-| 9월 anchor         | 2018~24 대부분 부진, 2025 +41.4% | 2025 regime 의존 가능성 큼       |
+> timing controller → selection ensemble
 
-특히 2018~2025의 실제 9월 시작 36-session replay에서 2025만 +41.4%로 크게 튀고, 2018 -31.6%, 2019 -3.4%, 2021 -1.2%, 2023 -6.1%, 2024 -12.3%입니다. 즉 **현재 성과는 “일관된 대회형 알파”보다는 특정 강세장 regime에서 폭발하는 구조에 가깝습니다.**
+순서를 그대로 구현하는 것은 권하지 않습니다.
 
-그리고 P26은 `P>50=5.31%`, `P>60=4.55%`, gross violation=0으로 raw right-tail만 보면 오히려 더 좋습니다. 다만 기존 평가에서 hot-field/raw 비교와 CI 조건을 통과하지 못했기 때문에 역시 champion으로 볼 수 없습니다.
+현재 Tail Forensics가 **방향 탐색용으로는 유용하지만 전략 개발의 정량적 근거로 쓰기에는 attribution 설계가 아직 부정확하기 때문입니다.**
 
-따라서 지금부터는 **P27 파라미터 미세조정을 계속하는 것보다 아래 순서로 개발하는 것이 맞습니다.**
+제가 지금 코드를 맡는다면 아래 순서로 갑니다.
 
 ---
 
-# 1. P0: 새 전략 개발보다 gross/execution correctness를 먼저 끝내야 함
+# 1. 가장 먼저 TASK_43: Tail Forensics 2.0
 
-제가 코드에서 가장 우선적으로 고칠 부분입니다.
+현재 가장 큰 문제입니다.
 
-`transition_portfolio_state()`의 흐름은 대략
+## 문제 1. Oracle universe가 실제 대회 universe가 아님
 
-`exposure cap → ADV cap → execution → post-fill gross 진단`
+현재 `_plus2_tickers(master)`는 master에 있는 모든 +2x ETF를 대상으로 oracle을 찾습니다. 그리고 각 window에서 그 ETF가 당시 실제로
 
-순서입니다. 문제는 ADV cap이 기존 포지션의 청산을 일부 제한하면서 신규 포지션 진입은 허용할 수 있다는 점입니다. 그러면 원래 target은 gross 1.9 이하였더라도 **실제 체결 후 old + new가 겹쳐 gross가 1.9를 넘을 수 있습니다.** 현재 코드는 이걸 사후 `gross_violation=True`로 발견하지만 다시 강제 수정하지는 않습니다.
+* 존재했는지
+* sponsor universe였는지
+* history 조건을 충족했는지
+* liquidity 조건을 충족했는지
+* deployment universe에 포함되었는지
 
-`cap_target_weights_by_adv()` 역시 `target ∪ current`에 대해 각각 delta를 제한하기 때문에 이런 switch-overlap이 발생 가능한 구조입니다.
+를 확인하지 않습니다.
 
-이것이 P27의 1,958건 전부의 원인이라고 현재 artifact만으로 단정할 수는 없습니다. 문제는 **P27 최신 adoption run에는 `windows.parquet`가 저장되어 있지 않아 실제 violation session을 forensic 분석할 수도 없다는 것**입니다.
-
-따라서 다음 순서가 최우선입니다.
-
-1. P27을 `windows + daily + trades + diagnostics` 전부 저장해서 다시 실행.
-2. gross violation마다 `current → requested target → ADV constrained target → fill/unfilled → post-fill`을 저장.
-3. **SELL/UNWIND 우선 → 실제 남은 gross budget 계산 → BUY**의 2단계 execution으로 변경.
-4. 기존 종목 청산이 안 되면 신규 종목 buy를 축소하거나 취소.
-5. `post_fill_gross <= max_gross`를 invariant로 강제.
-6. 자연스러운 가격 상승에 의한 `close_realized_gross` drift와 실제 잘못된 신규 체결에 의한 violation을 별도 metric으로 분리.
-
-현재 HOLD에서는 가격 drift에 의한 gross 초과를 violation에서 제외하도록 수정해 놓았는데, 이 방향 자체는 타당합니다. 다만 앞으로는
-
-* `execution_gross_violation`
-* `carry_gross_drift`
-* `delever_required_next_session`
-
-세 가지를 분리하는 편이 좋습니다.
-
-**이게 0이 되기 전에는 P29 같은 새 alpha를 만드는 것을 중단하는 것을 권합니다.**
-
-최근 TASK_33~39에서도 실행 시점, 첫 session 진입, HOLD 원장 등의 correction이 들어갈 때마다 P27 수치가 상당히 바뀌었습니다. 이는 현재 가장 큰 model risk가 alpha가 아니라 simulator였다는 의미입니다.
-
----
-
-# 2. 현재 P27의 핵심 한계: 60일 모멘텀 + 2x long에 지나치게 고정되어 있음
-
-P27 factory를 보면 실질적으로 다음이 강제됩니다.
+즉 다음과 같은 일이 가능합니다.
 
 ```text
-mom_col       = mom_60
-min_gap       = 0.04
-min_hold      = 2
-cash_drawdown = 0
-impulse_gap   = 0
-only_plus_2   = True
-no_inverse    = True
+2020 window
+↓
+2024년에 상장된 ETF가 현재 master에 존재
+↓
+_close_on(2020) = None
 ```
 
-게다가 config를 읽더라도 마지막에 다시 같은 값을 강제로 덮어씁니다.
+이면 자연히 제외되기는 합니다.
 
-그리고 `filter_plus2_scores()`가 **2배 레버리지 ETF의 `mom_60` 자체를 직접 비교**합니다. inverse는 완전히 제거합니다.
-
-이 방식은 2025년 강한 상승 추세에는 매우 잘 맞았습니다. 실제 2025년 우승자는 상승장에서 레버리지 ETF에 집중했고, 강한 반도체 sector에 집중 투자했습니다. 하지만 시장이 꺾이자 인버스와 금 ETF로 전환해 최종 +47.82%를 기록했습니다. ([머니투데이][1])
-
-2025년 첫 주 상위권도 레버리지·인버스를 적극 이용했고, 5주차에는 전체 1위가 한때 **+72.28%**까지 올라갔습니다. 이후 조정으로 최종 우승 수익률은 +47.82%까지 내려왔습니다. ([머니투데이][2])
-
-즉 실제 대회가 요구하는 것은 단순한:
-
-> `best 2x long momentum ETF`
-
-보다는
-
-> **`best theme selection + regime direction + concentration + exit/re-entry`**
-
-에 가깝습니다.
-
----
-
-# 3. 다음 champion은 P27 개선판이 아니라 3-layer 구조로 만드는 것이 좋음
-
-제가 다음 전략의 구조를 설계한다면 이렇게 합니다.
-
-### Layer A — Alpha: “어느 테마가 강한가?”
-
-여기서는 **레버리지 ETF 가격 자체가 아니라 underlying/family 수준을 score**하는 것이 좋습니다.
-
-현재 프로젝트에는 이미 이를 위한 상당한 인프라가 있습니다. `strategies.yaml`에도 leadership score가
-
-* RS 0.45
-* acceleration 0.30
-* breadth 0.25
-
-로 정의되어 있습니다.
-
-P27은 이 정보를 거의 사용하지 않고 `mom_60` 한 가지에 집중합니다.
-
-다음 candidate는 예를 들어:
-
-$$
-Score =
-w_1 Rank(Mom60)+
-w_2 Rank(Mom20)+
-w_3 Acceleration+
-w_4 Breadth+
-w_5 TrendQuality
-$$
-
-정도의 **소수 factor ensemble**이 더 적합합니다.
-
-핵심은 최적의 `mom_43` 같은 lookback을 찾는 것이 아닙니다.
-
-`20 / 40 / 60` 같은 몇 개 horizon을 rank ensemble하여 **lookback parameter sensitivity를 줄이는 것**이 중요합니다.
-
-특히 36-session 대회인데 60일 momentum 하나만 보면 신규 leadership 전환에 늦을 가능성이 있습니다.
-
----
-
-### Layer B — Vehicle: “그 view를 어떤 ETF로 표현할 것인가?”
-
-이건 alpha와 분리해야 합니다.
-
-현재 `src/portfolio/exposure.py`에는 이미 regime에 따라 `+2 / +1 / -1` vehicle을 선택하는 기반 코드가 있습니다.
-
-그런데 champion P27은 처음부터 `+2 ETF`만 score하기 때문에 이 좋은 architecture를 활용하지 못합니다.
-
-제가 바꿀 구조는:
+그러나 더 미묘한 문제는:
 
 ```text
-Family/Underlying Alpha
-        ↓
-Top Theme
-        ↓
-Regime Controller
- ├─ STRONG_RISK_ON → +2x
- ├─ RISK_ON        → +2x / +1x
- ├─ NEUTRAL        → +1x / cash
- ├─ RISK_OFF       → inverse / gold
- └─ STRONG_RISK_OFF→ inverse
+당시 존재 O
+당시 대회 deployment eligibility X
+당시 ADV 부족
+당시 sponsor 조건 X
+```
+
+인 ETF도 oracle candidate가 될 수 있다는 점입니다.
+
+### 수정
+
+Oracle도 반드시:
+
+```python
+universe.get(window_start, deployment_filters)
+```
+
+또는 날짜별 PIT universe를 사용해야 합니다.
+
+더 정확하게는 각 entry 날짜마다:
+
+```text
+PIT eligible family set(t)
+```
+
+을 만들어야 합니다.
+
+---
+
+# 2. 현재 timing attribution은 실전 execution과 맞지 않음
+
+P27의 실제 실행은:
+
+```text
+decision close
+→ next session open fill
+→ open-to-close PnL
 ```
 
 입니다.
 
-이렇게 하면 **“반도체가 강하다”와 “반도체 2배 ETF를 사야 한다”가 분리**됩니다.
+그런데 forensics는:
 
-이는 robustness 측면에서도 중요합니다. 2배 ETF의 60일 수익률은 underlying direction 외에도 daily compounding과 volatility drag가 섞이기 때문입니다.
+```python
+compound_close_return(
+    ticker,
+    window_start,
+    window_end
+)
+```
+
+즉 **close-to-close**입니다.
+
+그리고 first entry 역시 `decision_date`를 entry로 사용해 close 가격부터 계산합니다.
+
+따라서 현재:
+
+> entry_timing_loss = 0.216
+
+이라는 숫자는 실제 P27 execution의 entry timing opportunity cost가 아닙니다.
+
+### 반드시 바꿔야 합니다
+
+oracle도 실제 engine semantics와 동일하게:
+
+```text
+signal(t close)
+→ trade(t+1 open)
+→ fees
+→ ADV constraint
+→ gross constraint
+```
+
+로 평가해야 합니다.
+
+즉 `compound_close_return()` 대신 최소한:
+
+```python
+next_open_to_close_path_return(...)
+```
+
+형태가 필요합니다.
+
+이걸 하지 않으면 앞으로 entry controller를 개발하면서 **잘못된 objective를 최적화할 위험**이 큽니다.
 
 ---
 
-### Layer C — Tournament controller: “현재 순위에서 얼마나 위험을 져야 하는가?”
+# 3. `exit_timing_loss`와 `giveback_loss`가 중복됨
 
-이 부분이 현재 프로젝트에서 가장 큰 추가 alpha가 될 가능성이 있습니다.
+이건 코드상 명확한 문제입니다.
 
-2026년 공식 규정상 대회는 9월 21일~11월 13일 8주이고, **전체 최종 수익률 1위가 대상**입니다. 자율형은 투자자산 제한이 없고, 레버리지·인버스 제외 조건은 자율형 이외 부문에 적용됩니다. 단 실제 거래 가능 종목은 후원 운용사 ETF로 제한됩니다. ([머니투데이][3])
+현재 exit timing은:
 
-따라서 최적 목적함수는 사실
+```python
+peak = entry_bh
+
+for e in sessions:
+    r = return(first_entry, e)
+    peak = max(peak, r)
+
+exit_timing_loss = peak - entry_bh
+```
+
+입니다. 여기서 `entry_bh`는 이미:
+
+```text
+first_entry → window_end
+```
+
+수익률입니다.
+
+따라서 `exit_timing_loss`는 사실상:
+
+> actual-family ETF의 peak-to-final giveback
+
+입니다.
+
+그런데 동시에:
+
+```python
+giveback_loss = window.giveback
+```
+
+도 따로 넣습니다.
+
+결과적으로 같은 현상을
+
+```text
+exit_timing
++
+giveback
+```
+
+에 중복 배분하고 있을 수 있습니다.
+
+그래서 현재 latest의:
+
+```text
+entry timing 29.8%
+exit timing 16.5%
+giveback 17.1%
+timing total 46.3%
+```
+
+를 그대로 신뢰하면 안 됩니다.
+
+### 수정
+
+손실 decomposition을 mutually exclusive하게 만들어야 합니다.
+
+제가 권하는 방식은:
 
 $$
-\max P(R > 50\%)
+R_{oracle}
+-
+R_{actual}
 $$
 
-도 아니고
+을 순차 counterfactual로 분해하는 겁니다.
+
+```text
+A = actual strategy
+B = actual selection + oracle entry
+C = actual selection + oracle entry + oracle exit
+D = oracle selection + oracle entry + oracle exit
+```
+
+그럼:
+
+```text
+entry loss     = B - A
+exit loss      = C - B
+selection loss = D - C
+```
+
+가 됩니다.
+
+이렇게 해야 합이 정확히:
+
+```text
+oracle gap = selection + entry + exit
+```
+
+이 됩니다.
+
+giveback은 별도 원인 bucket으로 더하지 말고 **진단 metric**으로만 두는 편이 좋습니다.
+
+---
+
+# 4. 그래서 현재 `primary_gap=timing` 판정은 보류
+
+현재 결과에서는:
+
+* 평균 loss 기준 timing > selection
+* window dominant 기준 selection 53.6%
+
+으로 서로 다른 메시지가 나오고 있습니다.
+
+저는 이것을
+
+> “timing이 더 중요하다”
+
+라고 해석하지 않습니다.
+
+오히려:
+
+> **몇 개의 극단적인 window가 timing 평균을 크게 올리고 있을 가능성이 높다**
+
+고 봅니다.
+
+실제로 worst entry timing window가:
+
+```text
++315.9%
++286.9%
++284.8%
+```
+
+수준의 gap을 만들고 있습니다.
+
+이런 2026 Q2 초대형 상승 구간 몇 개가 mean attribution을 지배할 가능성이 매우 큽니다.
+
+따라서 다음에는 mean만 보지 말고:
+
+```text
+median
+trimmed mean
+q75
+q90
+share of total
+effective independent window
+era별 attribution
+```
+
+을 모두 출력해야 합니다.
+
+특히 overlapping 36D windows라서 265개의 attribution row가 265개의 독립 사건이 아닙니다.
+
+---
+
+# 5. Forensics 수정 후 첫 전략 실험은 “exit controller”가 아니라 Momentum Ensemble
+
+여기가 지난 답변과 달라지는 부분입니다.
+
+현재 P27은 여전히 사실상:
+
+```python
+score = mom_60
+```
+
+입니다.
+
+반면 이미 feature에는:
+
+```yaml
+momentum_horizons:
+  [3, 5, 10, 20, 40, 60]
+```
+
+이 준비되어 있습니다.
+
+36-session 대회에서 `mom60` 하나만 쓰는 것은 지나치게 단일 horizon입니다.
+
+### 제가 가장 먼저 실험할 P29
+
+복잡한 ML이 아니라 **rank ensemble**입니다.
+
+예:
 
 $$
-\max E[R]
+S_i =
+0.15R(mom10_i)
++0.25R(mom20_i)
++0.25R(mom40_i)
++0.35R(mom60_i)
 $$
 
-도 아닙니다.
+여기서 `R()`은 cross-sectional percentile/rank입니다.
 
-가능하다면 최종적으로는
+중요한 건 저 weight를 optimize하면 안 됩니다.
+
+딱 3개 정도만 사전 정의합니다.
+
+### Candidate A — slow
+
+```text
+mom20  0.15
+mom40  0.30
+mom60  0.55
+```
+
+### Candidate B — balanced
+
+```text
+mom10  0.15
+mom20  0.25
+mom40  0.30
+mom60  0.30
+```
+
+### Candidate C — acceleration
+
+```text
+mom20 rank
++
+(mom20 - mom60 normalized)
+```
+
+정도만 테스트합니다.
+
+---
+
+# 6. 왜 ensemble을 먼저 보느냐
+
+2025 actual oneshot에서 P27은 이미 +41.4%입니다.
+
+따라서 P27의 문제는:
+
+> 승자가 발생했을 때 전혀 못 따라가는 것
+
+만은 아닙니다.
+
+더 큰 문제는 2018~2024 competition-anchor:
+
+```text
+2018 -11.3
+2019 -4.1
+2020 +4.0
+2021  0
+2022  0
+2023 -2.1
+2024 -0.4
+2025 +41.4
+```
+
+입니다.
+
+즉 현재 전략은 **강한 60일 trend가 이미 존재하는 해에만 제대로 작동하는 경향**이 강합니다.
+
+이건 exit 문제 이전에 **signal responsiveness 문제**일 가능성이 큽니다.
+
+그래서:
+
+```text
+mom60 → mom10/20/40/60 ensemble
+```
+
+을 먼저 검증할 가치가 큽니다.
+
+목적은 평균 수익률 상승이 아니라:
+
+```text
+P30/P40/P50 유지 또는 상승
++
+ruin <= P27
++
+anchor non-2025 개선
++
+year stability 개선
+```
+
+입니다.
+
+---
+
+# 7. 두 번째 실험: Relative Strength + Acceleration, breadth는 아직 넣지 말 것
+
+현재 `strategies.yaml`에는 leadership score에:
+
+```text
+RS        45%
+accel     30%
+breadth   25%
+```
+
+가 존재합니다.
+
+하지만 저는 이것을 그대로 P29에 넣지는 않겠습니다.
+
+이유는 factor를 세 개 동시에 추가하면 **무엇이 개선을 만들었는지 식별하기 어려워지기 때문**입니다.
+
+먼저:
 
 $$
-\boxed{\max P(rank=1)}
+score = momentum\ ensemble + acceleration
 $$
 
-이어야 합니다.
+만 봅니다.
 
-현재 `championship_score`의 30/40/50/60% exceedance weighting은 좋은 proxy지만, **실제 field distribution을 모델링하지 않습니다.**
+예를 들어:
 
-특히 latest의 P27 `field_win_rate=56.8%`는 사실상 P21 incumbent와의 비교입니다. 실제 1,000명 수준의 참가자를 상대로 한 56.8% 승률이라는 뜻이 아닙니다. 2025년에는 약 1,000명이 참가했습니다.  ([머니투데이][1])
+$$
+Accel =
+mom_{20} - mom_{60}
+$$
 
-그래서 대회가 시작되면 `rank-aware controller`를 넣는 것이 좋습니다.
+또는 더 안정적으로:
+
+$$
+Accel =
+rank(mom_{20}) - rank(mom_{60})
+$$
+
+입니다.
+
+이건 현재 P27이 놓치는:
+
+> 최근 2~4주에 급격히 leadership으로 진입한 theme
+
+을 잡는 데 직접 대응합니다.
+
+---
+
+# 8. Regime controller는 현재 구현을 그대로 사용하면 안 됨
+
+현재 `regime.py`는 생각보다 단순합니다.
+
+5개 component가 전부 사실상 binary입니다.
+
+```text
+KOSPI > MA20
+KOSPI MA20 slope > 0
+KOSDAQ > MA20
+breadth > 0.5
+20d vol < 2.5%
+```
+
+그리고 이를 weighted sum해서 5단계 regime으로 나눕니다.
+
+이 정도로는:
+
+```text
+STRONG_RISK_ON
+RISK_ON
+NEUTRAL
+RISK_OFF
+STRONG_RISK_OFF
+```
+
+이라는 5개 상태가 주는 정밀도가 실제보다 높아 보일 가능성이 있습니다.
+
+특히:
+
+```python
+MA window = 20
+```
+
+도 함수 내부에 hard-code되어 있습니다.
+
+### 저는 regime부터 전략 switching에 사용하지 않겠습니다.
+
+우선 regime classifier 자체를 검증합니다.
+
+각 regime별로 P27 next-5/10/20-session return을 출력합니다.
+
+예:
+
+| regime     |  n | mean | P>20 | P<-10 |
+| ---------- | -: | ---: | ---: | ----: |
+| strong on  |    |      |      |       |
+| on         |    |      |      |       |
+| neutral    |    |      |      |       |
+| off        |    |      |      |       |
+| strong off |    |      |      |       |
+
+만약 monotonicity가:
+
+```text
+STRONG_ON > ON > NEUTRAL > OFF
+```
+
+형태로 나오지 않으면 **regime 이름은 있지만 예측력은 없는 것**입니다.
+
+이 검증 전에는 inverse switching을 붙이지 않는 게 좋습니다.
+
+---
+
+# 9. 이후 P30: absolute trend gate가 아니라 “relative deterioration gate”
+
+P28B 결과가 이미 알려준 것이 있습니다.
+
+Absolute momentum cash gate는:
+
+```text
+ruin 2.58%
+```
+
+까지 낮췄지만 tail을 크게 훼손했습니다. 이전 결과에서도 P28B가 P27보다 tail이 낮았습니다. 최신 문서 역시 해당 결과를 reference로 유지합니다.
+
+즉:
+
+```text
+mom < 0 → cash
+```
+
+는 너무 둔합니다.
+
+다음에는 absolute level 대신 **momentum deterioration**을 보는 게 좋습니다.
 
 예:
 
 ```text
-현재 수익률
-현재 전체 1위/5위/10위 수익률
-남은 session
-현재 peak에서 giveback
-market regime
+held leader:
+mom20 rank drops > X percentile
+AND
+mom5 < mom20 trend
 ```
 
-를 state로 받아서,
+또는:
 
 ```text
-뒤처짐 + 많이 남음       → normal aggressive
-뒤처짐 + 적게 남음       → maximum convexity
-선두권 + 많이 남음       → trend continuation
-선두권 + 적게 남음       → giveback control
-압도적 선두              → capital preservation
+leader score percentile
+90 → 85 → 72
 ```
 
-처럼 risk budget을 변경합니다.
+처럼 cross-sectional leadership deterioration을 감지합니다.
 
-**고정 `lock@50%`보다 이게 합리적입니다.**
+핵심은 시장이 떨어졌다는 이유로 나가는 것이 아니라:
 
-2025년에 5주차 선두가 +72.28%였지만 최종 우승은 +47.82%였다는 것 자체가 왜 fixed absolute threshold보다 leaderboard-relative control이 필요한지 보여줍니다. ([머니투데이][4])
-
----
-
-# 4. 전략 탐색 방식도 바꿔야 함
-
-현재 가장 위험한 것은 **P20 → P21 → ... → P28 식으로 같은 2018~2026 데이터에서 반복 개선하는 과정 자체**입니다.
-
-이 과정을 충분히 오래 반복하면 실제 alpha가 없어도 backtest tail이 좋아지는 candidate를 결국 찾게 됩니다.
-
-특히 `n_windows=2,090`처럼 보여도 overlapping 36-day windows 때문에 프로젝트 자체가 계산한 `n_effective`는 겨우 **58**입니다.
-
-따라서 `P>50=4.69% vs 5.31%` 차이는 생각보다 훨씬 불확실합니다.
-
-앞으로는 candidate를 다음 방식으로 검증하는 것이 좋습니다.
-
-| 검증           | 필요한 조건                                     |
-| ------------ | ------------------------------------------ |
-| Execution    | post-fill invariant 0 violation            |
-| Full vs fast | 완전 parity                                  |
-| Tail         | P30/P40/P50/P60 모두 기록                      |
-| Statistical  | paired stationary-bootstrap CI             |
-| Regime       | bull / sideways / crash 별 결과               |
-| Year         | leave-one-year-out                         |
-| Parameters   | 최적점 주변 ±10~20%에서도 성과 유지                    |
-| Liquidity    | φ=1%, 2%, 5% stress                        |
-| Costs        | 비용 stress에서도 순위 유지                         |
-| Universe     | exact HTS manifest                         |
-| Artifact     | every champion run windows/daily/trades 저장 |
-
-기존 `championship` gate가 scenario별 non-inferiority와 paired bootstrap CI를 요구하는 것은 좋은 방향입니다. 이 부분은 제거할 게 아니라 강화하는 편이 낫습니다.
-
-그리고 **새 candidate 수 자체를 제한**하는 것이 좋습니다.
-
-예를 들어 앞으로 competition 전까지 30개 parameter variant를 시도하기보다, 서로 다른 가설 3개만:
-
-* `family_momentum_ensemble`
-* `regime_switch`
-* `rank_aware_controller`
-
-를 연구하는 식입니다.
-
----
-
-# 5. Oracle 결과를 제대로 활용해야 함
-
-현재 oracle의 `P>50 ≈20.1%`와 inverse oracle `≈0.4%`는 중요한 단서입니다.
-
-이걸 “20%까지 올릴 수 있다”고 해석하면 안 됩니다. 미래를 보는 oracle이기 때문에 실현 불가능합니다.
-
-대신 의미는:
-
-> **현재 남은 edge의 대부분은 overlay 미세조정보다 selection + timing에 있다.**
+> **내가 들고 있는 winner가 leadership을 잃었기 때문에 나가는 것**
 
 입니다.
 
-따라서 `lock_level 0.45 vs 0.50`, `min_hold 2 vs 3` 같은 실험을 계속하기보다는 `tail-forensics`를 이용해 **상위 5% 역사 window에서 왜 P27이 승자를 못 잡았는지** 분해하는 편이 훨씬 생산적입니다.
+---
 
-각 window마다 최소한 다음 attribution을 만들 것을 권합니다.
+# 10. 현재 `min_gap=0.04`도 scale 문제가 있음
 
-```text
-best ex-post eligible family
-actual selected family
-family selection loss
+P27의 sticky switching은:
 
-best entry date
-actual entry date
-entry timing loss
-
-best exit/switch date
-actual exit date
-exit timing loss
-
-execution/liquidity loss
-giveback loss
-wrong-regime loss
+```python
+held_score + 0.04 >= top_score
 ```
 
-그리고
+이면 기존 종목을 유지합니다.
+
+여기서 score가 raw `mom60`이라 0.04는 **4%p momentum difference**라는 경제적 의미가 있습니다.
+
+그런데 ensemble/rank score로 바꾸면 이 threshold는 의미가 완전히 달라집니다.
+
+따라서 P29에서는 sticky logic도:
 
 ```text
-selection loss > timing loss
+absolute raw difference
 ```
 
-인지,
+가 아니라:
 
 ```text
-timing loss > selection loss
+rank gap
 ```
 
-인지 수치로 확인한 다음 다음 feature를 개발해야 합니다.
+또는
 
-이 과정이 현재 프로젝트에서 **가장 중요한 연구 단계**라고 봅니다.
+```text
+score z-gap
+```
+
+기준으로 바꿔야 합니다.
+
+예:
+
+```text
+new leader percentile - held percentile > 0.10
+```
+
+처럼 합니다.
+
+이렇게 해야 feature scale 변화에도 안정적입니다.
 
 ---
 
-# 6. 코드 구조도 한 번 더 정리하는 것이 좋음
+# 11. sell-first에도 아직 한 단계 더 고칠 부분이 있음
 
-Task 40에서 semantic strategy ID로 리팩터링을 시작한 방향은 맞습니다. 하지만 아직 실제 P27 source-of-truth는 legacy `_make_p27()`입니다. `factories.py`도 결국 `src.alpha.baselines._make_p27`을 부릅니다.
+현재 구현은 개선됐지만 완성형은 아닙니다.
 
-그리고 더 중요한 것은:
+`constrain_target_weights_sell_first()`는:
 
-`configs/strategies.yaml`
+1. ADV 기준으로 sell 가능한 양 계산
+2. sell 이후 gross 계산
+3. remaining buys 계산
+4. gross 초과 시 **모든 buy delta를 동일 비율로 binary scaling**
 
-```yaml
-portfolio:
-  sticky:
-    mom60_raw:
-```
+합니다.
 
-가 존재하는데,
+현재 P27처럼 거의 Top1이면 크게 문제되지 않습니다.
 
-`_make_p27()`은 `portfolio.p27`을 찾은 뒤 상당수 값을 다시 hard-code합니다.
+하지만 향후 2~3개 candidate를 사용하면 문제가 생깁니다.
 
-이 상태에서는 실험 config와 실제 실행 코드가 미묘하게 달라질 위험이 있습니다.
-
-대회 전까지는 다음처럼 만드는 것이 좋습니다.
+예:
 
 ```text
-semantic strategy ID
-      ↓
-one typed StrategyConfig
-      ↓
-signal config
-vehicle config
-risk config
-execution config
-      ↓
-hash(config + commit + data snapshot + universe manifest)
-      ↓
-run_id
+A alpha = 매우 강함
+B alpha = 약함
+
+gross budget 부족
 ```
 
-**“실제로 어떤 설정으로 이 5.31%가 나왔는가?”를 run 하나만 보고 완벽하게 복구할 수 있어야 합니다.**
+이어도 A와 B buy를 같은 비율로 줄입니다.
 
----
+### 개선
 
-# 7. HTS manifest와 execution calibration은 반드시 대회 직전 다시 해야 함
+향후 multi-position 전략에서는 gross budget을:
 
-현재 `tournament.yaml`에는
+$$
+priority =
+\frac{alpha\ confidence}
+{gross\ consumption}
+$$
 
-```yaml
-leverage_allowed: unknown
-inverse_allowed: unknown
-manifest: null
-```
-
-입니다.
-
-현재 공개된 2026 공식 안내에는 자율형이 `투자자산 제한없음`이고, 비자율형만 레버리지·인버스를 제외한다고 명시되어 있으므로 **자율형에서 leverage/inverse 사용 자체는 공개 규정상 허용되는 것으로 판단할 수 있습니다.** ([머니투데이][3])
-
-다만 정확한 종목 리스트는 별개입니다.
-
-공식 안내상 HTS 계정/프로그램 정보가 **9월 17~18일경** 전달될 예정입니다. ([머니투데이][3])
-
-그 시점에 바로:
-
-* 실제 매매 가능 ETF 전체 추출
-* `universe_manifest.yaml` 고정
-* leverage/inverse/gold 등 분류 검증
-* 주문 단위
-* 시장가/지정가 처리
-* 미체결 처리
-* 수수료
-* HTS 체결가격
-
-을 확인해야 합니다.
-
-현재 프로젝트의 PIT universe 구현은 exact-date existence/history/sponsor/liquidity를 순차 적용하기 때문에 기본 구조는 상당히 잘 되어 있습니다.
-
-다만 **manifest=null 상태의 backtest는 어디까지나 proxy universe**입니다.
-
-또 현재 φ=1% ADV와 3bps+5bps 비용도 실제 대회 HTS 규정이 아니라 modelling assumption입니다. φ sensitivity grid는 이미 있으니 1/2/5% 전부에서 candidate ranking이 유지되는지를 보는 것이 좋습니다.
-
----
-
-# 8. 제가 지금부터 9월 21일까지 개발한다면
-
-| 기간            | 해야 할 일                                                              | 신규 alpha         |
-| ------------- | ------------------------------------------------------------------- | ---------------- |
-| **9/3~9/5**   | P27 gross 1,958건 forensic → ledger/ADV transition 수정 → 0 violation  | 금지               |
-| **9/5~9/7**   | P26/P27 artifact-complete 재baseline, 데이터 8/27→최신 갱신                 | 금지               |
-| **9/7~9/10**  | tail-forensics로 selection/timing/giveback attribution               | 최소               |
-| **9/10~9/14** | family momentum ensemble + regime vehicle controller                | 핵심               |
-| **9/14~9/16** | nested/leave-year-out + parameter stability + liquidity/cost stress | candidate freeze |
-| **9/17~18**   | HTS manifest/체결 규칙 실제 확인 후 exact universe 재baseline                 | 전략 변경 최소화        |
-| **9/19~20**   | 최종 champion / fallback 확정, dry-run                                  | freeze           |
-| **9/21~**     | predeclared rank-aware controller + daily decide                    | 즉흥 튜닝 금지         |
-
-특히 `latest.md`의 data end가 아직 **2026-08-27**이므로, 현재 9월 3일 기준으로는 data freshness도 바로 해결해야 합니다.
-
----
-
-## 제가 보는 최종 목표 architecture
+또는 간단히 score rank 순으로 배분해야 합니다.
 
 ```text
-              ┌─────────────────────────┐
-              │ Family Alpha            │
-              │ mom20/40/60 + accel     │
-              │ + breadth + RS          │
-              └────────────┬────────────┘
-                           ↓
-                  Top 1~2 Theme
-                           ↓
-              ┌─────────────────────────┐
-              │ Regime Controller       │
-              │                         │
-              │ strong risk-on → +2x   │
-              │ risk-on        → +2/+1 │
-              │ neutral        → +1/cash
-              │ risk-off       → inverse│
-              │ crisis         → inv/gold
-              └────────────┬────────────┘
-                           ↓
-              ┌─────────────────────────┐
-              │ Execution / Liquidity   │
-              │ SELL-first              │
-              │ residual gross budget   │
-              │ exact HTS manifest      │
-              └────────────┬────────────┘
-                           ↓
-              ┌─────────────────────────┐
-              │ Tournament Controller   │
-              │ current rank / gap      │
-              │ remaining sessions      │
-              │ peak / giveback         │
-              └─────────────────────────┘
+best candidate fill first
+→ residual gross
+→ second candidate
 ```
 
-### 우선순위를 한 문장으로 압축하면
+가 대회 목적에는 더 맞습니다.
 
-**`P27 파라미터 튜닝 → 추가 overlay` 방향은 이제 멈추고, `execution correctness → tail-forensics → underlying/family selection → long/inverse regime switching → leaderboard-aware risk control` 순서로 가는 것이 가장 합리적입니다.**
+단 **P27 자체에서는 지금 수정 우선순위가 낮습니다.**
 
-그리고 현재 기준으로는 **P27을 최종 champion이라 부르기보다 P27=Risk-on benchmark, P26=right-tail benchmark, P21=risk anchor**로 두고, 이 세 가지를 확실하게 이기는 새 semantic strategy만 promotion시키는 것이 좋습니다.
+---
 
-특히 남은 기간에 RL/딥러닝 같은 복잡한 모델을 추가하는 것은 추천하지 않습니다. `n_effective≈58`이고 이미 상당한 strategy-selection이 이루어진 상태라 모델 복잡도를 높이면 과최적화 가능성이 더 커집니다. 지금은 **단순하지만 causal하고, regime-aware하며, execution-correct한 전략**이 우승확률을 높일 가능성이 더 큽니다.
+# 12. 더 중요한 execution edge case도 하나 있음
 
-원한다면 다음 단계에서는 제가 이 분석을 바탕으로 **실제 저장소 기준 `P0 → P1 → P2` 개발 TASK를 파일·함수 단위로 쪼개서, “어떤 코드를 어떤 순서로 수정/추가해야 하는지” 구현 로드맵까지 설계**해드릴 수 있습니다.
+현재 sell-first는 **target을 계산할 때만** sell-first입니다.
 
-[1]: https://www.mt.co.kr/stock/2025/11/25/2025112516260834930 "https://www.mt.co.kr/stock/2025/11/25/2025112516260834930"
-[2]: https://www.mt.co.kr/stock/2025/09/27/2025092618035044343 "https://www.mt.co.kr/stock/2025/09/27/2025092618035044343"
-[3]: https://www.mt.co.kr/etf/join/index.html "https://www.mt.co.kr/etf/join/index.html"
-[4]: https://www.mt.co.kr/stock/2025/10/25/2025102418201958573 "https://www.mt.co.kr/stock/2025/10/25/2025102418201958573"
+실제 execution은 이후:
+
+```python
+execution.resolve(target, ...)
+```
+
+로 target 전체를 한 번에 넘깁니다.
+
+따라서 이론적으로:
+
+```text
+old ETF sell
+new ETF buy
+```
+
+중 old ETF가 실제 next-open에서 미체결되고 new ETF만 체결될 수 있습니다.
+
+그 경우 target 단계에서는 sell이 된다고 가정했지만 실제 ledger에서는 sell이 안 된 상태가 됩니다.
+
+현재 역사 run에서 `execution_gross_violation=0`이므로 데이터상 발생하지 않았거나 문제가 드러나지 않은 것으로 보입니다.
+
+하지만 실전용 엔진은 더 강하게 만들어야 합니다.
+
+### 진짜 sell-first execution
+
+```text
+Phase 1
+SELL orders resolve
+
+↓ actual fills 확인
+
+실제 post-sell state 계산
+
+↓ residual gross 재계산
+
+Phase 2
+BUY orders resolve
+```
+
+로 바꾸는 것이 맞습니다.
+
+**지금 구현은 sell-first target constraint이고, 제가 권하는 것은 sell-first actual execution입니다.**
+
+이건 대회 전 반드시 넣는 것이 좋습니다.
+
+---
+
+# 13. `carry_gross_drift_count=19,430`은 현재 거의 쓸모 없는 metric
+
+latest에도 이미:
+
+> rolling session diagnostics 합산, calendar-unique 아님
+
+이라고 되어 있습니다.
+
+2090 overlapping windows 안에서 반복 집계된 숫자라
+
+```text
+19,430번 발생했다
+```
+
+는 실제 의미가 거의 없습니다.
+
+다음에는:
+
+```text
+unique calendar day drift rate
+mean excess gross
+q95 excess gross
+max excess gross
+next-session delever success rate
+delever turnover cost
+```
+
+를 내야 합니다.
+
+예:
+
+```text
+gross limit        1.90
+close realized     1.91
+excess             0.01
+```
+
+같은 drift는 사실 크게 신경 쓸 필요 없습니다.
+
+반면:
+
+```text
+close realized     2.15
+```
+
+가 반복된다면 다른 문제입니다.
+
+count보다 magnitude가 중요합니다.
+
+---
+
+# 14. 평가 framework를 다음처럼 바꾸면 좋음
+
+현재 단일 headline:
+
+```text
+P>50%
+```
+
+에 너무 쉽게 시선이 갑니다.
+
+앞으로 candidate promotion은 4축으로 두십시오.
+
+### A. Championship tail
+
+```text
+P>30
+P>40
+P>50
+P>60
+q95
+q99
+```
+
+### B. Robustness
+
+```text
+leave-one-year-out
+era split
+Sep-Nov anchor
+parameter neighborhood
+```
+
+### C. Downside
+
+```text
+P<-15
+P<-25
+CVaR5
+max giveback
+```
+
+### D. Execution
+
+```text
+execution violation
+unfilled rate
+ADV utilization
+turnover
+cost
+gross drift magnitude
+```
+
+그리고 저는 promotion 조건을:
+
+```text
+P50 개선
+AND
+ruin 비열화 없음
+AND
+LOYO 6/8년 이상 non-inferior
+AND
+parameter neighborhood 안정
+```
+
+정도로 잡겠습니다.
+
+---
+
+# 15. 특히 Leave-One-Year-Out을 지금 당장 추가해야 함
+
+이게 현재 가장 중요한 과최적화 방지 장치입니다.
+
+2018~2026 데이터를 계속 보고 P20부터 P28까지 개발했기 때문에 **현재 전체 기간은 이미 사실상 training set**입니다.
+
+따라서 단순 full-period bootstrap만으로는 부족합니다.
+
+예:
+
+```text
+train idea without 2018 → evaluate 2018
+train idea without 2019 → evaluate 2019
+...
+```
+
+라는 엄밀한 ML 방식까지는 어렵더라도, 최소한 candidate 결과를:
+
+```text
+2018–19
+2020–21
+2022–23
+2024–26
+```
+
+또는 연도별로 분해해야 합니다.
+
+특히 candidate가:
+
+```text
+full P50 4.26 → 5.10
+```
+
+인데 개선분의 90%가 2025~26에서 나오면 채택하지 않는 편이 좋습니다.
+
+---
+
+# 16. 실제 개발 순서
+
+지금이라면 이렇게 갑니다.
+
+| Priority | TASK                              | 목적                          |
+| -------- | --------------------------------- | --------------------------- |
+| **P0**   | TASK_43 Attribution v2            | 지금의 timing/selection 결론 검증  |
+| **P0**   | TASK_44 LOYO / era evaluation     | 과최적화 차단                     |
+| **P1**   | TASK_45 `mom_ensemble` P29        | selection responsiveness 개선 |
+| **P1**   | TASK_46 acceleration A/B          | 신규 leadership 포착            |
+| **P1**   | TASK_47 actual sell→buy execution | 실전 무결성                      |
+| **P2**   | TASK_48 deterioration exit P30    | giveback 감소                 |
+| **P2**   | TASK_49 regime predictive audit   | regime의 실제 가치 검증            |
+| **P3**   | TASK_50 +1/+2/inverse router      | 검증된 regime일 때만 적용           |
+| **P3**   | leaderboard controller            | 대회 시작 이후                    |
+
+---
+
+# 17. 제가 가장 기대하는 후보
+
+현재 코드와 결과를 고려하면 다음 구조가 가장 유력합니다.
+
+```text
+             Multi-horizon Family Momentum
+                    10 / 20 / 40 / 60
+                           │
+                           ▼
+                Relative Acceleration
+                           │
+                           ▼
+                 Cross-sectional Rank
+                           │
+                           ▼
+                   Sticky Leader
+                    rank hysteresis
+                           │
+                           ▼
+                 +2x vehicle (우선)
+                           │
+                           ▼
+            Leadership deterioration exit
+                           │
+                           ▼
+                sell-first execution
+```
+
+처음부터:
+
+```text
+regime + inverse + gold + breadth + breakout + flow
+```
+
+를 모두 넣으면 안 됩니다.
+
+지금 가장 필요한 것은 **더 복잡한 전략이 아니라 한 번에 하나의 hypothesis를 검증하는 것**입니다.
+
+---
+
+# 최종 판단
+
+현재 상태를 제가 점수화하면:
+
+| 영역                            | 평가                                  |
+| ----------------------------- | ----------------------------------- |
+| PIT universe                  | 좋음                                  |
+| next-open execution           | 좋음                                  |
+| gross correctness             | **크게 개선됨**                          |
+| rolling tournament evaluation | 좋음                                  |
+| statistical overfit control   | 부족                                  |
+| tail forensics                | **아이디어는 좋지만 현재 attribution은 수정 필요** |
+| P27 alpha                     | 지나치게 단순                             |
+| regime model                  | 아직 전략 switching에 쓰기엔 약함             |
+| 실전 execution                  | 한 단계 더 필요                           |
+| 우승권 가능성                       | tail은 존재하지만 아직 낮음                   |
+
+따라서 **지금 P31, P32처럼 전략을 계속 늘리지 말고 먼저 forensics를 바로잡는 게 맞습니다.**
+
+그리고 그 다음 실험 하나를 고르라면 저는 **`P29 = multi-horizon rank momentum ensemble`**을 고르겠습니다. 현재 코드에서 가장 적은 복잡도 증가로 P27의 가장 명확한 구조적 약점인 `mom60 단일 horizon 의존`을 해결할 수 있기 때문입니다.
+
+목표도 `P>50% 4.26 → 무조건 6%`처럼 잡으면 안 됩니다. 첫 성공 기준은 오히려:
+
+```text
+P>50 ≥ 4.26%
+P>40 > 6.22%
+ruin ≤ 2.54%
+CVaR5 ≥ -30.1%
+2025 +41.4% 크게 훼손하지 않음
+2018~24 anchor aggregate 개선
+gross violation = 0
+LOYO/era 안정성 개선
+```
+
+으로 잡는 것이 신뢰성 있는 방향입니다.
+
+원하면 다음 답변에서 바로 **TASK_43~47을 실제 파일/클래스/함수 수준의 구현 명세로 작성해서 Codex에 그대로 넣을 수 있는 작업 지시서 형태**로 만들어드리겠습니다.
