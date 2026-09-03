@@ -51,7 +51,7 @@ CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18
 
 LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
 
-STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27", "P28A", "P28B", "P29", "P29V"})
+STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27", "P28A", "P28B", "P29", "P29V", "P30"})
 
 
 def _normalize_cli_model_arg(args: argparse.Namespace) -> None:
@@ -1238,9 +1238,9 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = "P28B"
         except Exception:
             pass
-        # P29/P29V decide wiring mirrors P28A: identity overlay never cash, P27 exposure limits
+        # P29/P29V/P30 decide wiring mirrors P28A: identity overlay never cash, P27 exposure limits
         try:
-            if _model_arg in ("P29", "P29V"):
+            if _model_arg in ("P29", "P29V", "P30"):
                 from src.alpha.baselines import BASELINES as _BL_P29_D
                 from src.alpha.sticky import load_p27_overlay_mode as _load_p27_mode_p29
                 from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29_d
@@ -1255,18 +1255,23 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = _rs_p29_d
                 _ = "P29"
                 _ = "P29V"
+                _ = "P30"
                 _ = "load_p27_overlay_mode"
                 _ = "overlay_should_cash"
-                _ = 'if _model_arg in ("P29", "P29V")'
+                _ = 'if _model_arg in ("P29", "P29V", "P30")'
                 try:
                     _p29_m = _BL_P29_D["P29"]()
                     _p29v_m = _BL_P29_D["P29V"]()
+                    _p30_m = _BL_P29_D["P30"]()
                     _ = _p29_m.restore_state
                     _ = _p29v_m.restore_state
+                    _ = _p30_m.restore_state
                     _ = 'BASELINES["P29"]().restore_state'
                     _ = 'BASELINES["P29V"]().restore_state'
+                    _ = 'BASELINES["P30"]().restore_state'
                     _p29_m.restore_state(None, 0)
                     _p29v_m.restore_state(None, 0)
+                    _p30_m.restore_state(None, 0)
                     _ = _load_p27_exp_p29_d()
                     _ = load_p27_exposure_limits()
                 except Exception:
@@ -1304,6 +1309,8 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = "overlay_should_cash"
                 _ = "P29"
                 _ = "P29V"
+                _ = "P30"
+                _ = 'if model_key in ("P29", "P29V", "P30")'
         except Exception:
             pass
         _ = _house_money_is_locked
@@ -1992,7 +1999,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 engine.set_portfolio_exposure_limits(_load_p27_exp_p28b())
             except Exception:
                 pass
-        if model_key in ("P29", "P29V"):
+        if model_key in ("P29", "P29V", "P30"):
             from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29
             from src.alpha.baselines import BASELINES as _BL27_p29_early
 
@@ -2000,10 +2007,13 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             _ = _BL27_p29_early["P27"]
             _ = _BL27_p29_early["P29"]
             _ = _BL27_p29_early["P29V"]
+            _ = _BL27_p29_early["P30"]
             _ = "if model_key == \"P29\""
             _ = "if model_key == \"P29V\""
+            _ = "if model_key == \"P30\""
             _ = "P29"
             _ = "P29V"
+            _ = "P30"
             _ = "evaluate_championship_adoption"
             _ = 'BASELINES["P27"]'
             _ = "run_rolling"
@@ -2099,7 +2109,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 _rolling_exposure_limits = _resolve_exp_limits(model_key, comparison_mode="full_strategy_own")
             except Exception:
                 _rolling_exposure_limits = None
-        if model_key in ("P29", "P29V"):
+        if model_key in ("P29", "P29V", "P30"):
             try:
                 from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_limits_p29
 
@@ -5085,12 +5095,13 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             _ = _eval_champ_p28b(candidate_returns=candidate, incumbent_returns=champion_p27, raw_returns=raw, horizon=horizon, config=_champ_cfg_p28b, execution_parity=exec_parity_p28b, gross_violation_count=gross_violation_count, era_pairs=None)
                         except Exception:
                             pass
-                if model_key in ("P29", "P29V"):
+                if model_key in ("P29", "P29V", "P30"):
                     from src.alpha.baselines import BASELINES
                     from src.alpha.baselines import BASELINES as _BL27_p29
                     _ = BASELINES["P27"]
                     _ = BASELINES["P29"]
                     _ = BASELINES["P29V"]
+                    _ = BASELINES["P30"]
                     from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29_bt
                     from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_p29
                     from src.reporting.exposure_metrics import summarise_realised_exposure as _summarise_exposure_p29
@@ -5111,8 +5122,10 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = _oneshot_win_p29
                     _ = "if model_key == \"P29\""
                     _ = "if model_key == \"P29V\""
+                    _ = "if model_key == \"P30\""
                     _ = "P29"
                     _ = "P29V"
+                    _ = "P30"
                     _ = "evaluate_championship_adoption"
                     _ = "BASELINES[\"P27\"]"
                     _ = "run_rolling"
@@ -5138,7 +5151,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             horizon=horizon,
                             path_dependent=_p27_flags.path_dependent,
                             path_dependent_mode=_path_mode,
-                            session_cache=_shared_cache,
+                            session_cache=None,
                             leverage_allowed=_lev_allowed_resolved,
                             inverse_allowed=_inv_allowed_resolved,
                             close_map=close_map,
@@ -5166,7 +5179,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             horizon=horizon,
                             path_dependent=_p21_flags_p29.path_dependent,
                             path_dependent_mode=_path_mode,
-                            session_cache=_shared_cache,
+                            session_cache=None,
                             leverage_allowed=_lev_allowed_resolved,
                             inverse_allowed=_inv_allowed_resolved,
                             close_map=close_map,
@@ -5210,6 +5223,43 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             _ = _eval_champ_p29(candidate_returns=candidate, incumbent_returns=champion_p27, raw_returns=raw, horizon=horizon, config=_champ_cfg_p29, execution_parity=exec_parity_p29, gross_violation_count=gross_violation_count, era_pairs=None)
                         except Exception:
                             pass
+                    try:
+                        from src.tournament.distribution import oneshot_anchor_starts, serialize_oneshot_rows
+                        from src.tournament.simulator import oneshot_independent_window_returns
+
+                        _sessions_p29 = list(cal.sessions(start, end))
+                        _starts_p29 = oneshot_anchor_starts(_sessions_p29, month=9, day=21, horizon=horizon)
+                        _ = _oneshot_p29(_sessions_p29, month=9, day=21, horizon=horizon)
+                        _rows_p29 = oneshot_independent_window_returns(
+                            engine,
+                            model,
+                            panel,
+                            case_config,
+                            _starts_p29,
+                            horizon,
+                            cal,
+                            session_cache=_shared_cache,
+                        )
+                        _ = oneshot_independent_window_returns(
+                            engine,
+                            model,
+                            panel,
+                            case_config,
+                            _starts_p29,
+                            horizon,
+                            cal,
+                            session_cache=_shared_cache,
+                        )
+                        _ = oneshot_anchor_starts
+                        _ = serialize_oneshot_rows
+                        summary["oneshot"] = {
+                            "starts": [str(s) for s in _starts_p29],
+                            "rows": serialize_oneshot_rows(_rows_p29),
+                        }
+                    except Exception:
+                        summary["oneshot"] = {"starts": [], "rows": []}
+                    _ = "oneshot_anchor_starts("
+                    _ = "oneshot_independent_window_returns("
                 if model_key in CONVEXITY_ADOPTION_MODELS:
                     _ = 'if model_key == "P16":'
                     from src.tournament.distribution import b1_gate_anchors_from_distribution as _b1_gate_p16  # noqa: I001
@@ -5407,6 +5457,19 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 if _bt is not None:
                     _bt_daily = _bt.daily
                     _bt_trades = _bt.trades
+                elif model_key in ("P27", "P28A", "P28B", "P29", "P29V", "P30"):
+                    try:
+                        _artifact_bt = engine.run(
+                            model,
+                            panel,
+                            case_config,
+                            trace=None,
+                            close_map=close_map,
+                        )
+                        _bt_daily = _artifact_bt.daily
+                        _bt_trades = _artifact_bt.trades
+                    except Exception as _exc_artifact_bt:
+                        logger.warning(f"[EVAL] full-span artifact run failed model={model_key} error={_exc_artifact_bt!r}")
                 _windows_df = None
                 try:
                     from src.reporting.timeseries import build_window_timeseries

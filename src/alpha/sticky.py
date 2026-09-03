@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.strategies.sticky.model import StickyLeaderModel
+from src.strategies.sticky.capacity import apply_capacity_filter
 from src.strategies.sticky.model import StickyLeaderConfig, apply_sticky_leader
 from src.strategies.sticky.model import (
     collapse_plus2_by_family,
@@ -27,6 +28,7 @@ from src.strategies.sticky.config import load_overlay_mode as load_p27_overlay_m
 __all__ = [
     "StickyLeaderConfig",
     "StickyLeaderModel",
+    "apply_capacity_filter",
     "apply_sticky_leader",
     "apply_impulse_switch",
     "apply_crash_cash",

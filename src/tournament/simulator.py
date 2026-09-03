@@ -85,9 +85,13 @@ def oneshot_independent_window_returns(
     # build cache once - wiring anchor
     _ = build_session_cache
     _ = session_cache
+    cache = None
     if session_cache is not None:
-        cache = session_cache
-    else:
+        cache_model = getattr(session_cache, "model_name", None)
+        model_name = str(getattr(model, "name", "")) or None
+        if cache_model is None or cache_model == model_name:
+            cache = session_cache
+    if cache is None:
         try:
             cache = build_session_cache(engine, model, panel, config)
         except Exception:
