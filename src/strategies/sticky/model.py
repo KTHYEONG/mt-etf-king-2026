@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Final
 
 import polars as pl
 
@@ -13,6 +14,62 @@ from src.alpha.base import DecisionContext
 from src.universe.instruments import resolve_leverage
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_EXCLUDE_NAME_TOKENS: Final[tuple[str, ...]] = ("국채", "채권", "달러", "엔선물", "골드", "금선물", "gold", "커버드콜", "스티프너", "플래트너")
+
+
+def name_excluded(name: str, tokens: Sequence[str]) -> bool:
+    try:
+        text = name.casefold() if isinstance(name, str) else ""
+    except Exception:
+        return True
+    if not text.strip():
+        return True
+    for tok in tokens:
+        t = tok.casefold() if isinstance(tok, str) else ""
+        if t and t in text:
+            return True
+    return False
+
+
+def cross_section_percentile_ranks(values: Mapping[str, float]) -> dict[str, float]:
+    # Min-max scaling to [0,1] so near-tied momenta stay near-tied (P29V volume tie-break).
+    items: list[tuple[str, float]] = []
+    try:
+        raw = dict(values)
+    except Exception:
+        return {}
+    for k, v in raw.items():
+        try:
+            fv = float(v)
+            if math.isfinite(fv):
+                items.append((str(k), float(fv)))
+        except Exception:
+            continue
+    if not items:
+        return {}
+    lo = min(v for _, v in items)
+    hi = max(v for _, v in items)
+    if not math.isfinite(hi - lo) or hi <= lo:
+        return {k: 1.0 for k, _ in items}
+    return {k: (v - lo) / (hi - lo) for k, v in items}
+
+
+def blend_rank_scores(primary: Mapping[str, float], aux: Mapping[str, float], *, w_primary: float, w_aux: float) -> dict[str, float]:
+    try:
+        wp, wa = float(w_primary), float(w_aux)
+        p = {str(k): float(v) for k, v in dict(primary).items()}
+        a = {str(k): float(v) for k, v in dict(aux).items()}
+    except Exception:
+        return {}
+    if not math.isfinite(wp) or not math.isfinite(wa):
+        return {}
+    keys = [k for k in p if k in a and math.isfinite(p[k]) and math.isfinite(a[k])]
+    if not keys:
+        return {}
+    rp = cross_section_percentile_ranks({k: p[k] for k in keys})
+    ra = cross_section_percentile_ranks({k: a[k] for k in keys})
+    return {k: wp * rp[k] + wa * ra[k] for k in keys}
 
 @dataclass
 class StickyLeaderConfig:
@@ -28,6 +85,9 @@ class StickyLeaderConfig:
     collapse_family: bool = False
     lock_level: float = 0.0
     same_leader_hold: bool = False
+    exclude_name_tokens: tuple[str, ...] = ()
+    score_aux_col: str | None = None
+    score_aux_weight: float = 0.0
 
     @classmethod
     def from_yaml(cls, raw: Mapping[str, object]) -> StickyLeaderConfig:
@@ -156,6 +216,28 @@ class StickyLeaderConfig:
                 collapse_family = bool(raw["collapse_family"])
         except Exception:
             collapse_family = defaults.collapse_family
+        exclude_name_tokens = tuple(defaults.exclude_name_tokens)
+        try:
+            v = raw.get("exclude_name_tokens")
+            if isinstance(v, (list, tuple)):
+                exclude_name_tokens = tuple(str(t) for t in v if isinstance(t, str) and str(t))
+        except Exception:
+            pass
+        score_aux_col = defaults.score_aux_col
+        try:
+            v = raw.get("score_aux_col")
+            if isinstance(v, str) and v.strip():
+                score_aux_col = str(v).strip()
+            elif v is None:
+                score_aux_col = None
+        except Exception:
+            pass
+        score_aux_weight = defaults.score_aux_weight
+        try:
+            w = float(raw.get("score_aux_weight", score_aux_weight))  # type: ignore[arg-type]
+            score_aux_weight = float(w) if math.isfinite(w) and w >= 0 else 0.0
+        except Exception:
+            score_aux_weight = 0.0
         return cls(
             mom_col=str(mom_col),
             only_plus_2=bool(only_plus_2),
@@ -169,6 +251,9 @@ class StickyLeaderConfig:
             collapse_family=bool(collapse_family),
             lock_level=float(defaults.lock_level),
             same_leader_hold=False,
+            exclude_name_tokens=tuple(exclude_name_tokens),
+            score_aux_col=score_aux_col,
+            score_aux_weight=float(score_aux_weight),
         )
 def collapse_plus2_by_family(scores: Mapping[str, float], snapshot: pl.DataFrame, adv_col: str = "trading_value") -> dict[str, float]:
     if not scores:
@@ -331,6 +416,12 @@ def filter_plus2_scores(snapshot: pl.DataFrame, config: StickyLeaderConfig) -> d
         if not name:
             continue
         try:
+            _tokens = tuple(getattr(config, "exclude_name_tokens", ()) or ())
+        except Exception:
+            _tokens = ()
+        if _tokens and name_excluded(name, _tokens):
+            continue
+        try:
             lev, _conf = resolve_leverage(name)
         except Exception:
             continue
@@ -429,6 +520,31 @@ class StickyLeaderModel:
 
     def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float] | object:
         filtered = filter_plus2_scores(snapshot, self.config)
+        try:
+            _aux_col = getattr(self.config, "score_aux_col", None)
+            _aux_w = float(getattr(self.config, "score_aux_weight", 0.0) or 0.0)
+        except Exception:
+            _aux_col, _aux_w = None, 0.0
+        if isinstance(_aux_col, str) and _aux_col and math.isfinite(_aux_w) and _aux_w > 0:
+            if _aux_col not in snapshot.columns:
+                filtered = cross_section_percentile_ranks(filtered)
+            else:
+                _aux_raw = {}
+                try:
+                    rows = snapshot.iter_rows(named=True)
+                except Exception:
+                    return {}
+                for _row in rows:
+                    try:
+                        _t = str(_row.get("ticker"))
+                        _af = float(_row.get(_aux_col))  # type: ignore[arg-type]
+                        if _t in filtered and math.isfinite(_af):
+                            _aux_raw[_t] = float(_af)
+                    except Exception:
+                        continue
+                filtered = blend_rank_scores(filtered, _aux_raw, w_primary=1.0 - _aux_w, w_aux=_aux_w)
+            if not filtered:
+                return {}
         if getattr(self.config, "collapse_family", False):
             try:
                 filtered = collapse_plus2_by_family(filtered, snapshot)

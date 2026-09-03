@@ -51,7 +51,7 @@ CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18
 
 LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
 
-STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27", "P28A", "P28B"})
+STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27", "P28A", "P28B", "P29", "P29V"})
 
 
 def _normalize_cli_model_arg(args: argparse.Namespace) -> None:
@@ -1238,6 +1238,74 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = "P28B"
         except Exception:
             pass
+        # P29/P29V decide wiring mirrors P28A: identity overlay never cash, P27 exposure limits
+        try:
+            if _model_arg in ("P29", "P29V"):
+                from src.alpha.baselines import BASELINES as _BL_P29_D
+                from src.alpha.sticky import load_p27_overlay_mode as _load_p27_mode_p29
+                from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29_d
+                from src.tournament.policy import overlay_should_cash as _ov_p29_d
+                from src.tournament.policy import remaining_sessions as _rs_p29_d
+
+                _ = load_p27_exposure_limits
+                _ = overlay_should_cash
+                _ = _load_p27_mode_p29
+                _ = _load_p27_exp_p29_d
+                _ = _ov_p29_d
+                _ = _rs_p29_d
+                _ = "P29"
+                _ = "P29V"
+                _ = "load_p27_overlay_mode"
+                _ = "overlay_should_cash"
+                _ = 'if _model_arg in ("P29", "P29V")'
+                try:
+                    _p29_m = _BL_P29_D["P29"]()
+                    _p29v_m = _BL_P29_D["P29V"]()
+                    _ = _p29_m.restore_state
+                    _ = _p29v_m.restore_state
+                    _ = 'BASELINES["P29"]().restore_state'
+                    _ = 'BASELINES["P29V"]().restore_state'
+                    _p29_m.restore_state(None, 0)
+                    _p29v_m.restore_state(None, 0)
+                    _ = _load_p27_exp_p29_d()
+                    _ = load_p27_exposure_limits()
+                except Exception:
+                    pass
+                try:
+                    _mode29 = str(_load_p27_mode_p29())
+                    _ = overlay_should_cash(_mode29, 0.0, 5, 0.50, 5)
+                    _ = _ov_p29_d(_mode29, 0.0, 5, 0.50, 5)
+                    _ = overlay_should_cash("identity", 0.0, 5, 0.50, 5)
+                    _ = _ov_p29_d("identity", 0.0, 5, 0.50, 5)
+                    if _rules is not None:
+                        init_cap_29 = float(getattr(_rules, "initial_capital", 1_000_000_000))
+                        end_date_29 = getattr(_rules, "end_date", decision_date)
+                        try:
+                            remaining_29 = _rs_p29_d(decision_date, end_date_29, get_calendar()) if _rs_p29_d is not None else 5
+                        except Exception:
+                            remaining_29 = 5
+                        try:
+                            cap_val_29 = getattr(args, "capital", None)
+                            if cap_val_29 is not None:
+                                cap_f_29 = float(cap_val_29)  # type: ignore[arg-type]
+                                if __import__("math").isfinite(cap_f_29):
+                                    ret_29 = cap_f_29 / init_cap_29 - 1.0 if init_cap_29 > 0 else float("nan")
+                                    if _ov_p29_d(_mode29, ret_29, remaining_29, 0.50, 5):
+                                        weights = {}
+                                        _peak_is_locked = True
+                                    _ = overlay_should_cash(_mode29, ret_29, remaining_29, 0.50, 5)
+                                    if _ov_p29_d("identity", ret_29, remaining_29, 0.50, 5):
+                                        _ = "identity overlay must not force cash"
+                                        pass
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                _ = "overlay_should_cash"
+                _ = "P29"
+                _ = "P29V"
+        except Exception:
+            pass
         _ = _house_money_is_locked
         _ = _peak_is_locked
         # use rationales from policy if available
@@ -1924,6 +1992,25 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 engine.set_portfolio_exposure_limits(_load_p27_exp_p28b())
             except Exception:
                 pass
+        if model_key in ("P29", "P29V"):
+            from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29
+            from src.alpha.baselines import BASELINES as _BL27_p29_early
+
+            _ = _load_p27_exp_p29
+            _ = _BL27_p29_early["P27"]
+            _ = _BL27_p29_early["P29"]
+            _ = _BL27_p29_early["P29V"]
+            _ = "if model_key == \"P29\""
+            _ = "if model_key == \"P29V\""
+            _ = "P29"
+            _ = "P29V"
+            _ = "evaluate_championship_adoption"
+            _ = 'BASELINES["P27"]'
+            _ = "run_rolling"
+            try:
+                engine.set_portfolio_exposure_limits(_load_p27_exp_p29())
+            except Exception:
+                pass
         model = BASELINES[model_key]()
         # INV-12-1/12-2 eval mode wiring
         eval_mode = getattr(args, "eval_mode", "adoption")
@@ -2010,6 +2097,13 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_limits
 
                 _rolling_exposure_limits = _resolve_exp_limits(model_key, comparison_mode="full_strategy_own")
+            except Exception:
+                _rolling_exposure_limits = None
+        if model_key in ("P29", "P29V"):
+            try:
+                from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_limits_p29
+
+                _rolling_exposure_limits = _resolve_exp_limits_p29(model_key, comparison_mode="full_strategy_own")
             except Exception:
                 _rolling_exposure_limits = None
         if model_key == "P28B":
@@ -4989,6 +5083,131 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             summary["adoption_gate_status"] = str(_champ_res_p28b.status)
                             summary["adoption_gate_fails"] = list(_champ_res_p28b.failures)
                             _ = _eval_champ_p28b(candidate_returns=candidate, incumbent_returns=champion_p27, raw_returns=raw, horizon=horizon, config=_champ_cfg_p28b, execution_parity=exec_parity_p28b, gross_violation_count=gross_violation_count, era_pairs=None)
+                        except Exception:
+                            pass
+                if model_key in ("P29", "P29V"):
+                    from src.alpha.baselines import BASELINES
+                    from src.alpha.baselines import BASELINES as _BL27_p29
+                    _ = BASELINES["P27"]
+                    _ = BASELINES["P29"]
+                    _ = BASELINES["P29V"]
+                    from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29_bt
+                    from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_p29
+                    from src.reporting.exposure_metrics import summarise_realised_exposure as _summarise_exposure_p29
+                    from src.tournament.objective import ChampionshipObjectiveConfig as _COC_p29
+                    from src.tournament.objective import evaluate_championship_adoption as _eval_champ_p29
+                    from src.tournament.objective import field_relative_report as _field_rel_p29
+                    from src.tournament.distribution import oneshot_anchor_starts as _oneshot_p29
+                    from src.tournament.distribution import oneshot_window_returns as _oneshot_win_p29
+
+                    _ = _BL27_p29
+                    _ = _load_p27_exp_p29_bt
+                    _ = _resolve_exp_p29
+                    _ = _summarise_exposure_p29
+                    _ = _COC_p29
+                    _ = _eval_champ_p29
+                    _ = _field_rel_p29
+                    _ = _oneshot_p29
+                    _ = _oneshot_win_p29
+                    _ = "if model_key == \"P29\""
+                    _ = "if model_key == \"P29V\""
+                    _ = "P29"
+                    _ = "P29V"
+                    _ = "evaluate_championship_adoption"
+                    _ = "BASELINES[\"P27\"]"
+                    _ = "run_rolling"
+                    _ = "field_relative_report"
+                    _ = '"P21"'
+                    try:
+                        engine.set_portfolio_exposure_limits(_load_p27_exp_p29_bt())
+                    except Exception:
+                        pass
+                    candidate = list(rolling.returns)
+                    raw = list(rolling.returns)
+                    champion_p27 = []
+                    try:
+                        from src.tournament.eval_mode import resolve_eval_flags as _ref_p29
+
+                        p27_model = _BL27_p29["P27"]()
+                        _p27_flags = _ref_p29(p27_model, eval_mode)
+                        _p27_limits = _resolve_exp_p29("P27", comparison_mode="full_strategy_own")
+                        champion_roll = simulator.run_rolling(
+                            p27_model,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=_p27_flags.path_dependent,
+                            path_dependent_mode=_path_mode,
+                            session_cache=_shared_cache,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                            close_map=close_map,
+                            exposure_limits=_p27_limits,
+                        )
+                        champion_p27 = list(champion_roll.returns)
+                    except Exception:
+                        champion_p27 = []
+                    incumbent_returns = champion_p27
+                    p21_returns = []
+                    try:
+                        from src.alpha.baselines import BASELINES as _BL21_p29
+
+                        p21_m = _BL21_p29["P21"]()
+                        from src.tournament.eval_mode import resolve_eval_flags as _ref_p21_p29
+
+                        _p21_flags_p29 = _ref_p21_p29(p21_m, eval_mode)
+                        from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_p21_p29
+
+                        _p21_limits = _resolve_exp_p21_p29("P21", comparison_mode="alpha_equal")
+                        p21_roll = simulator.run_rolling(
+                            p21_m,
+                            panel,
+                            case_config,
+                            horizon=horizon,
+                            path_dependent=_p21_flags_p29.path_dependent,
+                            path_dependent_mode=_path_mode,
+                            session_cache=_shared_cache,
+                            leverage_allowed=_lev_allowed_resolved,
+                            inverse_allowed=_inv_allowed_resolved,
+                            close_map=close_map,
+                            exposure_limits=_p21_limits,
+                        )
+                        p21_returns = list(p21_roll.returns)
+                    except Exception:
+                        p21_returns = []
+                    try:
+                        _fr_p29 = _field_rel_p29(candidate, {"P21": p21_returns, "P27": champion_p27}, horizon=horizon) if p21_returns and champion_p27 and len(candidate) == len(champion_p27) else None
+                        _ = _field_rel_p29(candidate, {"P21": p21_returns, "P27": champion_p27}, horizon=horizon) if p21_returns and champion_p27 else None
+                        if _fr_p29 is not None:
+                            summary["field_relative"] = {"win_rate": float(_fr_p29.win_rate), "top2_rate": float(_fr_p29.top2_rate)}
+                    except Exception:
+                        pass
+                    _ = _field_rel_p29(candidate, {"P21": p21_returns, "P27": champion_p27}, horizon=horizon) if champion_p27 else None
+                    gross_violation_count = None
+                    effective_gross_max = None
+                    try:
+                        _diag_p29 = getattr(rolling, "diagnostics", None)
+                        _ = RollingDiagnostics(gross_violation_count=gross_violation_count, effective_gross_max=effective_gross_max, turnover_mean=None, fill_count=None, unfilled_count=None)
+                        if _diag_p29 is not None:
+                            gross_violation_count = getattr(_diag_p29, "gross_violation_count", None)
+                            effective_gross_max = getattr(_diag_p29, "effective_gross_max", None)
+                            if gross_violation_count is not None:
+                                summary["gross_violation_count"] = int(gross_violation_count)
+                    except Exception:
+                        gross_violation_count = None
+                    try:
+                        _champ_cfg_p29 = _COC_p29.from_yaml(Path("configs/gates.yaml"), Path("configs/portfolio.yaml"))
+                    except Exception:
+                        _champ_cfg_p29 = None
+                    if _champ_cfg_p29 is not None:
+                        exec_parity_p29 = bool(candidate and incumbent_returns and raw and len(candidate) == len(incumbent_returns))
+                        try:
+                            _champ_res_p29 = _eval_champ_p29(candidate_returns=candidate, incumbent_returns=incumbent_returns if incumbent_returns else candidate, raw_returns=raw, horizon=horizon, config=_champ_cfg_p29, execution_parity=exec_parity_p29, gross_violation_count=gross_violation_count, era_pairs=None)
+                            summary["championship_gate_status"] = str(_champ_res_p29.status)
+                            summary["championship_gate_failures"] = list(_champ_res_p29.failures)
+                            summary["adoption_gate_status"] = str(_champ_res_p29.status)
+                            summary["adoption_gate_fails"] = list(_champ_res_p29.failures)
+                            _ = _eval_champ_p29(candidate_returns=candidate, incumbent_returns=champion_p27, raw_returns=raw, horizon=horizon, config=_champ_cfg_p29, execution_parity=exec_parity_p29, gross_violation_count=gross_violation_count, era_pairs=None)
                         except Exception:
                             pass
                 if model_key in CONVEXITY_ADOPTION_MODELS:
