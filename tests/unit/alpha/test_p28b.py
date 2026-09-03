@@ -1,8 +1,19 @@
+def test_apply_abs_mom_cash_disabled_passes_nonpos() -> None:
+    from src.alpha.sticky import StickyLeaderConfig, apply_abs_mom_cash
+    from src.portfolio.intent import PortfolioIntent
+
+    cfg = StickyLeaderConfig(mom_col="mom_60", abs_mom_cash=False)
+    scores = {"AAA": -0.10, "BBB": 0.0}
+    out = apply_abs_mom_cash(scores, cfg)
+    assert not isinstance(out, PortfolioIntent)
+    assert out == {"AAA": -0.10, "BBB": 0.0}
+
+
 def test_apply_abs_mom_cash_returns_cash_when_all_nonpos() -> None:
     from src.alpha.sticky import StickyLeaderConfig, apply_abs_mom_cash
     from src.portfolio.intent import CASH_INTENT, PortfolioIntent
 
-    cfg = StickyLeaderConfig(mom_col="mom_60")
+    cfg = StickyLeaderConfig(mom_col="mom_60", abs_mom_cash=True)
     scores = {"AAA": -0.10, "BBB": 0.0}
     out = apply_abs_mom_cash(scores, cfg)
     assert isinstance(out, PortfolioIntent)
@@ -33,15 +44,20 @@ def test_p28b_factory_enables_hold_and_abs_mom() -> None:
     from src.alpha.baselines import BASELINES
     from src.alpha.sticky import StickyLeaderModel
 
-    assert "P28B" in BASELINES
     p27 = BASELINES["P27"]()
+    p28a = BASELINES["P28A"]()
     p28b = BASELINES["P28B"]()
+    assert isinstance(p27, StickyLeaderModel)
+    assert isinstance(p28a, StickyLeaderModel)
     assert isinstance(p28b, StickyLeaderModel)
     assert p28b.name == "P28B"
+    assert bool(p27.config.same_leader_hold) is False
+    assert bool(p27.config.abs_mom_cash) is True
+    assert bool(p28a.config.same_leader_hold) is True
+    assert bool(p28a.config.abs_mom_cash) is False
     assert bool(p28b.config.same_leader_hold) is True
+    assert bool(p28b.config.abs_mom_cash) is True
     assert str(p28b.config.mom_col) == str(p27.config.mom_col) == "mom_60"
-    assert float(p28b.config.min_gap) == float(p27.config.min_gap) == 0.04
-    assert int(p28b.config.min_hold) == int(p27.config.min_hold) == 2
 
 
 def test_p28b_score_cash_when_all_mom_nonpos() -> None:
