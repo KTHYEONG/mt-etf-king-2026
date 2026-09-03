@@ -10,7 +10,7 @@ import polars as pl
 
 from src.backtest.costs import CostModel
 from src.backtest.execution import NextOpenExecution, is_open_fillable
-from src.backtest.liquidity import cap_target_weights_by_adv
+from src.backtest.liquidity import cap_target_weights_by_adv, constrain_target_weights_sell_first
 from src.portfolio.intent import CASH_INTENT, HOLD_INTENT, PortfolioIntent, resolve_portfolio_intent
 
 
@@ -67,6 +67,11 @@ class SessionTransitionDiagnostics:
     effective_gross: float
     gross_violation: bool
     cash_session: bool
+    execution_gross_violation: bool = False
+    carry_gross_drift: bool = False
+    delever_required_next_session: bool = False
+    gross_after_sell: float = 0.0
+    residual_gross_budget: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -206,11 +211,26 @@ def transition_portfolio_state(
     target_gross = _gross_exposure(target, leverage_multiples if isinstance(leverage_multiples, Mapping) else {})
 
     # INV-WEIGHT-2 ADV cap uses weights_before_open
+    gross_after_sell = 0.0
+    residual_gross_budget = 0.0
     if not is_hold and not is_cash and target is not None and adv_by_ticker is not None and max_order_to_adv is not None:
         if target:
             try:
                 adv_map = {str(k): float(v) for k, v in dict(adv_by_ticker).items() if v is not None}
-                target = cap_target_weights_by_adv(target, weights_before_open, float(equity_open), adv_map, float(max_order_to_adv))
+                if exposure_limits is not None:
+                    _, _max_gross_sf, _ = exposure_limits
+                    mults_sf = leverage_multiples if isinstance(leverage_multiples, Mapping) else {}
+                    target = constrain_target_weights_sell_first(
+                        target,
+                        weights_before_open,
+                        float(equity_open),
+                        adv_map,
+                        float(max_order_to_adv),
+                        leverage_multiples=mults_sf,  # type: ignore[arg-type]
+                        max_gross_exposure=float(_max_gross_sf),
+                    )
+                else:
+                    target = cap_target_weights_by_adv(target, weights_before_open, float(equity_open), adv_map, float(max_order_to_adv))
             except Exception:
                 pass
 
@@ -378,23 +398,74 @@ def transition_portfolio_state(
     post_fill_gross = _gross_exposure(weights_after_open, leverage_multiples if isinstance(leverage_multiples, Mapping) else {})
     close_realized_gross = _gross_exposure(weights_after_close, leverage_multiples if isinstance(leverage_multiples, Mapping) else {})
     effective_gross = float(close_realized_gross)
-    gross_violation = False
+    fill_count = len(fills)
+    unfilled_count = len(unfilled)
+    # INV-SF-9 forensic fields; INV-SF-5/6/7 metric split
+    _mults_sf = leverage_multiples if isinstance(leverage_multiples, Mapping) else {}
+    _after_sell_real = 0.0
+    try:
+        if exposure_limits is not None and not is_hold and target is not None:
+            _mg = float(exposure_limits[1])
+            _adv = {str(k): float(v) for k, v in dict(adv_by_ticker).items() if v is not None} if isinstance(adv_by_ticker, Mapping) else {}
+            _eq = float(equity_open)
+            _phi = float(max_order_to_adv) if max_order_to_adv is not None else 0.0
+            if _eq > 0 and _phi > 0:
+                _union = set(weights_before_open.keys()) | set(target.keys())
+                _asw: dict[str, float] = {}
+                for _tk in sorted(_union):
+                    _tw = float(target.get(_tk, 0.0))
+                    _cw = float(weights_before_open.get(_tk, 0.0))
+                    try:
+                        _m = float(int(_mults_sf.get(_tk, 1)))  # type: ignore[arg-type]
+                    except Exception:
+                        _m = 1.0
+                    if abs(_tw * _m) < abs(_cw * _m) - 1e-15:
+                        _a = _adv.get(_tk)
+                        if _a is None or not float(_a) > 0:
+                            _asw[_tk] = _cw
+                        else:
+                            _cap = float(_a) * _phi / _eq
+                            _d = _tw - _cw
+                            if abs(_d) <= _cap + 1e-15:
+                                _asw[_tk] = _tw
+                            else:
+                                _asw[_tk] = _cw + (_cap if _d > 0 else -_cap)
+                    else:
+                        _asw[_tk] = _cw
+                _after_sell_real = _gross_exposure(_asw, _mults_sf)
+    except Exception:
+        _after_sell_real = 0.0
+    if is_hold or is_cash or exposure_limits is None:
+        gross_after_sell = 0.0
+        residual_gross_budget = 0.0
+    else:
+        try:
+            _mg2 = float(exposure_limits[1])
+            gross_after_sell = float(_after_sell_real)
+            residual_gross_budget = float(_mg2) - float(_after_sell_real)
+        except Exception:
+            gross_after_sell = 0.0
+            residual_gross_budget = 0.0
+    execution_gross_violation = False
+    carry_gross_drift = False
+    delever_required_next_session = False
     if exposure_limits is not None:
         try:
             _, max_gross, _ = exposure_limits
             gross_limit = float(max_gross)
-            gross_violation = bool(post_fill_gross > gross_limit + 1e-9)
+            if bool(post_fill_gross > gross_limit + 1e-9) and fill_count > 0 and not is_hold:
+                if bool(post_fill_gross > float(_after_sell_real) + 1e-9):
+                    execution_gross_violation = True
+            # INV-SF-5: HOLD with fill_count==0 => False always
+            if is_hold and fill_count == 0:
+                execution_gross_violation = False
+            gross_violation = bool(execution_gross_violation)
+            carry_gross_drift = bool(float(close_realized_gross) > gross_limit + 1e-9 and not execution_gross_violation)
+            delever_required_next_session = bool(float(close_realized_gross) > gross_limit + 1e-9)
         except Exception:
             gross_violation = False
-    # INV-GROSS-HOLD: HOLD with fill_count 0 must not flag gross violation from price drift
-    try:
-        if bool(getattr(intent, "kind", "") == "hold"):
-            if len(fills) == 0:
-                gross_violation = False
-    except Exception:
-        pass
-    fill_count = len(fills)
-    unfilled_count = len(unfilled)
+    else:
+        gross_violation = False
     diagnostics = SessionTransitionDiagnostics(
         turnover_weight=float(turnover_weight),
         transaction_cost=float(transaction_cost),
@@ -406,6 +477,11 @@ def transition_portfolio_state(
         effective_gross=float(effective_gross),
         gross_violation=bool(gross_violation),
         cash_session=bool(is_cash),
+        execution_gross_violation=bool(execution_gross_violation),
+        carry_gross_drift=bool(carry_gross_drift),
+        delever_required_next_session=bool(delever_required_next_session),
+        gross_after_sell=float(gross_after_sell),
+        residual_gross_budget=float(residual_gross_budget),
     )
     state = PortfolioLedgerState(cash=float(cash_after), shares=dict(shares_after))
     return PortfolioTransitionResult(
@@ -457,23 +533,43 @@ def aggregate_session_diagnostics(sessions: Sequence[SessionTransitionDiagnostic
             unfilled_count: int | None
 
     if not sessions:
-        return RollingDiagnostics(
-            gross_violation_count=0,
-            effective_gross_max=0.0,
-            turnover_mean=0.0,
-            fill_count=0,
-            unfilled_count=0,
-        )
+        try:
+            return RollingDiagnostics(
+                gross_violation_count=0,
+                effective_gross_max=0.0,
+                turnover_mean=0.0,
+                fill_count=0,
+                unfilled_count=0,
+                carry_gross_drift_count=0,
+                delever_required_count=0,
+            )
+        except TypeError:
+            return RollingDiagnostics(
+                gross_violation_count=0,
+                effective_gross_max=0.0,
+                turnover_mean=0.0,
+                fill_count=0,
+                unfilled_count=0,
+            )
     gross_violation_count = 0
     effective_gross_max = 0.0
     turnover_sum = 0.0
     fill_sum = 0
     unfilled_sum = 0
+    carry_count = 0
+    delever_count = 0
     for s in sessions:
         try:
-            # per INV-GROSS-3 violation count based on post_fill gross violation flag, not close drift
-            if bool(getattr(s, "gross_violation", False)):
+            # INV-SF-8: count execution_gross_violation only (carry drift excluded)
+            if hasattr(s, "execution_gross_violation"):
+                if bool(getattr(s, "execution_gross_violation", False)):
+                    gross_violation_count += 1
+            elif bool(getattr(s, "gross_violation", False)):
                 gross_violation_count += 1
+            if bool(getattr(s, "carry_gross_drift", False)):
+                carry_count += 1
+            if bool(getattr(s, "delever_required_next_session", False)):
+                delever_count += 1
             eg = float(getattr(s, "close_realized_gross", getattr(s, "effective_gross", 0.0)) or 0.0)
             # effective_gross_max should be max of close_realized_gross (alias effective_gross)
             if eg > effective_gross_max:
@@ -485,10 +581,21 @@ def aggregate_session_diagnostics(sessions: Sequence[SessionTransitionDiagnostic
         except Exception:
             continue
     turnover_mean = float(turnover_sum / len(sessions)) if sessions else 0.0
-    return RollingDiagnostics(
-        gross_violation_count=int(gross_violation_count),
-        effective_gross_max=float(effective_gross_max),
-        turnover_mean=float(turnover_mean),
-        fill_count=int(fill_sum),
-        unfilled_count=int(unfilled_sum),
-    )
+    try:
+        return RollingDiagnostics(
+            gross_violation_count=int(gross_violation_count),
+            effective_gross_max=float(effective_gross_max),
+            turnover_mean=float(turnover_mean),
+            fill_count=int(fill_sum),
+            unfilled_count=int(unfilled_sum),
+            carry_gross_drift_count=int(carry_count),
+            delever_required_count=int(delever_count),
+        )
+    except TypeError:
+        return RollingDiagnostics(
+            gross_violation_count=int(gross_violation_count),
+            effective_gross_max=float(effective_gross_max),
+            turnover_mean=float(turnover_mean),
+            fill_count=int(fill_sum),
+            unfilled_count=int(unfilled_sum),
+        )

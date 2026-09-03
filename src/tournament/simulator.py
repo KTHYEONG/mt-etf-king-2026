@@ -554,6 +554,8 @@ class RollingDiagnostics:
     turnover_mean: float | None
     fill_count: int | None
     unfilled_count: int | None
+    carry_gross_drift_count: int | None = None
+    delever_required_count: int | None = None
 
 
 @dataclass(frozen=True)
