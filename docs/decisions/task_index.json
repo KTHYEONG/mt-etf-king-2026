@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_42_TAIL_FORENSICS_ATTRIBUTION",
+      "date": "2026-09-03",
+      "adr_id": "ADR_20260903_42_TAIL_FORENSICS_ATTRIBUTION",
+      "domain": "tournament",
+      "title": "Tail Forensics Attribution — window decomposition + mt-etf forensics CLI",
+      "why": "feedback.md P2: P27 gate PASS rebaseline 후 tail miss 원인(selection vs timing vs giveback) 미분해; P3 family ensemble vs regime controller 방향 결정 필요.",
+      "resolution": "Implemented WindowAttribution/TailAttributionSummary, compound_close_return, select_attribution_windows, attribute_window, summarise_tail_attribution, write_tail_attribution_report in tail_forensics.py; mt-etf forensics CLI (cmd_forensics); 6 contract scenario tests + lean_check PASS; P27 run 20260903T034356Z forensics primary_gap=timing mean_sel=0.196 mean_entry=0.216 mean_exit=0.120 mean_giveback=0.124 n_analyzed=265 dominant selection 142/265 (53.6%).",
+      "impact": "L5 reporting: ex-post tail attribution diagnostic unblocks P3 roadmap; primary_gap=timing implies entry/exit+giveback controller priority with selection ensemble as secondary; research-only (no P&L/gate changes)."
+    },
+    {
       "task_id": "TASK_41_SELL_FIRST_EXECUTION",
       "date": "2026-09-03",
       "adr_id": "ADR_20260903_41_SELL_FIRST_EXECUTION",
