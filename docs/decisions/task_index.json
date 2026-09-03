@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_47_CHAMPION_PATH_LOGIC",
+      "date": "2026-09-03",
+      "adr_id": "ADR_20260903_47_CHAMPION_PATH_LOGIC",
+      "domain": "alpha",
+      "title": "Champion Path Logic — abs_mom gate · fillable P27 · empty+CASH · registry names",
+      "why": "P27 champion path had TASK_39 abs_mom leak on all stickies (P28A≡P28B, P21 cash), unfilled synthetic +2x selection (2025 oneshot gap vs +47.82%), dead yaml in _make_p27, and empty eligible +2x resolving to HOLD.",
+      "resolution": "Added StickyLeaderConfig.abs_mom_cash + gated apply_abs_mom_cash; P27 defaults exclude_synthetic/min_fill_ratio=0.25/abs_mom_cash=True with portfolio.sticky.mom60_raw yaml overlay; empty post-filter scores return CASH_INTENT; P28A abs_mom off / P28B on; registry keeps legacy names for P26/P27/P28A/P28B; 12 contract tests + lean_check PASS.",
+      "impact": "L4 alpha: CHAMPION_STRATEGY sticky.mom60_raw now fillable + abs_mom isolated; P30 delta folded into P27 selection hygiene; P21/P28A variants restored; full rebaseline pending."
+    },
+    {
       "task_id": "TASK_46",
       "date": "2026-09-03",
       "adr_id": "ADR_20260903_46",
