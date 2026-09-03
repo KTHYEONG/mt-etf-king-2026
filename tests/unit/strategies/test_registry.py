@@ -21,7 +21,8 @@ def test_strategy_model_name_uses_semantic_id() -> None:
     from src.strategies.registry import STRATEGIES
 
     model = STRATEGIES[STICKY_MOM60_RAW]()
-    assert getattr(model, "name") == STICKY_MOM60_RAW
+    # Champion path contract: P27 keeps its legacy factory name.
+    assert getattr(model, "name") == "P27"
 
 def test_baselines_proxy_accepts_legacy_and_semantic() -> None:
     from src.alpha.baselines import BASELINES
@@ -29,8 +30,9 @@ def test_baselines_proxy_accepts_legacy_and_semantic() -> None:
 
     legacy = BASELINES["P27"]()
     semantic = BASELINES[STICKY_MOM60_RAW]()
-    assert getattr(legacy, "name") == STICKY_MOM60_RAW
-    assert getattr(semantic, "name") == STICKY_MOM60_RAW
+    # Champion path contract: P27 keeps its legacy factory name.
+    assert getattr(legacy, "name") == "P27"
+    assert getattr(semantic, "name") == "P27"
 
 def test_p27_behavior_unchanged_after_rename() -> None:
     from src.alpha.baselines import BASELINES

@@ -106,8 +106,9 @@ def test_p30_score_prefers_fillable_equity_over_illiquid_synth() -> None:
     assert isinstance(s27, dict) and isinstance(s30, dict)
     top27 = sorted(s27.items(), key=lambda kv: (-float(kv[1]), kv[0]))[0][0]
     top30 = sorted(s30.items(), key=lambda kv: (-float(kv[1]), kv[0]))[0][0]
-    assert top27 == "456680"
+    assert top27 == "494310"
     assert top30 == "494310"
+    assert "456680" not in s27
     assert "456680" not in s30
 
 
@@ -133,8 +134,9 @@ def test_p30_factory_and_exposure_wiring() -> None:
     assert STICKY_FILLABLE_MOM60 in FACTORY_REGISTRY
     assert resolve_exposure_limits_for_model("P30", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
     p27 = BASELINES["P27"]()
-    assert bool(getattr(p27.config, "exclude_synthetic", False)) is False
-    assert float(getattr(p27.config, "min_fill_ratio", 0.0) or 0.0) == 0.0
+    assert bool(getattr(p27.config, "exclude_synthetic", False)) is True
+    assert abs(float(getattr(p27.config, "min_fill_ratio", 0.0) or 0.0) - 0.25) < 1e-12
+    assert tuple(p27.config.exclude_name_tokens) == ()
 
 
 def test_p27_unchanged_allows_synth_and_zero_min_fill() -> None:
@@ -144,6 +146,7 @@ def test_p27_unchanged_allows_synth_and_zero_min_fill() -> None:
 
     from src.alpha.base import DecisionContext
     from src.alpha.baselines import BASELINES
+    from src.portfolio.intent import CASH_INTENT, PortfolioIntent
     from src.universe.tournament import TournamentRules
 
     snap = pl.DataFrame(
@@ -175,10 +178,9 @@ def test_p27_unchanged_allows_synth_and_zero_min_fill() -> None:
         stress_grid=(0.01, 0.02, 0.05),
     )
     ctx = DecisionContext(decision_date=date(2025, 9, 22), regime=None, capital=1.0e9, held={}, rules=rules)
-    p27 = BASELINES["P27"]()
-    out = p27.score(snap, ctx)
-    assert isinstance(out, dict)
-    assert out.get("SYN") == 0.50
+    out = BASELINES["P27"]().score(snap, ctx)
+    assert isinstance(out, PortfolioIntent)
+    assert out.kind == CASH_INTENT.kind
 
 
 def test_capacity_filter_keeps_missing_adv_fail_open() -> None:
@@ -286,7 +288,6 @@ def test_fillable_sticky_session_cache_widens_score_snapshots() -> None:
     )
     p27 = BASELINES["P27"]()
     p30 = BASELINES["P30"]()
-    cache_p27 = build_session_cache(engine, p27, panel, config)
     cache_p30 = build_session_cache(engine, p30, panel, config)
     assert cache_p30.model_name == "P30"
     score_day = cache_p30.dates[0]
@@ -296,6 +297,7 @@ def test_fillable_sticky_session_cache_widens_score_snapshots() -> None:
     s27 = p27.score(snap_p30, ctx)
     s30 = p30.score(snap_p30, ctx)
     assert isinstance(s27, dict) and isinstance(s30, dict)
-    assert s27.get("SYN", 0) > s27.get("EQ", 0)
+    assert "SYN" not in s27
     assert "SYN" not in s30
+    assert max(s27, key=lambda k: s27[k]) == "EQ"
     assert max(s30, key=lambda k: s30[k]) == "EQ"

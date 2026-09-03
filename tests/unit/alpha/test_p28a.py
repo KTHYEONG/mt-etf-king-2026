@@ -193,11 +193,11 @@ def test_p28a_score_emits_scores_when_sticky_switches() -> None:
     assert set(w.keys()) == {"FAST"}
 
 
-def test_sticky_config_from_yaml_ignores_same_leader_hold_knob() -> None:
+def test_sticky_config_from_yaml_reads_same_leader_hold_knob() -> None:
     from src.alpha.sticky import StickyLeaderConfig
 
     cfg = StickyLeaderConfig.from_yaml({"same_leader_hold": True, "min_gap": 0.04, "min_hold": 2})
-    assert bool(getattr(cfg, "same_leader_hold", False)) is False
+    assert bool(getattr(cfg, "same_leader_hold", False)) is True
     assert float(cfg.min_gap) == 0.04
     assert int(cfg.min_hold) == 2
 

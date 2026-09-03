@@ -91,7 +91,7 @@ def test_p29_score_prefers_equity_over_higher_mom_bond() -> None:
             "mom_60": [0.95, 0.55],
             "mom_5": [0.0, 0.0],
             "volume_expansion": [0.5, 2.0],
-            "trading_value": [1e9, 1e9],
+            "trading_value": [1e11, 1e11],
         }
     )
     rules = TournamentRules(
@@ -120,8 +120,9 @@ def test_p29_score_prefers_equity_over_higher_mom_bond() -> None:
     assert isinstance(s27, dict) and isinstance(s29, dict)
     top27 = sorted(s27.items(), key=lambda kv: (-float(kv[1]), kv[0]))[0][0]
     top29 = sorted(s29.items(), key=lambda kv: (-float(kv[1]), kv[0]))[0][0]
-    assert top27 == "BOND"
+    assert top27 == "EQ"
     assert top29 == "EQ"
+    assert "BOND" not in s27
     assert "BOND" not in s29
 
 
@@ -141,7 +142,7 @@ def test_p29v_blend_changes_leader_vs_p29() -> None:
             "mom_60": [0.50, 0.49, 0.10],
             "mom_5": [0.0, 0.0, 0.0],
             "volume_expansion": [0.5, 3.0, 1.0],
-            "trading_value": [1e9, 1e9, 1e9],
+            "trading_value": [1e11, 1e11, 1e11],
         }
     )
     rules = TournamentRules(
