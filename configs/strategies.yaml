@@ -77,6 +77,9 @@ portfolio:
       min_hold: 2
       impulse_gap: 0.0
       overlay_mode: identity
+      abs_mom_cash: true
+      exclude_synthetic: true
+      min_fill_ratio: 0.25
       max_single_weight: 0.95
       max_gross_exposure: 1.9
       min_cash: 0.05
