@@ -15,8 +15,12 @@ from src.alpha.baselines import (
     _make_p27,
     _make_p28a,
     _make_p28b,
+    _make_p29,
+    _make_p29v,
 )
 from src.strategies.ids import (
+    STICKY_EQUITY_MOM60,
+    STICKY_EQUITY_MOM60_VOL,
     STICKY_FAMILY_PEAK_LOCK,
     STICKY_HOUSE_MONEY,
     STICKY_IMPULSE_CRASH,
@@ -46,6 +50,8 @@ FACTORY_REGISTRY: Mapping[str, Callable[[], object]] = {
     STICKY_MOM60_RAW: _make_p27,
     STICKY_MOM60_HOLD: _make_p28a,
     STICKY_MOM60_ABS_CASH: _make_p28b,
+    STICKY_EQUITY_MOM60: _make_p29,
+    STICKY_EQUITY_MOM60_VOL: _make_p29v,
 }
 
 __all__ = ["make_sticky_mom60_raw", "FACTORY_REGISTRY"]

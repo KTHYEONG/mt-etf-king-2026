@@ -25,6 +25,8 @@ from src.strategies.ids import (
     PORTFOLIO_MOMENTUM_POLICY,
     PORTFOLIO_MOMENTUM_VEHICLE,
     PORTFOLIO_TAIL_CONCENTRATION,
+    STICKY_EQUITY_MOM60,
+    STICKY_EQUITY_MOM60_VOL,
     STICKY_FAMILY_PEAK_LOCK,
     STICKY_HOUSE_MONEY,
     STICKY_IMPULSE_CRASH,
@@ -67,6 +69,8 @@ LEGACY_ALIASES: Final[Mapping[str, str]] = {
     "P27": STICKY_MOM60_RAW,
     "P28A": STICKY_MOM60_HOLD,
     "P28B": STICKY_MOM60_ABS_CASH,
+    "P29": STICKY_EQUITY_MOM60,
+    "P29V": STICKY_EQUITY_MOM60_VOL,
 }
 
 SEMANTIC_ALIASES: Final[Mapping[str, str]] = {v: k for k, v in LEGACY_ALIASES.items()}
@@ -127,10 +131,14 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
         _make_p27,
         _make_p28a,
         _make_p28b,
+        _make_p29,
+        _make_p29v,
     )
     from src.strategies.sticky.factories import FACTORY_REGISTRY
 
     _ = FACTORY_REGISTRY
+    _ = STICKY_EQUITY_MOM60
+    _ = STICKY_EQUITY_MOM60_VOL
 
     raw: Mapping[str, Callable[[], object]] = {
         BASELINE_BUY_HOLD: _make_b0,
@@ -175,7 +183,11 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
 
         return _factory
 
-    return {k: _wrap(k, v) for k, v in raw.items()}
+    registry = {k: _wrap(k, v) for k, v in raw.items()}
+    # P29/P29V keep legacy names from their factories (contract: BASELINES["P29"]().name == "P29").
+    registry[STICKY_EQUITY_MOM60] = _make_p29
+    registry[STICKY_EQUITY_MOM60_VOL] = _make_p29v
+    return registry
 
 
 STRATEGIES: Final[Mapping[str, Callable[[], object]]] = build_strategy_registry()
