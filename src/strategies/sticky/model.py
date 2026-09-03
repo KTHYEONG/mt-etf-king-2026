@@ -11,6 +11,7 @@ from typing import Final
 import polars as pl
 
 from src.alpha.base import DecisionContext
+from src.strategies.sticky.capacity import apply_capacity_filter
 from src.universe.instruments import resolve_leverage
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,7 @@ def blend_rank_scores(primary: Mapping[str, float], aux: Mapping[str, float], *,
     ra = cross_section_percentile_ranks({k: a[k] for k in keys})
     return {k: wp * rp[k] + wa * ra[k] for k in keys}
 
+
 @dataclass
 class StickyLeaderConfig:
     mom_col: str = "mom_20"
@@ -88,6 +90,8 @@ class StickyLeaderConfig:
     exclude_name_tokens: tuple[str, ...] = ()
     score_aux_col: str | None = None
     score_aux_weight: float = 0.0
+    exclude_synthetic: bool = False
+    min_fill_ratio: float = 0.0
 
     @classmethod
     def from_yaml(cls, raw: Mapping[str, object]) -> StickyLeaderConfig:
@@ -238,6 +242,21 @@ class StickyLeaderConfig:
             score_aux_weight = float(w) if math.isfinite(w) and w >= 0 else 0.0
         except Exception:
             score_aux_weight = 0.0
+        exclude_synthetic = defaults.exclude_synthetic
+        try:
+            if "exclude_synthetic" in raw:
+                exclude_synthetic = bool(raw["exclude_synthetic"])
+        except Exception:
+            exclude_synthetic = defaults.exclude_synthetic
+        min_fill_ratio = defaults.min_fill_ratio
+        try:
+            if "min_fill_ratio" in raw:
+                mfr = float(raw["min_fill_ratio"])  # type: ignore[arg-type]
+                min_fill_ratio = float(mfr) if math.isfinite(mfr) and mfr >= 0 else 0.0
+        except Exception:
+            min_fill_ratio = 0.0
+        if not math.isfinite(float(min_fill_ratio)) or float(min_fill_ratio) < 0:
+            min_fill_ratio = 0.0
         return cls(
             mom_col=str(mom_col),
             only_plus_2=bool(only_plus_2),
@@ -254,6 +273,8 @@ class StickyLeaderConfig:
             exclude_name_tokens=tuple(exclude_name_tokens),
             score_aux_col=score_aux_col,
             score_aux_weight=float(score_aux_weight),
+            exclude_synthetic=bool(exclude_synthetic),
+            min_fill_ratio=float(min_fill_ratio),
         )
 def collapse_plus2_by_family(scores: Mapping[str, float], snapshot: pl.DataFrame, adv_col: str = "trading_value") -> dict[str, float]:
     if not scores:
@@ -422,6 +443,12 @@ def filter_plus2_scores(snapshot: pl.DataFrame, config: StickyLeaderConfig) -> d
         if _tokens and name_excluded(name, _tokens):
             continue
         try:
+            _excl_synth = bool(getattr(config, "exclude_synthetic", False))
+        except Exception:
+            _excl_synth = False
+        if _excl_synth and "(합성" in str(name):
+            continue
+        try:
             lev, _conf = resolve_leverage(name)
         except Exception:
             continue
@@ -520,6 +547,27 @@ class StickyLeaderModel:
 
     def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float] | object:
         filtered = filter_plus2_scores(snapshot, self.config)
+        try:
+            _mfr = float(getattr(self.config, "min_fill_ratio", 0.0) or 0.0)
+        except Exception:
+            _mfr = 0.0
+        if math.isfinite(_mfr) and _mfr > 0 and filtered:
+            try:
+                _cap = float(getattr(context, "capital", float("nan")))
+            except Exception:
+                _cap = float("nan")
+            try:
+                _rules = getattr(context, "rules", None)
+                _phi = float(getattr(_rules, "max_order_to_adv", 0.01))
+            except Exception:
+                _phi = 0.01
+            if not math.isfinite(_phi) or _phi <= 0:
+                _phi = 0.01
+            filtered = apply_capacity_filter(
+                filtered, snapshot, capital=_cap, max_order_to_adv=_phi, min_fill_ratio=_mfr
+            )
+            if not filtered:
+                return {}
         try:
             _aux_col = getattr(self.config, "score_aux_col", None)
             _aux_w = float(getattr(self.config, "score_aux_weight", 0.0) or 0.0)

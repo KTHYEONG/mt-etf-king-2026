@@ -300,19 +300,21 @@ def resolve_exposure_limits_for_model(
     load_sticky_exposure_limits(key)
     if key == "sticky.mom60_concentrated":
         return load_p26_exposure_limits()
+    _ = "sticky.fillable_mom60"
     if key in (
         "sticky.mom60_raw",
         "sticky.mom60_hold",
         "sticky.mom60_abs_cash",
         "sticky.equity_mom60",
         "sticky.equity_mom60_vol",
+        "sticky.fillable_mom60",
     ):
         return load_p27_exposure_limits()
     # legacy fallback via upper
     uk = str(model_key).upper()
     if uk == "P26":
         return load_p26_exposure_limits()
-    if uk in ("P27", "P28A", "P28B", "P29", "P29V"):
+    if uk in ("P27", "P28A", "P28B", "P29", "P29V", "P30"):
         return load_p27_exposure_limits()
     if comparison_mode == "alpha_equal":
         return alpha_equal_exposure_limits()

@@ -18,5 +18,8 @@ STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset(
         "sticky.mom60_raw",
         "sticky.mom60_hold",
         "sticky.mom60_abs_cash",
+        "sticky.equity_mom60",
+        "sticky.equity_mom60_vol",
+        "sticky.fillable_mom60",
     }
 )

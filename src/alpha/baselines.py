@@ -2301,6 +2301,29 @@ def _make_p29v() -> StickyLeaderModel:
     return model
 
 
+def _make_p30() -> StickyLeaderModel:
+    from src.alpha.sticky import StickyLeaderModel
+    from src.strategies.sticky.model import DEFAULT_EXCLUDE_NAME_TOKENS
+
+    _ = StickyLeaderModel
+    _ = DEFAULT_EXCLUDE_NAME_TOKENS
+    _ = _make_p29
+    model = _make_p29()
+    model.name = "P30"
+    model.config.exclude_name_tokens = tuple(DEFAULT_EXCLUDE_NAME_TOKENS)
+    model.config.exclude_synthetic = True
+    model.config.min_fill_ratio = 0.25
+    model.config.mom_col = "mom_60"
+    model.config.min_gap = 0.04
+    model.config.min_hold = 2
+    model.config.impulse_gap = 0.0
+    model.config.score_aux_col = None
+    model.config.score_aux_weight = 0.0
+    _ = "P30"
+    _ = _make_p30
+    return model
+
+
 def _make_p28a() -> StickyLeaderModel:
     from src.alpha.sticky import StickyLeaderModel
 
