@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -218,6 +218,11 @@ class WindowAttribution:
     exit_timing_loss: float
     giveback_loss: float
     dominant_bucket: str
+    r_actual: float = 0.0
+    r_b: float = 0.0
+    r_c: float = 0.0
+    r_d: float = 0.0
+    oracle_gap: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -232,6 +237,22 @@ class TailAttributionSummary:
     primary_gap: str
     bucket_counts: dict[str, int]
     windows: tuple[WindowAttribution, ...]
+    median_selection_loss: float = 0.0
+    median_entry_timing_loss: float = 0.0
+    median_exit_timing_loss: float = 0.0
+    trimmed_mean_selection_loss: float = 0.0
+    trimmed_mean_entry_timing_loss: float = 0.0
+    trimmed_mean_exit_timing_loss: float = 0.0
+    q75_selection_loss: float = 0.0
+    q75_entry_timing_loss: float = 0.0
+    q75_exit_timing_loss: float = 0.0
+    q90_selection_loss: float = 0.0
+    q90_entry_timing_loss: float = 0.0
+    q90_exit_timing_loss: float = 0.0
+    share_selection: float = 0.0
+    share_entry_timing: float = 0.0
+    share_exit_timing: float = 0.0
+    era_means: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 def _close_on(panel: pl.DataFrame, ticker: str, day: date) -> float | None:
@@ -270,6 +291,131 @@ def compound_close_return(panel: pl.DataFrame, ticker: str, start: date, end: da
         return float(c1) / float(c0) - 1.0
     except Exception:
         return None
+
+
+def _open_on(panel: pl.DataFrame, ticker: str, day: date) -> float | None:
+    try:
+        if panel is None or panel.height == 0:
+            return None
+        if "date" not in panel.columns or "ticker" not in panel.columns or "open" not in panel.columns:
+            return None
+        filt = panel.filter((pl.col("ticker") == ticker) & (pl.col("date") == day))
+        if filt.height == 0:
+            return None
+        val = filt["open"][0]
+        if val is None:
+            return None
+        try:
+            fval = float(val)
+        except Exception:
+            return None
+        import math
+
+        if not math.isfinite(fval) or fval <= 0:
+            return None
+        return fval
+    except Exception:
+        return None
+
+
+def _next_session_on_or_after(sessions: Sequence[date], decision: date) -> date | None:
+    try:
+        ordered = sorted(sessions)
+    except Exception:
+        return None
+    for s in ordered:
+        try:
+            if s > decision:
+                return s
+        except Exception:
+            continue
+    return None
+
+
+def _next_session_after(sessions: Sequence[date], decision: date) -> date | None:
+    return _next_session_on_or_after(sessions, decision)
+
+
+def next_open_path_return(
+    panel: pl.DataFrame,
+    ticker: str,
+    decision_entry: date,
+    mark_end: date,
+    sessions: Sequence[date],
+) -> float | None:
+    try:
+        fill = _next_session_on_or_after(sessions, decision_entry)
+        if fill is None:
+            return None
+        o = _open_on(panel, ticker, fill)
+        c = _close_on(panel, ticker, mark_end)
+        if o is None or c is None:
+            return None
+        return float(c) / float(o) - 1.0
+    except Exception:
+        return None
+
+
+def oracle_peak_path_return(
+    panel: pl.DataFrame,
+    ticker: str,
+    decision_entry: date,
+    window_end: date,
+    sessions: Sequence[date],
+) -> float | None:
+    try:
+        fill = _next_session_on_or_after(sessions, decision_entry)
+        if fill is None:
+            return None
+        o = _open_on(panel, ticker, fill)
+        if o is None:
+            return None
+        try:
+            exits = [s for s in list(sessions) if fill <= s <= window_end]
+        except Exception:
+            return None
+        peak: float | None = None
+        for e in exits:
+            c = _close_on(panel, ticker, e)
+            if c is None:
+                continue
+            r = float(c) / float(o) - 1.0
+            if peak is None or r > peak:
+                peak = r
+        return peak
+    except Exception:
+        return None
+
+
+def pit_plus2_tickers(
+    master: object,
+    *,
+    window_start: date,
+    universe: object | None = None,
+    filters: object | None = None,
+) -> list[str]:
+    try:
+        attrs = getattr(master, "attributes", None)
+        if attrs is None:
+            return []
+        items = attrs.items() if hasattr(attrs, "items") else []
+        plus2: list[str] = []
+        for k, v in items:
+            try:
+                if int(getattr(v, "leverage_multiple")) == 2:
+                    plus2.append(str(k))
+            except Exception:
+                continue
+        if universe is None:
+            return sorted(plus2)
+        try:
+            snap = universe.get(window_start, filters)  # type: ignore[union-attr]
+            allowed = set(snap.tickers)
+        except Exception:
+            return []
+        return sorted(t for t in plus2 if t in allowed)
+    except Exception:
+        return []
 
 
 def _plus2_tickers(master: object) -> list[str]:
@@ -349,11 +495,19 @@ def select_attribution_windows(
 
 
 def _zero_attribution(window_start: date, window_end: date, realized: float, giveback: float) -> WindowAttribution:
+    try:
+        r = float(realized)
+    except Exception:
+        r = 0.0
+    try:
+        gb = float(giveback)
+    except Exception:
+        gb = 0.0
     return WindowAttribution(
         window_start=window_start,
         window_end=window_end,
-        realized_return=float(realized),
-        giveback=float(giveback),
+        realized_return=float(r),
+        giveback=float(gb),
         best_family=None,
         best_family_return=0.0,
         actual_family=None,
@@ -361,9 +515,72 @@ def _zero_attribution(window_start: date, window_end: date, realized: float, giv
         selection_loss=0.0,
         entry_timing_loss=0.0,
         exit_timing_loss=0.0,
-        giveback_loss=max(0.0, float(giveback)),
+        giveback_loss=max(0.0, float(gb)),
         dominant_bucket="UNKNOWN",
+        r_actual=float(r),
+        r_b=float(r),
+        r_c=float(r),
+        r_d=float(r),
+        oracle_gap=0.0,
     )
+
+
+def _actual_family_from_trades(
+    trades: pl.DataFrame,
+    master: object,
+    window_start: date,
+    window_end: date,
+) -> str | None:
+    try:
+        counts: dict[str, int] = {}
+        first_seen: dict[str, int] = {}
+        if (
+            trades is not None
+            and isinstance(trades, pl.DataFrame)
+            and trades.height > 0
+            and "decision_date" in trades.columns
+            and "ticker" in trades.columns
+            and "weight_after" in trades.columns
+        ):
+            order = 0
+            for row in trades.iter_rows(named=True):
+                try:
+                    dd = row.get("decision_date")
+                    wa = row.get("weight_after")
+                    tk = row.get("ticker")
+                    if dd is None or tk is None or wa is None:
+                        continue
+                    if not (window_start <= dd <= window_end):
+                        continue
+                    if float(wa) <= 1e-9:
+                        continue
+                    key = str(tk)
+                    counts[key] = counts.get(key, 0) + 1
+                    if key not in first_seen:
+                        first_seen[key] = order
+                    order += 1
+                except Exception:
+                    continue
+        if not counts:
+            return None
+        top_ticker = sorted(counts.items(), key=lambda kv: (-kv[1], first_seen.get(kv[0], 0), kv[0]))[0][0]
+        return _family_of(master, top_ticker)
+    except Exception:
+        return None
+
+
+def _finite_or_none(value: object) -> float | None:
+    try:
+        if value is None:
+            return None
+        fval = float(value)  # type: ignore[arg-type]
+        import math
+
+        if not math.isfinite(fval):
+            return None
+        return fval
+    except Exception:
+        return None
 
 
 def attribute_window(
@@ -376,6 +593,8 @@ def attribute_window(
     panel: pl.DataFrame,
     master: object,
     sessions: Sequence[date],
+    universe: object | None = None,
+    filters: object | None = None,
 ) -> WindowAttribution:
     try:
         realized = float(realized_return)
@@ -387,87 +606,32 @@ def attribute_window(
         gb = 0.0
     giveback_loss = max(0.0, gb)
     try:
-        plus2 = _plus2_tickers(master)
-        best_ticker: str | None = None
-        best_ret = 0.0
-        best_fam: str | None = None
-        for t in plus2:
+        candidates = pit_plus2_tickers(master, window_start=window_start, universe=universe, filters=filters)
+        actual_family = _actual_family_from_trades(trades, master, window_start, window_end)
+        # D = PIT-eligible best +2x oracle peak (entry+exit)
+        oracle_ticker: str | None = None
+        d_raw: float | None = None
+        for t in candidates:
             try:
-                r = compound_close_return(panel, t, window_start, window_end)
+                r = oracle_peak_path_return(panel, t, window_start, window_end, sessions)
             except Exception:
                 r = None
-            if r is None:
+            fval = _finite_or_none(r)
+            if fval is None:
                 continue
-            try:
-                import math
-
-                if not math.isfinite(float(r)):
-                    continue
-            except Exception:
-                continue
-            if best_ticker is None or float(r) > best_ret:
-                best_ticker = t
-                best_ret = float(r)
-                best_fam = _family_of(master, t)
-        if best_ticker is None:
-            best_fam = None
-            best_ret = 0.0
-        # Actual family from trades
-        actual_family: str | None = None
-        try:
-            counts: dict[str, int] = {}
-            first_seen: dict[str, int] = {}
-            if trades is not None and isinstance(trades, pl.DataFrame) and trades.height > 0 and "decision_date" in trades.columns and "ticker" in trades.columns and "weight_after" in trades.columns:
-                order = 0
-                for row in trades.iter_rows(named=True):
-                    try:
-                        dd = row.get("decision_date")
-                        wa = row.get("weight_after")
-                        tk = row.get("ticker")
-                        if dd is None or tk is None or wa is None:
-                            continue
-                        if not (window_start <= dd <= window_end):
-                            continue
-                        if float(wa) <= 1e-9:
-                            continue
-                        key = str(tk)
-                        counts[key] = counts.get(key, 0) + 1
-                        if key not in first_seen:
-                            first_seen[key] = order
-                        order += 1
-                    except Exception:
-                        continue
-            if counts:
-                top_ticker = sorted(counts.items(), key=lambda kv: (-kv[1], first_seen.get(kv[0], 0), kv[0]))[0][0]
-                actual_family = _family_of(master, top_ticker)
-                if actual_family is None:
-                    # ticker missing attributes -> treat as no actual
-                    actual_family = None
-                    counts = {}
-            if actual_family is None:
-                return WindowAttribution(
-                    window_start=window_start,
-                    window_end=window_end,
-                    realized_return=realized,
-                    giveback=gb,
-                    best_family=best_fam,
-                    best_family_return=float(best_ret),
-                    actual_family=None,
-                    actual_family_bh_return=0.0,
-                    selection_loss=0.0,
-                    entry_timing_loss=0.0,
-                    exit_timing_loss=0.0,
-                    giveback_loss=giveback_loss,
-                    dominant_bucket="UNKNOWN",
-                )
-        except Exception:
+            if d_raw is None or fval > d_raw:
+                d_raw = fval
+                oracle_ticker = t
+        best_fam = _family_of(master, oracle_ticker) if oracle_ticker is not None else None
+        if actual_family is None:
+            d_eff = float(d_raw) if d_raw is not None else float(realized)
             return WindowAttribution(
                 window_start=window_start,
                 window_end=window_end,
                 realized_return=realized,
                 giveback=gb,
-                best_family=None,
-                best_family_return=0.0,
+                best_family=best_fam,
+                best_family_return=float(d_raw) if d_raw is not None else 0.0,
                 actual_family=None,
                 actual_family_bh_return=0.0,
                 selection_loss=0.0,
@@ -475,92 +639,48 @@ def attribute_window(
                 exit_timing_loss=0.0,
                 giveback_loss=giveback_loss,
                 dominant_bucket="UNKNOWN",
+                r_actual=float(realized),
+                r_b=float(realized),
+                r_c=float(realized),
+                r_d=float(d_eff),
+                oracle_gap=max(0.0, float(d_eff) - float(realized)),
             )
-        # actual family BH return: max compound among +2 members of actual family
-        members = [t for t in plus2 if _family_of(master, t) == actual_family]
-        actual_bh = 0.0
-        best_actual_ticker: str | None = None
+        # B = actual-family best with oracle entry, hold-to-end
+        members = [t for t in candidates if _family_of(master, t) == actual_family]
+        b_ticker: str | None = None
+        b_raw: float | None = None
         for t in members:
             try:
-                r = compound_close_return(panel, t, window_start, window_end)
+                r = next_open_path_return(panel, t, window_start, window_end, sessions)
             except Exception:
                 r = None
-            if r is None:
+            fval = _finite_or_none(r)
+            if fval is None:
                 continue
-            if best_actual_ticker is None or float(r) > actual_bh:
-                best_actual_ticker = t
-                actual_bh = float(r)
-        selection_loss = max(0.0, float(best_ret) - float(actual_bh))
-        # entry timing
-        first_entry: date | None = None
-        try:
-            if trades is not None and isinstance(trades, pl.DataFrame) and trades.height > 0:
-                for row in trades.iter_rows(named=True):
-                    try:
-                        dd = row.get("decision_date")
-                        wa = row.get("weight_after")
-                        tk = row.get("ticker")
-                        if dd is None or tk is None or wa is None:
-                            continue
-                        if not (window_start <= dd <= window_end):
-                            continue
-                        if float(wa) <= 1e-9:
-                            continue
-                        if _family_of(master, str(tk)) != actual_family:
-                            continue
-                        if first_entry is None or dd < first_entry:
-                            first_entry = dd
-                    except Exception:
-                        continue
-        except Exception:
-            first_entry = None
-        entry_bh = 0.0
-        entry_ticker: str | None = None
-        if first_entry is not None:
-            cand_best = 0.0
-            cand_ticker: str | None = None
-            found = False
-            for t in members:
-                try:
-                    r = compound_close_return(panel, t, first_entry, window_end)
-                except Exception:
-                    r = None
-                if r is None:
-                    continue
-                if not found or float(r) > cand_best:
-                    cand_best = float(r)
-                    cand_ticker = t
-                    found = True
-            if found:
-                entry_bh = float(cand_best)
-                entry_ticker = cand_ticker
-            else:
-                entry_bh = 0.0
-        entry_timing_loss = max(0.0, float(actual_bh) - float(entry_bh)) if first_entry is not None else 0.0
-        # exit timing: max compound(first_entry -> e) for entry vehicle over sessions in [first_entry, window_end]
-        exit_bh = float(entry_bh)
-        if first_entry is not None and entry_ticker is not None:
+            if b_raw is None or fval > b_raw:
+                b_raw = fval
+                b_ticker = t
+        # C = same vehicle with oracle exit (peak mark)
+        c_raw: float | None = None
+        if b_ticker is not None:
             try:
-                sess_list = [s for s in list(sessions) if first_entry <= s <= window_end]
+                c_raw = oracle_peak_path_return(panel, b_ticker, window_start, window_end, sessions)
             except Exception:
-                sess_list = []
-            peak = float(entry_bh)
-            for e in sess_list:
-                try:
-                    r = compound_close_return(panel, entry_ticker, first_entry, e)
-                except Exception:
-                    r = None
-                if r is None:
-                    continue
-                if float(r) > peak:
-                    peak = float(r)
-            exit_bh = peak
-        exit_timing_loss = max(0.0, float(exit_bh) - float(entry_bh)) if first_entry is not None else 0.0
-        losses = {"selection": selection_loss, "entry_timing": entry_timing_loss, "exit_timing": exit_timing_loss, "giveback": giveback_loss}
-        if all(v == 0.0 for v in losses.values()):
+                c_raw = None
+            c_raw = _finite_or_none(c_raw)
+        b = float(b_raw) if b_raw is not None else float(realized)
+        c = float(c_raw) if c_raw is not None else float(b)
+        d = float(d_raw) if d_raw is not None else float(c)
+        entry_timing_loss = max(0.0, float(b) - float(realized))
+        exit_timing_loss = max(0.0, float(c) - float(b))
+        selection_loss = max(0.0, float(d) - float(c))
+        if oracle_ticker is None:
+            dom = "UNKNOWN"
+        elif selection_loss == 0.0 and entry_timing_loss == 0.0 and exit_timing_loss == 0.0:
             dom = "NONE"
         else:
-            order = ["selection", "entry_timing", "exit_timing", "giveback"]
+            order = ["selection", "entry_timing", "exit_timing"]
+            losses = {"selection": selection_loss, "entry_timing": entry_timing_loss, "exit_timing": exit_timing_loss}
             dom = order[0]
             best_v = losses[order[0]]
             for k in order[1:]:
@@ -573,14 +693,19 @@ def attribute_window(
             realized_return=realized,
             giveback=gb,
             best_family=best_fam,
-            best_family_return=float(best_ret),
+            best_family_return=float(d_raw) if d_raw is not None else 0.0,
             actual_family=actual_family,
-            actual_family_bh_return=float(actual_bh),
+            actual_family_bh_return=float(b_raw) if b_raw is not None else 0.0,
             selection_loss=float(selection_loss),
             entry_timing_loss=float(entry_timing_loss),
             exit_timing_loss=float(exit_timing_loss),
             giveback_loss=float(giveback_loss),
             dominant_bucket=str(dom),
+            r_actual=float(realized),
+            r_b=float(b),
+            r_c=float(c),
+            r_d=float(d),
+            oracle_gap=max(0.0, float(d) - float(realized)),
         )
     except Exception:
         try:
@@ -600,7 +725,53 @@ def attribute_window(
                 exit_timing_loss=0.0,
                 giveback_loss=0.0,
                 dominant_bucket="UNKNOWN",
+                r_actual=0.0,
+                r_b=0.0,
+                r_c=0.0,
+                r_d=0.0,
+                oracle_gap=0.0,
             )
+def _median(values: list[float]) -> float:
+    vals = sorted(float(v) for v in values)
+    n = len(vals)
+    if n == 0:
+        return 0.0
+    mid = n // 2
+    if n % 2 == 1:
+        return float(vals[mid])
+    return float((vals[mid - 1] + vals[mid]) / 2.0)
+
+
+def _trimmed_mean(values: list[float], frac: float = 0.10) -> float:
+    vals = sorted(float(v) for v in values)
+    n = len(vals)
+    if n == 0:
+        return 0.0
+    if n < 10:
+        return float(sum(vals) / n)
+    k = int(n * frac // 1)
+    if k <= 0:
+        return float(sum(vals) / n)
+    rest = vals[k : n - k] if n - 2 * k > 0 else vals
+    if not rest:
+        return float(sum(vals) / n)
+    return float(sum(rest) / len(rest))
+
+
+def _quantile(values: list[float], q: float) -> float:
+    vals = sorted(float(v) for v in values)
+    n = len(vals)
+    if n == 0:
+        return 0.0
+    qq = min(max(float(q), 0.0), 1.0)
+    pos = qq * (n - 1)
+    import math
+
+    lo_i = int(math.floor(pos))
+    hi_i = int(math.ceil(pos))
+    if lo_i == hi_i:
+        return float(vals[lo_i])
+    return float(vals[lo_i] + (vals[hi_i] - vals[lo_i]) * (pos - lo_i))
 
 
 def summarise_tail_attribution(
@@ -613,6 +784,8 @@ def summarise_tail_attribution(
     top_q: float = 0.95,
     near_miss_lo: float = 0.20,
     near_miss_hi: float = 0.50,
+    universe: object | None = None,
+    filters: object | None = None,
 ) -> TailAttributionSummary:
     try:
         n_total = int(windows.height) if windows is not None and isinstance(windows, pl.DataFrame) else 0
@@ -643,6 +816,8 @@ def summarise_tail_attribution(
                             panel=panel,
                             master=master,
                             sessions=sessions,
+                            universe=universe,
+                            filters=filters,
                         )
                     )
                 except Exception:
@@ -662,18 +837,60 @@ def summarise_tail_attribution(
             primary_gap="INSUFFICIENT",
             bucket_counts={},
             windows=(),
+            era_means={},
         )
-    m_sel = sum(a.selection_loss for a in attrs) / n_an
-    m_entry = sum(a.entry_timing_loss for a in attrs) / n_an
-    m_exit = sum(a.exit_timing_loss for a in attrs) / n_an
-    m_gb = sum(a.giveback_loss for a in attrs) / n_an
+    sel = [float(a.selection_loss) for a in attrs]
+    ent = [float(a.entry_timing_loss) for a in attrs]
+    ext = [float(a.exit_timing_loss) for a in attrs]
+    m_sel = sum(sel) / n_an
+    m_entry = sum(ent) / n_an
+    m_exit = sum(ext) / n_an
+    try:
+        m_gb = sum(float(a.giveback_loss) for a in attrs) / n_an
+    except Exception:
+        m_gb = 0.0
     dom = bool(m_sel > (m_entry + m_exit))
-    if dom:
-        gap = "selection"
-    elif (m_entry + m_exit) >= m_gb:
-        gap = "timing"
+    med_sel = _median(sel)
+    med_ent = _median(ent)
+    med_ext = _median(ext)
+    if med_sel == 0.0 and med_ent == 0.0 and med_ext == 0.0:
+        gap = "NONE"
     else:
-        gap = "giveback"
+        order = ["selection", "entry_timing", "exit_timing"]
+        meds = {"selection": med_sel, "entry_timing": med_ent, "exit_timing": med_ext}
+        gap = order[0]
+        best_v = meds[order[0]]
+        for k in order[1:]:
+            if meds[k] > best_v:
+                best_v = meds[k]
+                gap = k
+    denom = sum(sel) + sum(ent) + sum(ext)
+    if denom > 0:
+        share_sel = sum(sel) / denom
+        share_ent = sum(ent) / denom
+        share_ext = sum(ext) / denom
+    else:
+        share_sel = 0.0
+        share_ent = 0.0
+        share_ext = 0.0
+    era: dict[str, dict[str, float]] = {}
+    try:
+        by_year: dict[str, list[WindowAttribution]] = {}
+        for a in attrs:
+            try:
+                year = str(a.window_start.year)
+            except Exception:
+                year = "unknown"
+            by_year.setdefault(year, []).append(a)
+        for year, group in by_year.items():
+            gn = len(group)
+            era[year] = {
+                "selection": sum(float(x.selection_loss) for x in group) / gn if gn else 0.0,
+                "entry_timing": sum(float(x.entry_timing_loss) for x in group) / gn if gn else 0.0,
+                "exit_timing": sum(float(x.exit_timing_loss) for x in group) / gn if gn else 0.0,
+            }
+    except Exception:
+        era = {}
     counts: dict[str, int] = {}
     for a in attrs:
         counts[a.dominant_bucket] = counts.get(a.dominant_bucket, 0) + 1
@@ -688,9 +905,23 @@ def summarise_tail_attribution(
         primary_gap=gap,
         bucket_counts=dict(counts),
         windows=tuple(attrs),
+        median_selection_loss=float(med_sel),
+        median_entry_timing_loss=float(med_ent),
+        median_exit_timing_loss=float(med_ext),
+        trimmed_mean_selection_loss=float(_trimmed_mean(sel)),
+        trimmed_mean_entry_timing_loss=float(_trimmed_mean(ent)),
+        trimmed_mean_exit_timing_loss=float(_trimmed_mean(ext)),
+        q75_selection_loss=float(_quantile(sel, 0.75)),
+        q75_entry_timing_loss=float(_quantile(ent, 0.75)),
+        q75_exit_timing_loss=float(_quantile(ext, 0.75)),
+        q90_selection_loss=float(_quantile(sel, 0.90)),
+        q90_entry_timing_loss=float(_quantile(ent, 0.90)),
+        q90_exit_timing_loss=float(_quantile(ext, 0.90)),
+        share_selection=float(share_sel),
+        share_entry_timing=float(share_ent),
+        share_exit_timing=float(share_ext),
+        era_means=dict(era),
     )
-
-
 def write_tail_attribution_report(dest: Path, summary: TailAttributionSummary) -> str:
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
@@ -717,6 +948,11 @@ def write_tail_attribution_report(dest: Path, summary: TailAttributionSummary) -
             "exit_timing_loss": float(a.exit_timing_loss),
             "giveback_loss": float(a.giveback_loss),
             "dominant_bucket": str(a.dominant_bucket),
+            "r_actual": float(a.r_actual),
+            "r_b": float(a.r_b),
+            "r_c": float(a.r_c),
+            "r_d": float(a.r_d),
+            "oracle_gap": float(a.oracle_gap),
         }
 
     data = {
@@ -729,13 +965,27 @@ def write_tail_attribution_report(dest: Path, summary: TailAttributionSummary) -
         "selection_dominates_timing": bool(summary.selection_dominates_timing),
         "primary_gap": str(summary.primary_gap),
         "bucket_counts": dict(summary.bucket_counts),
+        "median_selection_loss": float(summary.median_selection_loss),
+        "median_entry_timing_loss": float(summary.median_entry_timing_loss),
+        "median_exit_timing_loss": float(summary.median_exit_timing_loss),
+        "trimmed_mean_selection_loss": float(summary.trimmed_mean_selection_loss),
+        "trimmed_mean_entry_timing_loss": float(summary.trimmed_mean_entry_timing_loss),
+        "trimmed_mean_exit_timing_loss": float(summary.trimmed_mean_exit_timing_loss),
+        "q75_selection_loss": float(summary.q75_selection_loss),
+        "q75_entry_timing_loss": float(summary.q75_entry_timing_loss),
+        "q75_exit_timing_loss": float(summary.q75_exit_timing_loss),
+        "q90_selection_loss": float(summary.q90_selection_loss),
+        "q90_entry_timing_loss": float(summary.q90_entry_timing_loss),
+        "q90_exit_timing_loss": float(summary.q90_exit_timing_loss),
+        "share_selection": float(summary.share_selection),
+        "share_entry_timing": float(summary.share_entry_timing),
+        "share_exit_timing": float(summary.share_exit_timing),
+        "era_means": dict(summary.era_means),
         "windows": [_rec(a) for a in summary.windows],
     }
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return str(out_path)
-
-
 def write_tail_miss_report(dest: Path, report: TailMissReport) -> str:
     _ = "write_tail_attribution_report"
     dest = Path(dest)

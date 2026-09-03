@@ -5735,7 +5735,30 @@ def cmd_forensics(args: argparse.Namespace) -> int:
         except Exception:
             sessions = []
         from src.reporting.tail_forensics import summarise_tail_attribution, write_tail_attribution_report
+        from src.universe.provider import PointInTimeUniverse, UniverseFilters, UniverseMode
 
+        try:
+            import yaml as _yaml_forensics
+
+            with open("configs/universe.yaml", encoding="utf-8") as _f_forensics:
+                _uc_raw = _yaml_forensics.safe_load(_f_forensics) or {}
+            _universe_config = _uc_raw.get("universe", _uc_raw) if isinstance(_uc_raw, dict) else {}
+        except Exception:
+            _universe_config = {}
+        try:
+            _sponsor_issuers = tuple(sorted(set(brand_map.values()))) if brand_map else ()
+        except Exception:
+            _sponsor_issuers = ()
+        try:
+            _forensics_filters = UniverseFilters.for_mode(UniverseMode.DEPLOYMENT, _universe_config, _sponsor_issuers)
+        except Exception as exc:
+            logger.error(f"[SYS] forensics status=fail error=build universe filters {exc!r}")
+            return 1
+        try:
+            _forensics_universe = PointInTimeUniverse(panel, master, get_calendar(), brand_map=brand_map)
+        except Exception as exc:
+            logger.error(f"[SYS] forensics status=fail error=build pit universe {exc!r}")
+            return 1
         summary = summarise_tail_attribution(
             windows=windows,
             trades=trades,
@@ -5745,6 +5768,8 @@ def cmd_forensics(args: argparse.Namespace) -> int:
             top_q=top_q,
             near_miss_lo=lo,
             near_miss_hi=hi,
+            universe=_forensics_universe,
+            filters=_forensics_filters,
         )
         out = write_tail_attribution_report(Path(run_dir), summary)
         logger.info(
