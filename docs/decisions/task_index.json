@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_43_ATTRIBUTION_V2",
+      "date": "2026-09-03",
+      "adr_id": "ADR_20260903_43_ATTRIBUTION_V2",
+      "domain": "evaluation",
+      "title": "Tail Forensics Attribution v2 — PIT Oracle · Next-Open Path · Exclusive Counterfactuals",
+      "why": "feedback.md P0: v1 attribution used master-wide +2x oracle, close-to-close timing, and duplicated exit/giveback; primary_gap=timing was unreliable for strategy prioritization.",
+      "resolution": "Implemented pit_plus2_tickers, next_open_path_return, oracle_peak_path_return, A/B/C/D exclusive loss decomposition (entry=B−A, exit=C−B, selection=D−C), robust median/trimmed/q75/q90/era summary, fail-closed cmd_forensics PIT universe wiring; 7 unit tests + lean_check PASS; P27 run 20260903T034356Z forensics primary_gap=entry_timing (median), share sel/entry/exit≈32/32/36%, v1 timing-dominant conclusion not replicated.",
+      "impact": "L5 reporting: trustworthy tail attribution unblocks P29 mom-ensemble and TASK_44 LOYO; timing-first controller deferred pending era/quantile validation (2026 exit cluster)."
+    },
+    {
       "task_id": "TASK_42_TAIL_FORENSICS_ATTRIBUTION",
       "date": "2026-09-03",
       "adr_id": "ADR_20260903_42_TAIL_FORENSICS_ATTRIBUTION",
