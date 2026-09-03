@@ -80,6 +80,58 @@ portfolio:
       max_single_weight: 0.95
       max_gross_exposure: 1.9
       min_cash: 0.05
+    equity_mom60:
+      mom_col: mom_60
+      only_plus_2: true
+      no_inverse: true
+      cash_drawdown: 0.0
+      min_gap: 0.04
+      min_hold: 2
+      impulse_gap: 0.0
+      overlay_mode: identity
+      exclude_name_tokens: [국채, 채권, 달러, 엔선물, 골드, 금선물, gold, 커버드콜, 스티프너, 플래트너]
+      max_single_weight: 0.95
+      max_gross_exposure: 1.9
+      min_cash: 0.05
+    equity_mom60_vol:
+      mom_col: mom_60
+      only_plus_2: true
+      no_inverse: true
+      cash_drawdown: 0.0
+      min_gap: 0.10
+      min_hold: 2
+      impulse_gap: 0.0
+      overlay_mode: identity
+      exclude_name_tokens: [국채, 채권, 달러, 엔선물, 골드, 금선물, gold, 커버드콜, 스티프너, 플래트너]
+      score_aux_col: volume_expansion
+      score_aux_weight: 0.3
+      max_single_weight: 0.95
+      max_gross_exposure: 1.9
+      min_cash: 0.05
+  p29:
+    mom_col: mom_60
+    only_plus_2: true
+    no_inverse: true
+    min_gap: 0.04
+    min_hold: 2
+    overlay_mode: identity
+    exclude_name_tokens: [국채, 채권, 달러, 엔선물, 골드, 금선물, gold, 커버드콜, 스티프너, 플래트너]
+    max_single_weight: 0.95
+    max_gross_exposure: 1.9
+    min_cash: 0.05
+  p29v:
+    mom_col: mom_60
+    only_plus_2: true
+    no_inverse: true
+    min_gap: 0.10
+    min_hold: 2
+    overlay_mode: identity
+    exclude_name_tokens: [국채, 채권, 달러, 엔선물, 골드, 금선물, gold, 커버드콜, 스티프너, 플래트너]
+    score_aux_col: volume_expansion
+    score_aux_weight: 0.3
+    max_single_weight: 0.95
+    max_gross_exposure: 1.9
+    min_cash: 0.05
   adoption:
     vehicle_conf_min: 0.85
   tail_concentration:
