@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_44_LOYO_ERA_EVAL",
+      "date": "2026-09-03",
+      "adr_id": "ADR_20260903_44_LOYO_ERA_EVAL",
+      "domain": "evaluation",
+      "title": "LOYO / Era Evaluation — artifact year split · concentration gate · mt-etf loyo CLI",
+      "why": "feedback.md P0: full-period P>50 alone masks 2025–26 concentration; P27 P>50=4.74% but 96% of P>50 windows in 2025–26; no LOYO/era promotion guard before P29 experiments.",
+      "resolution": "Implemented src/tournament/loyo.py (SliceMetrics, year/era grouping, concentration_share, evaluate_loyo_years, evaluate_promotion_robustness, write_loyo_report); mt-etf loyo CLI with --run-id and --incumbent-run-id; 6 unit tests + lean_check PASS; P27 run 20260903T034356Z DIAGNOSTIC concentration=0.9596, 2018–24 p50≈0, 2025 p50=16.5%, 2026 p50=43.3%.",
+      "impact": "L5 evaluation: artifact-only LOYO/era robustness gate blocks promotion when tail lift is 2025–26 concentrated; unblocks TASK_45 P29 mom-ensemble with paired LOYO vs P27 incumbent."
+    },
+    {
       "task_id": "TASK_43_ATTRIBUTION_V2",
       "date": "2026-09-03",
       "adr_id": "ADR_20260903_43_ATTRIBUTION_V2",
