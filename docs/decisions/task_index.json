@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_45",
+      "date": "2026-09-03",
+      "adr_id": "ADR_20260903_45",
+      "domain": "alpha",
+      "title": "P29 Equity Sticky (macro exclude + vol blend)",
+      "why": "TASK_44 showed P27 P>50 concentration 96% in 2025-26; empirical analysis rejected multi-horizon mom ensemble and identified macro bond/gold hijack in 2024 diagnostic selection.",
+      "resolution": "Implemented P29 (macro name-token exclude on +2x scores) and P29V (0.7·rank(mom_60)+0.3·rank(volume_expansion), rank min_gap=0.10); registry/CLI/exposure wiring; 6 unit tests + lean_check PASS. Backtest: P29≡P27 (no macro buys in P27 path); P29V tail↑ (P>50 4.78%) but LOYO FAIL (ruin worse, 4/9 years).",
+      "impact": "L4 alpha: data-validated P29/P29V candidates registered; P29 no-op vs P27 in production path; P29V research-only (promotion blocked). Unblocks TASK_46 selection diversification (top-K/oracle-gap)."
+    },
+    {
       "task_id": "TASK_44_LOYO_ERA_EVAL",
       "date": "2026-09-03",
       "adr_id": "ADR_20260903_44_LOYO_ERA_EVAL",
