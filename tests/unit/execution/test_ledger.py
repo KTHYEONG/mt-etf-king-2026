@@ -298,3 +298,103 @@ def test_hold_drift_does_not_flag_gross_violation() -> None:
     )
     assert result.diagnostics.fill_count == 0
     assert result.diagnostics.gross_violation is False
+
+
+def test_transition_switch_overlap_post_fill_respects_max_gross() -> None:
+    from datetime import date
+
+    from src.backtest.costs import CostConfig, CostModel
+    from src.execution.ledger import PortfolioLedgerState, transition_portfolio_state
+    from src.portfolio.intent import PortfolioIntent
+
+    equity = 1_000_000_000.0
+    phi = 0.01
+    state = PortfolioLedgerState(cash=equity * 0.10, shares={"OLD": (equity * 0.90) / 100.0})
+    intent = PortfolioIntent(kind="target", weights={"NEW": 0.90})
+    adv = {"OLD": equity * 0.10 / phi, "NEW": equity * 0.90 / phi}
+    opens = {"OLD": 100.0, "NEW": 100.0}
+    result = transition_portfolio_state(
+        prior_state=state,
+        intent=intent,
+        decision_date=date(2026, 1, 2),
+        prev_closes=opens,
+        opens=opens,
+        closes={"OLD": 100.0, "NEW": 100.0},
+        cost_model=CostModel(CostConfig(0.0, 0.0, 0.0)),
+        adv_by_ticker=adv,
+        max_order_to_adv=phi,
+        exposure_limits=(0.95, 1.90, 0.05),
+        leverage_multiples={"OLD": 2, "NEW": 2},
+        execution=None,
+        panel=None,
+    )
+    assert result.diagnostics.post_fill_gross <= 1.90 + 1e-9
+    assert result.diagnostics.execution_gross_violation is False
+    assert result.diagnostics.gross_violation is False
+    assert result.diagnostics.residual_gross_budget >= -1e-9
+
+
+def test_hold_drift_sets_carry_not_execution_violation() -> None:
+    from datetime import date
+
+    from src.backtest.costs import CostConfig, CostModel
+    from src.execution.ledger import PortfolioLedgerState, transition_portfolio_state
+    from src.portfolio.intent import HOLD_INTENT
+
+    state = PortfolioLedgerState(cash=50_000.0, shares={"A": 9500.0})
+    result = transition_portfolio_state(
+        prior_state=state,
+        intent=HOLD_INTENT,
+        decision_date=date(2026, 1, 2),
+        prev_closes={"A": 100.0},
+        opens={"A": 100.0},
+        closes={"A": 101.0},
+        cost_model=CostModel(CostConfig(0.0, 0.0, 0.0)),
+        adv_by_ticker={},
+        max_order_to_adv=0.05,
+        exposure_limits=(0.95, 1.90, 0.05),
+        leverage_multiples={"A": 2},
+        execution=None,
+        panel=None,
+    )
+    assert result.diagnostics.fill_count == 0
+    assert result.diagnostics.execution_gross_violation is False
+    assert result.diagnostics.gross_violation is False
+    assert result.diagnostics.close_realized_gross > 1.90 + 1e-9
+    assert result.diagnostics.carry_gross_drift is True
+    assert result.diagnostics.delever_required_next_session is True
+
+
+def test_aggregate_counts_execution_not_carry() -> None:
+    from src.execution.ledger import SessionTransitionDiagnostics, aggregate_session_diagnostics
+
+    def _diag(**kwargs: object) -> SessionTransitionDiagnostics:
+        base = dict(  # noqa: C408
+            turnover_weight=0.0,
+            transaction_cost=0.0,
+            fill_count=0,
+            unfilled_count=0,
+            target_gross=0.0,
+            post_fill_gross=1.0,
+            close_realized_gross=1.0,
+            effective_gross=1.0,
+            gross_violation=False,
+            cash_session=False,
+            execution_gross_violation=False,
+            carry_gross_drift=False,
+            delever_required_next_session=False,
+            gross_after_sell=0.0,
+            residual_gross_budget=0.0,
+        )
+        base.update(kwargs)
+        return SessionTransitionDiagnostics(**base)  # type: ignore[arg-type]
+
+    sessions = [
+        _diag(execution_gross_violation=True, gross_violation=True, post_fill_gross=2.1),
+        _diag(carry_gross_drift=True, delever_required_next_session=True, close_realized_gross=2.0, effective_gross=2.0),
+        _diag(),
+    ]
+    rolling = aggregate_session_diagnostics(sessions, gross_limit=1.90)
+    assert int(rolling.gross_violation_count) == 1
+    assert int(rolling.carry_gross_drift_count) == 1
+    assert int(rolling.delever_required_count) == 1
