@@ -192,6 +192,12 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
     registry[STICKY_EQUITY_MOM60] = _make_p29
     registry[STICKY_EQUITY_MOM60_VOL] = _make_p29v
     registry[STICKY_FILLABLE_MOM60] = _make_p30
+    # Champion path (champion_path_logic contract): P26/P27/P28A/P28B keep legacy
+    # names from their factories (BASELINES["P27"]().name == "P27").
+    registry[STICKY_MOM60_CONCENTRATED] = _make_p26
+    registry[STICKY_MOM60_RAW] = _make_p27
+    registry[STICKY_MOM60_HOLD] = _make_p28a
+    registry[STICKY_MOM60_ABS_CASH] = _make_p28b
     _ = "P30"
     return registry
 

@@ -87,6 +87,7 @@ class StickyLeaderConfig:
     collapse_family: bool = False
     lock_level: float = 0.0
     same_leader_hold: bool = False
+    abs_mom_cash: bool = False
     exclude_name_tokens: tuple[str, ...] = ()
     score_aux_col: str | None = None
     score_aux_weight: float = 0.0
@@ -257,6 +258,18 @@ class StickyLeaderConfig:
             min_fill_ratio = 0.0
         if not math.isfinite(float(min_fill_ratio)) or float(min_fill_ratio) < 0:
             min_fill_ratio = 0.0
+        abs_mom_cash = defaults.abs_mom_cash
+        try:
+            if "abs_mom_cash" in raw:
+                abs_mom_cash = bool(raw["abs_mom_cash"])
+        except Exception:
+            abs_mom_cash = defaults.abs_mom_cash
+        same_leader_hold = defaults.same_leader_hold
+        try:
+            if "same_leader_hold" in raw:
+                same_leader_hold = bool(raw["same_leader_hold"])
+        except Exception:
+            same_leader_hold = defaults.same_leader_hold
         return cls(
             mom_col=str(mom_col),
             only_plus_2=bool(only_plus_2),
@@ -269,12 +282,13 @@ class StickyLeaderConfig:
             cash_drawdown=float(cash_drawdown),
             collapse_family=bool(collapse_family),
             lock_level=float(defaults.lock_level),
-            same_leader_hold=False,
+            same_leader_hold=bool(same_leader_hold),
             exclude_name_tokens=tuple(exclude_name_tokens),
             score_aux_col=score_aux_col,
             score_aux_weight=float(score_aux_weight),
             exclude_synthetic=bool(exclude_synthetic),
             min_fill_ratio=float(min_fill_ratio),
+            abs_mom_cash=bool(abs_mom_cash),
         )
 def collapse_plus2_by_family(scores: Mapping[str, float], snapshot: pl.DataFrame, adv_col: str = "trading_value") -> dict[str, float]:
     if not scores:
@@ -567,7 +581,9 @@ class StickyLeaderModel:
                 filtered, snapshot, capital=_cap, max_order_to_adv=_phi, min_fill_ratio=_mfr
             )
             if not filtered:
-                return {}
+                from src.portfolio.intent import CASH_INTENT as _CASH_CAP
+
+                return _CASH_CAP
         try:
             _aux_col = getattr(self.config, "score_aux_col", None)
             _aux_w = float(getattr(self.config, "score_aux_weight", 0.0) or 0.0)
@@ -592,7 +608,9 @@ class StickyLeaderModel:
                         continue
                 filtered = blend_rank_scores(filtered, _aux_raw, w_primary=1.0 - _aux_w, w_aux=_aux_w)
             if not filtered:
-                return {}
+                from src.portfolio.intent import CASH_INTENT as _CASH_AUX
+
+                return _CASH_AUX
         if getattr(self.config, "collapse_family", False):
             try:
                 filtered = collapse_plus2_by_family(filtered, snapshot)
@@ -643,4 +661,14 @@ class StickyLeaderModel:
         impulsed = apply_impulse_switch(sticky, held, snapshot, self.config)
         crashed = apply_crash_cash(impulsed, held, snapshot, self.config)
         abs_gated = apply_abs_mom_cash(crashed, self.config)
-        return apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
+        out = apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
+        try:
+            from collections.abc import Mapping as _Mapping
+
+            from src.portfolio.intent import CASH_INTENT as _CASH_EMPTY
+
+            if isinstance(out, _Mapping) and len(out) == 0:
+                return _CASH_EMPTY
+        except Exception:
+            pass
+        return out

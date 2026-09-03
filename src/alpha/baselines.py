@@ -2172,98 +2172,85 @@ def _make_p27() -> StickyLeaderModel:
     from src.alpha.sticky import StickyLeaderConfig, StickyLeaderModel
 
     _ = StickyLeaderModel
-    cfg = StickyLeaderConfig()
-    raw: dict = {}
+    _ = StickyLeaderConfig
+    cfg = StickyLeaderConfig(
+        mom_col="mom_60",
+        min_gap=0.04,
+        min_hold=2,
+        abs_mom_cash=True,
+        exclude_synthetic=True,
+        min_fill_ratio=0.25,
+    )
     try:
         fp = _P("configs/strategies.yaml")
+        raw: dict = {}
         if fp.exists():
             with open(fp, encoding="utf-8") as f:
                 raw = _yaml.safe_load(f) or {}
-            sticky_raw = None
-            if isinstance(raw, dict):
-                sticky_raw = raw.get("sticky_leader")
-                if sticky_raw is None and isinstance(raw.get("portfolio"), dict):
-                    sticky_raw = raw["portfolio"].get("sticky_leader")  # type: ignore[index]
-            if isinstance(sticky_raw, Mapping):
-                cfg = StickyLeaderConfig.from_yaml(sticky_raw)  # type: ignore[arg-type]
-    except Exception:
-        cfg = StickyLeaderConfig()
-        raw = {}
-    cfg.mom_col = "mom_60"
-    cfg.cash_drawdown = 0.0
-    cfg.min_gap = 0.04
-    cfg.min_hold = 2
-    cfg.impulse_gap = 0.0
-    cfg.impulse_require_volx = True
-    cfg.only_plus_2 = True
-    cfg.no_inverse = True
-    cfg.collapse_family = False
-    try:
-        p27_raw = None
+        champ_raw = None
         if isinstance(raw, dict):
             port = raw.get("portfolio")
             if isinstance(port, dict):
-                p27_raw = port.get("p27")
-        if isinstance(p27_raw, Mapping):
-            if "mom_col" in p27_raw:
+                sticky = port.get("sticky")
+                if isinstance(sticky, Mapping) and isinstance(sticky.get("mom60_raw"), Mapping):
+                    champ_raw = sticky.get("mom60_raw")
+                elif isinstance(port.get("mom60_raw"), Mapping):
+                    champ_raw = port.get("mom60_raw")
+                elif isinstance(port.get("p27"), Mapping):
+                    champ_raw = port.get("p27")
+        if isinstance(champ_raw, Mapping):
+            if "mom_col" in champ_raw:
                 try:
-                    v = p27_raw["mom_col"]
-                    if isinstance(v, str) and v.strip() and v.strip().startswith("mom_"):
+                    v = champ_raw["mom_col"]
+                    if isinstance(v, str) and v.strip().startswith("mom_"):
                         cfg.mom_col = str(v).strip()
                     else:
                         cfg.mom_col = "mom_60"
                 except Exception:
                     cfg.mom_col = "mom_60"
-            cfg.cash_drawdown = 0.0
-            if "min_gap" in p27_raw:
+            if "min_gap" in champ_raw:
                 try:
-                    mg = float(p27_raw["min_gap"])  # type: ignore[arg-type]
-                    if not _math.isfinite(mg) or mg < 0:
-                        cfg.min_gap = 0.04
-                    else:
-                        cfg.min_gap = 0.04
+                    mg = float(champ_raw["min_gap"])  # type: ignore[arg-type]
+                    if _math.isfinite(mg) and mg >= 0:
+                        cfg.min_gap = float(mg)
                 except Exception:
-                    cfg.min_gap = 0.04
-            else:
-                cfg.min_gap = 0.04
-            if "min_hold" in p27_raw:
+                    pass
+            if "min_hold" in champ_raw:
                 try:
-                    mh = int(p27_raw["min_hold"])  # type: ignore[arg-type]
-                    fv = float(p27_raw["min_hold"])  # type: ignore[arg-type]
-                    if not _math.isfinite(fv) or mh < 0:
-                        cfg.min_hold = 2
-                    else:
-                        cfg.min_hold = 2
+                    mh = int(champ_raw["min_hold"])  # type: ignore[arg-type]
+                    fv = float(champ_raw["min_hold"])  # type: ignore[arg-type]
+                    if _math.isfinite(fv) and mh >= 0:
+                        cfg.min_hold = int(mh)
                 except Exception:
-                    cfg.min_hold = 2
-            else:
-                cfg.min_hold = 2
-            if "impulse_gap" in p27_raw:
+                    pass
+            if "min_fill_ratio" in champ_raw:
                 try:
-                    ig = float(p27_raw["impulse_gap"])  # type: ignore[arg-type]
-                    if not _math.isfinite(ig) or ig < 0:
-                        cfg.impulse_gap = 0.0
-                    else:
-                        cfg.impulse_gap = 0.0
+                    mfr = float(champ_raw["min_fill_ratio"])  # type: ignore[arg-type]
+                    if _math.isfinite(mfr) and mfr >= 0:
+                        cfg.min_fill_ratio = float(mfr)
                 except Exception:
-                    cfg.impulse_gap = 0.0
-            else:
-                cfg.impulse_gap = 0.0
+                    pass
+            if "exclude_synthetic" in champ_raw:
+                try:
+                    cfg.exclude_synthetic = bool(champ_raw["exclude_synthetic"])
+                except Exception:
+                    pass
+            if "abs_mom_cash" in champ_raw:
+                try:
+                    cfg.abs_mom_cash = bool(champ_raw["abs_mom_cash"])
+                except Exception:
+                    pass
     except Exception:
+        pass
+    if not isinstance(cfg.mom_col, str) or not cfg.mom_col.startswith("mom_"):
         cfg.mom_col = "mom_60"
-        cfg.cash_drawdown = 0.0
-        cfg.min_gap = 0.04
-        cfg.min_hold = 2
-        cfg.impulse_gap = 0.0
-    cfg.mom_col = "mom_60"
     cfg.cash_drawdown = 0.0
-    cfg.min_gap = 0.04
-    cfg.min_hold = 2
     cfg.impulse_gap = 0.0
-    cfg.impulse_require_volx = True
     cfg.only_plus_2 = True
     cfg.no_inverse = True
     cfg.collapse_family = False
+    cfg.same_leader_hold = False
+    cfg.exclude_name_tokens = ()
     _ = "P27"
     return StickyLeaderModel(name="P27", config=cfg)
 
@@ -2331,6 +2318,7 @@ def _make_p28a() -> StickyLeaderModel:
     model = _make_p27()
     model.name = "P28A"
     model.config.same_leader_hold = True
+    model.config.abs_mom_cash = False
     return model
 
 
@@ -2342,6 +2330,7 @@ def _make_p28b() -> StickyLeaderModel:
     model = _make_p27()
     model.name = "P28B"
     model.config.same_leader_hold = True
+    model.config.abs_mom_cash = True
     return model
 
 
