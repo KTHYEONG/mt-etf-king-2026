@@ -1,6 +1,7 @@
 # mypy: ignore-errors
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date
 
@@ -61,6 +62,56 @@ class SessionInputs:
     panel: pl.DataFrame | None = None
     regimes: dict[date, object] | None = None
     rules: object | None = None
+    model_name: str | None = None
+
+
+def _is_fillable_sticky_model(model: object) -> bool:
+    cfg = getattr(model, "config", None)
+    if cfg is None:
+        return False
+    if bool(getattr(cfg, "exclude_synthetic", False)):
+        return True
+    try:
+        mfr = float(getattr(cfg, "min_fill_ratio", 0.0) or 0.0)
+    except Exception:
+        return False
+    return math.isfinite(mfr) and mfr > 0
+
+
+def _tradable_day_tickers(panel: pl.DataFrame, decision_date: date) -> tuple[str, ...]:
+    if panel.height == 0:
+        return ()
+    snap = panel.filter(pl.col("date") == decision_date) if "date" in panel.columns else panel
+    if "is_tradable" in snap.columns:
+        snap = snap.filter(pl.col("is_tradable"))
+    if "ticker" not in snap.columns or snap.height == 0:
+        return ()
+    return tuple(sorted({str(t) for t in snap.get_column("ticker").to_list()}))
+
+
+def _build_fillable_score_snapshot(
+    engine: object,
+    panel: pl.DataFrame,
+    decision_date: date,
+    tickers: tuple[str, ...],
+    filters: object,
+) -> pl.DataFrame:
+    from src.universe.provider import UniverseMode, UniverseSnapshot
+
+    mode = getattr(filters, "mode", UniverseMode.DEPLOYMENT)
+    uni = UniverseSnapshot(
+        as_of=decision_date,
+        mode=mode,
+        tickers=tickers,
+        dropped={},
+        filters=filters,  # type: ignore[arg-type]
+    )
+    try:
+        return engine.features.snapshot(panel, uni)  # type: ignore[union-attr]
+    except Exception:
+        if "date" in panel.columns:
+            return panel.filter(pl.col("date") == decision_date).filter(pl.col("ticker").is_in(list(tickers)))
+        return panel.filter(pl.col("ticker").is_in(list(tickers)))
 
 
 def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_allowed: bool | None = None, inverse_allowed: bool | None = None) -> SessionInputs:
@@ -129,6 +180,7 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_
                 pass
 
     use_scores = bool(getattr(model, "scores_path_independent", True))
+    fillable_score_panel = _is_fillable_sticky_model(model)
 
     # build adv_map per session for later cap (if universe present)
     adv_map: dict[date, dict[str, float]] = {}
@@ -141,9 +193,15 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_
             snap_uni = None
         if snap_uni is not None:
             universes[d] = snap_uni
-        # snapshot
+        # snapshot: fillable sticky scores across tradable panel; execution universe unchanged
         try:
-            snap = engine.features.snapshot(panel, snap_uni) if snap_uni is not None else panel.filter(pl.col("date") == d) if "date" in panel.columns else panel
+            if fillable_score_panel:
+                tradable = _tradable_day_tickers(panel, d)
+                snap = _build_fillable_score_snapshot(engine, panel, d, tradable, config.filters)
+            elif snap_uni is not None:
+                snap = engine.features.snapshot(panel, snap_uni)
+            else:
+                snap = panel.filter(pl.col("date") == d) if "date" in panel.columns else panel
         except Exception:
             try:
                 snap = panel.filter(pl.col("date") == d) if "date" in panel.columns else panel
@@ -230,4 +288,5 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_
         panel=panel,
         regimes=getattr(engine, "regimes", None) if hasattr(engine, "regimes") else None,  # type: ignore[attr-defined]
         rules=rules,
+        model_name=str(getattr(model, "name", "")) or None,
     )

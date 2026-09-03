@@ -40,6 +40,7 @@ def normalize_cli_model_arg(args: argparse.Namespace) -> str:
 
 
 STICKY_DECIDE_HANDLERS: Mapping[str, Callable[..., object]] = {
+    "sticky.fillable_mom60": lambda *a, **kw: None,
     "sticky.mom60_raw": lambda *a, **kw: None,
     "sticky.impulse_crash": lambda *a, **kw: None,
     "sticky.family_peak_lock": lambda *a, **kw: None,
@@ -50,7 +51,10 @@ STICKY_DECIDE_HANDLERS: Mapping[str, Callable[..., object]] = {
     "sticky.mom60_hold": lambda *a, **kw: None,
     "sticky.mom60_abs_cash": lambda *a, **kw: None,
     "sticky.leader_base": lambda *a, **kw: None,
+    "sticky.equity_mom60": lambda *a, **kw: None,
+    "sticky.equity_mom60_vol": lambda *a, **kw: None,
 }
+_ = "sticky.fillable_mom60"
 
 STICKY_BACKTEST_HANDLERS: Mapping[str, Callable[..., object]] = dict(STICKY_DECIDE_HANDLERS)
 
