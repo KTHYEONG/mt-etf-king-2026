@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_46",
+      "date": "2026-09-03",
+      "adr_id": "ADR_20260903_46",
+      "domain": "alpha",
+      "title": "P30 Fillable Sticky — capacity filter · tradable-panel cache · fast-path fix",
+      "why": "P27 2025 oneshot +41.4% missed winner +47.82%: mom_60 top was unfillable synthetic China EV (TV 4.56억); deployment snapshot (~33 tickers) made P30≡P27 until session_cache widened score panel for fillable models.",
+      "resolution": "Implemented apply_capacity_filter (capacity.py), P30 sticky.fillable_mom60 (exclude_synthetic, min_fill_ratio=0.25), registry/CLI/adoption wiring, session_cache tradable-panel score snapshots, simulator oneshot cache model_name mismatch regen, arch gates (model.py 700L); 8 unit tests + adoption wiring + lean_check PASS; full backtest run 20260903T114034Z.",
+      "impact": "L4 alpha: P30 operational candidate; rolling P>50%=4.93% vs P27 4.26%, 2025 oneshot +53.4% (beats +47.82%); championship/adoption FAIL PRIMARY_CI_VS_INCUMBENT; LOYO FAIL CONCENTRATION=0.96; CHAMPION_STRATEGY remains P27."
+    },
+    {
       "task_id": "TASK_45",
       "date": "2026-09-03",
       "adr_id": "ADR_20260903_45",
