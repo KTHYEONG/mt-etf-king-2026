@@ -13,6 +13,8 @@ def test_cli_build_parser_subcommands_unchanged() -> None:
         "universe",
         "features",
         "backtest",
+        "forensics",
+        "loyo",
         "replay",
         "decide",
         "storage-migrate",
