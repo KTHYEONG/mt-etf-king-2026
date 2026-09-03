@@ -448,6 +448,7 @@ def apply_crash_cash(
 
 
 def apply_abs_mom_cash(scores: Mapping[str, float] | object, config: StickyLeaderConfig) -> dict[str, float] | object:
+    if not bool(getattr(config, "abs_mom_cash", False)): return scores
     try:
         from src.portfolio.intent import PortfolioIntent as _PI
         if isinstance(scores, _PI):
