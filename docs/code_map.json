@@ -267,5 +267,8 @@
   "src/cli/commands/forensics.py": {},
   "src/tournament/loyo.py": {
     "testing": "tests/unit/tournament/test_loyo.py"
+  },
+  "src/strategies/sticky/capacity.py": {
+    "testing": "tests/unit/strategies/test_p30_fillable_sticky.py"
   }
 }
