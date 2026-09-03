@@ -2268,6 +2268,39 @@ def _make_p27() -> StickyLeaderModel:
     return StickyLeaderModel(name="P27", config=cfg)
 
 
+def _make_p29() -> StickyLeaderModel:
+    from src.alpha.sticky import StickyLeaderModel
+    from src.strategies.sticky.model import DEFAULT_EXCLUDE_NAME_TOKENS
+
+    _ = StickyLeaderModel
+    _ = DEFAULT_EXCLUDE_NAME_TOKENS
+    model = _make_p27()
+    model.name = "P29"
+    model.config.exclude_name_tokens = tuple(DEFAULT_EXCLUDE_NAME_TOKENS)
+    model.config.mom_col = "mom_60"
+    model.config.min_gap = 0.04
+    model.config.score_aux_col = None
+    model.config.score_aux_weight = 0.0
+    _ = "P29"
+    return model
+
+
+def _make_p29v() -> StickyLeaderModel:
+    from src.alpha.sticky import StickyLeaderModel
+    from src.strategies.sticky.model import DEFAULT_EXCLUDE_NAME_TOKENS
+
+    _ = StickyLeaderModel
+    _ = DEFAULT_EXCLUDE_NAME_TOKENS
+    model = _make_p29()
+    model.name = "P29V"
+    model.config.score_aux_col = "volume_expansion"
+    model.config.score_aux_weight = 0.3
+    model.config.min_gap = 0.10
+    _ = "P29V"
+    _ = _make_p29
+    return model
+
+
 def _make_p28a() -> StickyLeaderModel:
     from src.alpha.sticky import StickyLeaderModel
 
