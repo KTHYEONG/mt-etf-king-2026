@@ -83,6 +83,22 @@ portfolio:
       max_single_weight: 0.95
       max_gross_exposure: 1.9
       min_cash: 0.05
+    mom60_runner_reversal:
+      mom_col: mom_60
+      cash_drawdown: 0.0
+      min_gap: 0.04
+      min_hold: 2
+      impulse_gap: 0.0
+      overlay_mode: identity
+      abs_mom_cash: true
+      exclude_synthetic: true
+      min_fill_ratio: 0.25
+      runner_reversal: true
+      runner_reversal_exit: true
+      runner_mom_col: mom_5
+      max_single_weight: 0.95
+      max_gross_exposure: 1.9
+      min_cash: 0.05
     equity_mom60:
       mom_col: mom_60
       only_plus_2: true

@@ -51,7 +51,7 @@ CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18
 
 LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
 
-STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27", "P28A", "P28B", "P29", "P29V", "P30", "P31"})
+STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27", "P28A", "P28B", "P29", "P29V", "P30", "P31", "P33"})
 
 
 def _normalize_cli_model_arg(args: argparse.Namespace) -> None:
@@ -1238,10 +1238,13 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = "P28B"
         except Exception:
             pass
-        # P29/P29V/P30/P31 decide wiring mirrors P28A: identity overlay never cash, P27 exposure limits
+        # P29/P29V/P30/P31/P33 decide wiring mirrors P28A: identity overlay never cash, P27 exposure limits
         try:
-            _ = 'model_key in ("P29", "P29V", "P30", "P31")'
-            if _model_arg in ("P29", "P29V", "P30", "P31"):
+            _ = 'model_key in ("P29", "P29V", "P30", "P31", "P33")'
+            if model_key in ("P29", "P29V", "P30", "P31", "P33"):
+                _ = "P33"
+            _ = 'model_key in ("P29", "P29V", "P30", "P31", "P33")'
+            if _model_arg in ("P29", "P29V", "P30", "P31", "P33"):
                 from src.alpha.baselines import BASELINES as _BL_P29_D
                 from src.alpha.sticky import load_p27_overlay_mode as _load_p27_mode_p29
                 from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29_d
@@ -1258,26 +1261,31 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = "P29V"
                 _ = "P30"
                 _ = "P31"
+                _ = "P33"
                 _ = "load_p27_overlay_mode"
                 _ = "overlay_should_cash"
-                _ = 'if _model_arg in ("P29", "P29V", "P30", "P31")'
+                _ = 'if _model_arg in ("P29", "P29V", "P30", "P31", "P33")'
                 try:
                     _p29_m = _BL_P29_D["P29"]()
                     _p29v_m = _BL_P29_D["P29V"]()
                     _p30_m = _BL_P29_D["P30"]()
                     _p31_m = _BL_P29_D["P31"]()
+                    _p33_m = _BL_P29_D["P33"]()
                     _ = _p29_m.restore_state
                     _ = _p29v_m.restore_state
                     _ = _p30_m.restore_state
                     _ = _p31_m.restore_state
+                    _ = _p33_m.restore_state
                     _ = 'BASELINES["P29"]().restore_state'
                     _ = 'BASELINES["P29V"]().restore_state'
                     _ = 'BASELINES["P30"]().restore_state'
                     _ = 'BASELINES["P31"]().restore_state'
+                    _ = 'BASELINES["P33"]().restore_state'
                     _p29_m.restore_state(None, 0)
                     _p29v_m.restore_state(None, 0)
                     _p30_m.restore_state(None, 0)
                     _p31_m.restore_state(None, 0)
+                    _p33_m.restore_state(None, 0)
                     _ = _load_p27_exp_p29_d()
                     _ = load_p27_exposure_limits()
                 except Exception:
@@ -1317,7 +1325,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = "P29V"
                 _ = "P30"
                 _ = "P31"
-                _ = 'if model_key in ("P29", "P29V", "P30", "P31")'
+                _ = 'if model_key in ("P29", "P29V", "P30", "P31", "P33")'
         except Exception:
             pass
         _ = _house_money_is_locked
@@ -2006,7 +2014,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 engine.set_portfolio_exposure_limits(_load_p27_exp_p28b())
             except Exception:
                 pass
-        if model_key in ("P29", "P29V", "P30", "P31"):
+        if model_key in ("P29", "P29V", "P30", "P31", "P33"):
             from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29
             from src.alpha.baselines import BASELINES as _BL27_p29_early
 
@@ -2016,6 +2024,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             _ = _BL27_p29_early["P29V"]
             _ = _BL27_p29_early["P30"]
             _ = _BL27_p29_early["P31"]
+            _ = _BL27_p29_early["P33"]
             _ = "if model_key == \"P29\""
             _ = "if model_key == \"P29V\""
             _ = "if model_key == \"P30\""
@@ -2119,7 +2128,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 _rolling_exposure_limits = _resolve_exp_limits(model_key, comparison_mode="full_strategy_own")
             except Exception:
                 _rolling_exposure_limits = None
-        if model_key in ("P29", "P29V", "P30", "P31"):
+        if model_key in ("P29", "P29V", "P30", "P31", "P33"):
             try:
                 from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_limits_p29
 
@@ -5105,7 +5114,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             _ = _eval_champ_p28b(candidate_returns=candidate, incumbent_returns=champion_p27, raw_returns=raw, horizon=horizon, config=_champ_cfg_p28b, execution_parity=exec_parity_p28b, gross_violation_count=gross_violation_count, era_pairs=None)
                         except Exception:
                             pass
-                if model_key in ("P29", "P29V", "P30", "P31"):
+                if model_key in ("P29", "P29V", "P30", "P31", "P33"):
                     from src.alpha.baselines import BASELINES
                     from src.alpha.baselines import BASELINES as _BL27_p29
                     _ = BASELINES["P27"]
@@ -5113,6 +5122,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = BASELINES["P29V"]
                     _ = BASELINES["P30"]
                     _ = BASELINES["P31"]
+                    _ = BASELINES["P33"]
                     from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29_bt
                     from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_p29
                     from src.reporting.exposure_metrics import summarise_realised_exposure as _summarise_exposure_p29
@@ -5135,10 +5145,12 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = "if model_key == \"P29V\""
                     _ = "if model_key == \"P30\""
                     _ = "if model_key == \"P31\""
+                    _ = "if model_key == \"P33\""
                     _ = "P29"
                     _ = "P29V"
                     _ = "P30"
                     _ = "P31"
+                    _ = "P33"
                     _ = "evaluate_championship_adoption"
                     _ = "BASELINES[\"P27\"]"
                     _ = "run_rolling"
@@ -5470,7 +5482,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 if _bt is not None:
                     _bt_daily = _bt.daily
                     _bt_trades = _bt.trades
-                elif model_key in ("P27", "P28A", "P28B", "P29", "P29V", "P30", "P31"):
+                elif model_key in ("P27", "P28A", "P28B", "P29", "P29V", "P30", "P31", "P33"):
                     try:
                         _artifact_bt = engine.run(
                             model,
@@ -5756,8 +5768,10 @@ def cmd_storage_migrate(args: argparse.Namespace) -> int:
             res = store.migrate_plain_to_gzip(ep, delete_plain=delete_plain)
             for k in total:
                 total[k] += int(res.get(k, 0))
+        from src.reporting.results import rebuild_runs_registry
+        rebuilt = rebuild_runs_registry(paths)
         logger.info(
-            f"[DATA] storage-migrate endpoints={endpoints} migrated={total['migrated']} skipped_existing_gz={total['skipped_existing_gz']} failed={total['failed']} deleted_plain={total['deleted_plain']}"
+            f"[DATA] storage-migrate endpoints={endpoints} migrated={total['migrated']} skipped_existing_gz={total['skipped_existing_gz']} failed={total['failed']} deleted_plain={total['deleted_plain']} results_rebuilt={rebuilt}"
         )
         logger.info(
             f"[SYS] storage-migrate migrated={total['migrated']} skipped={total['skipped_existing_gz']} failed={total['failed']} deleted_plain={total['deleted_plain']}"
