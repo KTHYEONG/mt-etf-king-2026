@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P34_TAIL_RELIABILITY",
+      "date": "2026-09-04",
+      "adr_id": "ADR_20260904_P34_TAIL_RELIABILITY",
+      "domain": "tournament",
+      "title": "P34 tail reliability evaluation and execution caching",
+      "why": "Champion research failed on mixed Polars feature types and full evaluation exceeded practical runtime due repeated immutable input scans.",
+      "resolution": "Normalized champion dataset feature schemas, constrained features to available panel columns, wired conservative-vs-matched P27 evaluation, added PIT session/next-open cache reuse, and generated a complete 1,669-window integrity-valid artifact; P34 remains research-only after gate failure.",
+      "impact": "Restores reproducible champion-research execution and preserves fail-closed promotion gates; no automatic promotion occurs."
+    },
+    {
       "task_id": "TASK_P34_CHAMPION_RESEARCH",
       "date": "2026-09-04",
       "adr_id": "ADR_20260904_P34_CHAMPION_RESEARCH",

@@ -275,7 +275,10 @@
     "testing": "tests/unit/tournament/test_loyo.py"
   },
   "src/strategies/sticky/capacity.py": {
-    "testing": "tests/unit/strategies/test_p30_fillable_sticky.py"
+    "testing": [
+      "tests/unit/strategies/test_p30_fillable_sticky.py",
+      "tests/unit/strategies/test_model.py"
+    ]
   },
   "src/strategies/convex_impulse.py": {
     "testing": "tests/unit/strategies/test_p31_convex_lottery.py"
