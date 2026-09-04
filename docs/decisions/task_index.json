@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P35_P27_MATCHED_RANKER",
+      "date": "2026-09-05",
+      "adr_id": "ADR_20260905_P35_P27_MATCHED_RANKER",
+      "domain": "tournament",
+      "title": "P35 P27-Matched +2x OOS Ranker — empirical rejection and P27 retention",
+      "why": "P34 full replacement was not a valid alpha comparison because candidate policy used 0.80/1.60 versus P27 0.95/1.90; actual panel also showed 1x proxy labels were not exact executable +2x vehicles.",
+      "resolution": "Added p27_matched_2x mode, exact PIT +2x labels, P27-matched OOS model/profile and CLI default wiring; executed 2024-01-02..2026-08-27 with 163 paired windows. P35 P>50=23.31% vs P27=28.83%, aggressive/conservative/LOYO FAIL; P35 remains RESEARCH_ONLY and P27 remains champion.",
+      "impact": "Execution comparability and fail-closed promotion evidence are restored; no live P27 risk or CHAMPION_STRATEGY change. P35 rejected for lower tail and LOYO concentration. Artifacts/promotions retain evidence."
+    },
+    {
       "task_id": "TASK_P34_TAIL_RELIABILITY",
       "date": "2026-09-04",
       "adr_id": "ADR_20260904_P34_TAIL_RELIABILITY",
