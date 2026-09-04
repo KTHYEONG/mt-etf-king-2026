@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P34_CHAMPION_RESEARCH",
+      "date": "2026-09-04",
+      "adr_id": "ADR_20260904_P34_CHAMPION_RESEARCH",
+      "domain": "tournament",
+      "title": "P34 champion research CLI wiring",
+      "why": "champion-research failed at runtime because date inputs were not accepted by walk-forward entrypoint",
+      "resolution": "Connected CLI date inputs to the production P27 backtest compatibility path, preserved RESEARCH_ONLY status, and registered the champion strategy factory",
+      "impact": "CLI now executes real fills/costs/rolling diagnostics and writes promotion artifacts; P27 remains incumbent and no automatic promotion occurs"
+    },
+    {
       "task_id": "TASK_50_P33_CONFIRMED_RUNNER_REVERSAL",
       "date": "2026-09-04",
       "adr_id": "ADR_20260904_50_P33_CONFIRMED_RUNNER_REVERSAL",

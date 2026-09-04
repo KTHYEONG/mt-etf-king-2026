@@ -265,7 +265,10 @@
   },
   "src/strategies/registry.py": {
     "architecture": "docs/architecture/02-system-layers.md",
-    "testing": "tests/unit/strategies/test_registry.py"
+    "testing": [
+      "tests/unit/strategies/test_registry.py",
+      "tests/unit/cli/test_champion_research.py"
+    ]
   },
   "src/cli/commands/forensics.py": {},
   "src/tournament/loyo.py": {

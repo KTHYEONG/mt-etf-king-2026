@@ -21,3 +21,15 @@ ml:
     feature_fraction: 0.6
     bagging_fraction: 0.8
     lambda_l2: 1.0
+  champion_tail:
+    seed: 20260831
+    num_leaves: 8
+    max_depth: 4
+    min_data_in_leaf: 100
+    max_features: 25
+    lambda_l2: 1.0
+    label_horizon: 36
+    embargo: 36
+    purge: 36
+    n_folds: 3
+    feature_columns: [mom_3, mom_5, mom_10, mom_20, mom_40, mom_60, ma_ratio_20, ma_ratio_60, ma_slope_20, ma_slope_60, breakout_20, drawdown_20, rv_5, rv_20, atr_20, flow_ratio, flow_5d, flow_20d, turnover, volume_expansion, disparity]
