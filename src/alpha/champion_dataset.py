@@ -106,7 +106,11 @@ def collect_family_candidates(
                 **{c: [] for c in config.feature_columns},
             }
         )
-    return pl.DataFrame(rows)
+    return pl.DataFrame(
+        rows,
+        schema_overrides=dict.fromkeys(config.feature_columns, pl.Float64),
+        strict=False,
+    )
 
 
 def build_family_tail_dataset(
@@ -189,7 +193,14 @@ def build_family_tail_dataset(
                 "label_rank": [],
             }
         )
-    frame = pl.DataFrame(enriched)
+    frame = pl.DataFrame(
+        enriched,
+        schema_overrides={
+            "label_return": pl.Float64,
+            **dict.fromkeys(config.feature_columns, pl.Float64),
+        },
+        strict=False,
+    )
     # Cross-sectional within-date rank of net return (no leverage multiplier).
     ranks: dict[int, float] = {}
     by_date: dict[date, list[tuple[int, float]]] = {}

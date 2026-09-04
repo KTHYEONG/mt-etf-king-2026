@@ -33,6 +33,7 @@ class Fill:
 class NextOpenExecution:
     def __init__(self, calendar: TradingCalendar) -> None:
         self.calendar = calendar
+        self._open_prices: dict[tuple[int, date], dict[str, float | None]] = {}
 
     def resolve(
         self,
@@ -48,20 +49,20 @@ class NextOpenExecution:
             return [], tuple(sorted(target.keys()))
         if panel.height == 0 or "date" not in panel.columns:
             return [], tuple(sorted(target.keys()))
-        exec_rows = panel.filter(pl.col("date") == execution_date)
-        open_map: dict[str, float | None] = {}
-        if exec_rows.height > 0:
-            for row in exec_rows.iter_rows(named=True):
-                t = str(row.get("ticker"))
-                o = row.get("open")
-                try:
-                    if o is None:
+        cache_key = (id(panel), execution_date)
+        open_map = self._open_prices.get(cache_key)
+        if open_map is None:
+            exec_rows = panel.filter(pl.col("date") == execution_date)
+            open_map = {}
+            if exec_rows.height > 0:
+                for row in exec_rows.iter_rows(named=True):
+                    t = str(row.get("ticker"))
+                    o = row.get("open")
+                    try:
+                        open_map[t] = None if o is None else float(o)
+                    except Exception:
                         open_map[t] = None
-                    else:
-                        v = float(o)
-                        open_map[t] = v
-                except Exception:
-                    open_map[t] = None
+            self._open_prices[cache_key] = open_map
         fills: list[Fill] = []
         unfilled: list[str] = []
         for ticker, weight in target.items():

@@ -11,7 +11,7 @@ from typing import Final
 import polars as pl
 
 from src.alpha.base import DecisionContext
-from src.strategies.sticky.capacity import apply_capacity_filter
+from src.strategies.sticky.capacity import apply_capacity_filter, cached_filtered_scores
 from src.universe.instruments import resolve_leverage
 
 logger = logging.getLogger(__name__)
@@ -547,7 +547,7 @@ class StickyLeaderModel:
     path_dependent: bool = True
     scores_path_independent: bool = False
     def __init__(self, name: str = "P20", config: StickyLeaderConfig | None = None) -> None:
-        self.name = str(name); self.config = config if config is not None else StickyLeaderConfig(); self._held: str | None = None; self._hold_len: int = 0; self._runner_ticker: str | None = None; self._runner_entry_capital: float | None = None; self._runner_peak_capital: float | None = None; self._runner_held_sessions: int = 0; self._runner_armed: bool = False
+        self.name = str(name); self.config = config if config is not None else StickyLeaderConfig(); self._held: str | None = None; self._hold_len: int = 0; self._runner_ticker: str | None = None; self._runner_entry_capital: float | None = None; self._runner_peak_capital: float | None = None; self._runner_held_sessions: int = 0; self._runner_armed: bool = False; self._filtered_scores_by_snapshot: dict[int, dict[str, float]] = {}
     def reset_trackers(self) -> None:
         self._held = None; self._hold_len = 0; self._runner_ticker = None; self._runner_entry_capital = None; self._runner_peak_capital = None; self._runner_held_sessions = 0; self._runner_armed = False
     def restore_state(self, held: str | None, hold_len: int) -> None:
@@ -570,7 +570,7 @@ class StickyLeaderModel:
         self._held = held
         self._hold_len = int(hl)
     def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float] | object:
-        filtered = filter_plus2_scores(snapshot, self.config)
+        filtered = cached_filtered_scores(self._filtered_scores_by_snapshot, snapshot, lambda frame: filter_plus2_scores(frame, self.config))
         try:
             _mfr = float(getattr(self.config, "min_fill_ratio", 0.0) or 0.0)
         except Exception:
