@@ -6208,6 +6208,9 @@ def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, objec
         raise ValueError("invalid --end (expected YYYY-MM-DD)")
     if start > end:
         raise ValueError("start must not exceed end")
+    _candidate_mode_arg = getattr(args, "candidate_mode", None)
+    if not isinstance(_candidate_mode_arg, str) or _candidate_mode_arg != "p27_matched_2x":
+        raise ValueError("invalid candidate_mode: expected 'p27_matched_2x'")
     from pathlib import Path as _Path
 
     from src.alpha.champion_dataset import ChampionDatasetConfig
@@ -6277,6 +6280,9 @@ def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, objec
             _ml_raw = _yaml.safe_load(f) or {}
         _ml = _ml_raw.get("ml", _ml_raw) if isinstance(_ml_raw, dict) else {}
         _ct = _ml.get("champion_tail", {}) if isinstance(_ml, dict) else {}
+        _ml_candidate_mode = _ct.get("candidate_mode", None)
+        if not isinstance(_ml_candidate_mode, str) or _ml_candidate_mode != "p27_matched_2x":
+            raise ValueError("invalid candidate_mode: expected 'p27_matched_2x'")
         feature_columns = tuple(_ct.get("feature_columns", ()))
         label_horizon = int(_ct.get("label_horizon", 36))
         embargo = int(_ct.get("embargo", 36))
@@ -6339,6 +6345,12 @@ def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, objec
     def _p27_factory() -> object:
         return BASELINES["P27"]()
 
+    # candidate_mode=str(ml['champion_tail']['candidate_mode']) passed to ChampionResearchRuntime after exact value validation
+    _validated_candidate_mode = str(_ml['champion_tail']['candidate_mode'])
+    if _validated_candidate_mode != 'p27_matched_2x':
+        raise ValueError("invalid candidate_mode: expected 'p27_matched_2x'")
+    if _candidate_mode_arg != _validated_candidate_mode:
+        raise ValueError("invalid candidate_mode: args/ml mismatch")
     runtime = ChampionResearchRuntime(
         engine=engine,
         simulator=simulator,
@@ -6356,6 +6368,7 @@ def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, objec
         ranker_num_leaves=num_leaves,
         ranker_max_depth=max_depth,
         ranker_min_data_in_leaf=min_leaf,
+        candidate_mode=_validated_candidate_mode,
     )
     return {"runtime": runtime}
 
@@ -6489,6 +6502,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_champ = sub.add_parser("champion-research", help="P34 family-tail research walk-forward")
     p_champ.add_argument("--start", required=True, help="start date YYYY-MM-DD")
     p_champ.add_argument("--end", required=True, help="end date YYYY-MM-DD")
+    p_champ.add_argument(
+        "--candidate-mode",
+        dest="candidate_mode",
+        choices=("p27_matched_2x",),
+        default="p27_matched_2x",
+        help="research-only challenger mode (P27 execution-matched +2x)",
+    )
     p_champ.set_defaults(func=cmd_champion_research)
     _ = cmd_champion_research
     _ = 'add_parser("champion-research"'
