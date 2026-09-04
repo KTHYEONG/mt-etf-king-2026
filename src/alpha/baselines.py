@@ -2311,6 +2311,40 @@ def _make_p30() -> StickyLeaderModel:
     return model
 
 
+def _make_p31() -> ConvexImpulseModel:
+    from pathlib import Path as _P
+
+    import yaml as _yaml
+
+    from src.portfolio.constraints import load_p27_exposure_limits
+    from src.strategies.convex_impulse import ConvexImpulseConfig, ConvexImpulseModel
+
+    _ = ConvexImpulseModel
+    _ = ConvexImpulseConfig
+    _ = load_p27_exposure_limits
+    _ = _make_p30
+    _ = "P31"
+    cfg = ConvexImpulseConfig()
+    try:
+        fp = _P("configs/strategies.yaml")
+        if fp.exists():
+            with open(fp, encoding="utf-8") as f:
+                raw = _yaml.safe_load(f) or {}
+            port = raw.get("portfolio") if isinstance(raw, dict) else None
+            block = None
+            if isinstance(port, dict):
+                convex = port.get("convex")
+                if isinstance(convex, dict) and isinstance(convex.get("lottery_impulse"), dict):
+                    block = convex.get("lottery_impulse")
+                elif isinstance(port.get("p31"), dict):
+                    block = port.get("p31")
+            if isinstance(block, Mapping):
+                cfg = ConvexImpulseConfig.from_yaml(block)  # type: ignore[arg-type]
+    except Exception:
+        cfg = ConvexImpulseConfig()
+    return ConvexImpulseModel(name="P31", config=cfg)
+
+
 def _make_p28a() -> StickyLeaderModel:
     from src.alpha.sticky import StickyLeaderModel
 

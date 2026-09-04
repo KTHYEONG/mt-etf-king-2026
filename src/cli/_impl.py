@@ -51,7 +51,7 @@ CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P16", "P17", "P18
 
 LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P14", "P19"})
 
-STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27", "P28A", "P28B", "P29", "P29V", "P30"})
+STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27", "P28A", "P28B", "P29", "P29V", "P30", "P31"})
 
 
 def _normalize_cli_model_arg(args: argparse.Namespace) -> None:
@@ -1238,9 +1238,10 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = "P28B"
         except Exception:
             pass
-        # P29/P29V/P30 decide wiring mirrors P28A: identity overlay never cash, P27 exposure limits
+        # P29/P29V/P30/P31 decide wiring mirrors P28A: identity overlay never cash, P27 exposure limits
         try:
-            if _model_arg in ("P29", "P29V", "P30"):
+            _ = 'model_key in ("P29", "P29V", "P30", "P31")'
+            if _model_arg in ("P29", "P29V", "P30", "P31"):
                 from src.alpha.baselines import BASELINES as _BL_P29_D
                 from src.alpha.sticky import load_p27_overlay_mode as _load_p27_mode_p29
                 from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29_d
@@ -1256,22 +1257,27 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = "P29"
                 _ = "P29V"
                 _ = "P30"
+                _ = "P31"
                 _ = "load_p27_overlay_mode"
                 _ = "overlay_should_cash"
-                _ = 'if _model_arg in ("P29", "P29V", "P30")'
+                _ = 'if _model_arg in ("P29", "P29V", "P30", "P31")'
                 try:
                     _p29_m = _BL_P29_D["P29"]()
                     _p29v_m = _BL_P29_D["P29V"]()
                     _p30_m = _BL_P29_D["P30"]()
+                    _p31_m = _BL_P29_D["P31"]()
                     _ = _p29_m.restore_state
                     _ = _p29v_m.restore_state
                     _ = _p30_m.restore_state
+                    _ = _p31_m.restore_state
                     _ = 'BASELINES["P29"]().restore_state'
                     _ = 'BASELINES["P29V"]().restore_state'
                     _ = 'BASELINES["P30"]().restore_state'
+                    _ = 'BASELINES["P31"]().restore_state'
                     _p29_m.restore_state(None, 0)
                     _p29v_m.restore_state(None, 0)
                     _p30_m.restore_state(None, 0)
+                    _p31_m.restore_state(None, 0)
                     _ = _load_p27_exp_p29_d()
                     _ = load_p27_exposure_limits()
                 except Exception:
@@ -1310,7 +1316,8 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 _ = "P29"
                 _ = "P29V"
                 _ = "P30"
-                _ = 'if model_key in ("P29", "P29V", "P30")'
+                _ = "P31"
+                _ = 'if model_key in ("P29", "P29V", "P30", "P31")'
         except Exception:
             pass
         _ = _house_money_is_locked
@@ -1999,7 +2006,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 engine.set_portfolio_exposure_limits(_load_p27_exp_p28b())
             except Exception:
                 pass
-        if model_key in ("P29", "P29V", "P30"):
+        if model_key in ("P29", "P29V", "P30", "P31"):
             from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29
             from src.alpha.baselines import BASELINES as _BL27_p29_early
 
@@ -2008,12 +2015,15 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             _ = _BL27_p29_early["P29"]
             _ = _BL27_p29_early["P29V"]
             _ = _BL27_p29_early["P30"]
+            _ = _BL27_p29_early["P31"]
             _ = "if model_key == \"P29\""
             _ = "if model_key == \"P29V\""
             _ = "if model_key == \"P30\""
+            _ = "if model_key == \"P31\""
             _ = "P29"
             _ = "P29V"
             _ = "P30"
+            _ = "P31"
             _ = "evaluate_championship_adoption"
             _ = 'BASELINES["P27"]'
             _ = "run_rolling"
@@ -2109,7 +2119,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 _rolling_exposure_limits = _resolve_exp_limits(model_key, comparison_mode="full_strategy_own")
             except Exception:
                 _rolling_exposure_limits = None
-        if model_key in ("P29", "P29V", "P30"):
+        if model_key in ("P29", "P29V", "P30", "P31"):
             try:
                 from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_limits_p29
 
@@ -5095,13 +5105,14 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             _ = _eval_champ_p28b(candidate_returns=candidate, incumbent_returns=champion_p27, raw_returns=raw, horizon=horizon, config=_champ_cfg_p28b, execution_parity=exec_parity_p28b, gross_violation_count=gross_violation_count, era_pairs=None)
                         except Exception:
                             pass
-                if model_key in ("P29", "P29V", "P30"):
+                if model_key in ("P29", "P29V", "P30", "P31"):
                     from src.alpha.baselines import BASELINES
                     from src.alpha.baselines import BASELINES as _BL27_p29
                     _ = BASELINES["P27"]
                     _ = BASELINES["P29"]
                     _ = BASELINES["P29V"]
                     _ = BASELINES["P30"]
+                    _ = BASELINES["P31"]
                     from src.portfolio.constraints import load_p27_exposure_limits as _load_p27_exp_p29_bt
                     from src.portfolio.constraints import resolve_exposure_limits_for_model as _resolve_exp_p29
                     from src.reporting.exposure_metrics import summarise_realised_exposure as _summarise_exposure_p29
@@ -5123,9 +5134,11 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     _ = "if model_key == \"P29\""
                     _ = "if model_key == \"P29V\""
                     _ = "if model_key == \"P30\""
+                    _ = "if model_key == \"P31\""
                     _ = "P29"
                     _ = "P29V"
                     _ = "P30"
+                    _ = "P31"
                     _ = "evaluate_championship_adoption"
                     _ = "BASELINES[\"P27\"]"
                     _ = "run_rolling"
@@ -5457,7 +5470,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 if _bt is not None:
                     _bt_daily = _bt.daily
                     _bt_trades = _bt.trades
-                elif model_key in ("P27", "P28A", "P28B", "P29", "P29V", "P30"):
+                elif model_key in ("P27", "P28A", "P28B", "P29", "P29V", "P30", "P31"):
                     try:
                         _artifact_bt = engine.run(
                             model,

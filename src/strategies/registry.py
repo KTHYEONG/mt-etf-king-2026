@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from typing import Final
 
 from src.strategies.ids import (
+    CONVEX_LOTTERY_IMPULSE,
     ALPHA_FAMILY_INTENSITY,
     ALPHA_SECTOR_LEADERSHIP,
     BASELINE_BUY_HOLD,
@@ -73,6 +74,7 @@ LEGACY_ALIASES: Final[Mapping[str, str]] = {
     "P29": STICKY_EQUITY_MOM60,
     "P29V": STICKY_EQUITY_MOM60_VOL,
     "P30": STICKY_FILLABLE_MOM60,
+    "P31": CONVEX_LOTTERY_IMPULSE,
 }
 
 SEMANTIC_ALIASES: Final[Mapping[str, str]] = {v: k for k, v in LEGACY_ALIASES.items()}
@@ -136,6 +138,7 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
         _make_p29,
         _make_p29v,
         _make_p30,
+        _make_p31,
     )
     from src.strategies.sticky.factories import FACTORY_REGISTRY
 
@@ -143,6 +146,8 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
     _ = STICKY_EQUITY_MOM60
     _ = STICKY_EQUITY_MOM60_VOL
     _ = STICKY_FILLABLE_MOM60
+    _ = CONVEX_LOTTERY_IMPULSE
+    _ = LEGACY_ALIASES["P31"]
 
     raw: Mapping[str, Callable[[], object]] = {
         BASELINE_BUY_HOLD: _make_b0,
@@ -174,6 +179,7 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
         STICKY_MOM60_RAW: _make_p27,
         STICKY_MOM60_HOLD: _make_p28a,
         STICKY_MOM60_ABS_CASH: _make_p28b,
+        CONVEX_LOTTERY_IMPULSE: _make_p31,
     }
 
     def _wrap(semantic: str, factory: Callable[[], object]) -> Callable[[], object]:
@@ -198,7 +204,9 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
     registry[STICKY_MOM60_RAW] = _make_p27
     registry[STICKY_MOM60_HOLD] = _make_p28a
     registry[STICKY_MOM60_ABS_CASH] = _make_p28b
+    registry[CONVEX_LOTTERY_IMPULSE] = _make_p31
     _ = "P30"
+    _ = "P31"
     return registry
 
 

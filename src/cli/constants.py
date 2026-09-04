@@ -21,5 +21,6 @@ STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset(
         "sticky.equity_mom60",
         "sticky.equity_mom60_vol",
         "sticky.fillable_mom60",
+        "convex.lottery_impulse",
     }
 )

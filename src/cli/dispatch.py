@@ -53,6 +53,7 @@ STICKY_DECIDE_HANDLERS: Mapping[str, Callable[..., object]] = {
     "sticky.leader_base": lambda *a, **kw: None,
     "sticky.equity_mom60": lambda *a, **kw: None,
     "sticky.equity_mom60_vol": lambda *a, **kw: None,
+    "convex.lottery_impulse": lambda *a, **kw: None,
 }
 _ = "sticky.fillable_mom60"
 
