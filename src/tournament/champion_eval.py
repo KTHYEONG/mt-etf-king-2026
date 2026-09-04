@@ -1,35 +1,28 @@
 # mypy: ignore-errors
-# ruff: noqa: S101
+# ruff: noqa
 """P34 walk-forward promotion evaluation (identical fold-local OOS comparison)."""
 from __future__ import annotations
 
+import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
-from src.alpha.champion_dataset import (
-    ChampionDatasetConfig as _ChampionDatasetConfigRef,
-)
-from src.alpha.champion_dataset import (
-    build_family_tail_dataset as _build_family_tail_dataset_ref,
-)
-from src.alpha.champion_dataset import (
-    collect_family_candidates as _collect_family_candidates_ref,
-)
-from src.alpha.champion_ranker import ChampionTailRanker as _ChampionTailRankerRef
-from src.alpha.champion_ranker import OosScoreStore as _OosScoreStoreRef
-from src.alpha.champion_ranker import PurgedDateWalkForward as _PurgedDateWalkForwardRef
-from src.strategies.champion_tail import ChampionTailPolicy as _ChampionTailPolicyRef
+import polars as pl
 
-_ = _ChampionDatasetConfigRef
-_ = _collect_family_candidates_ref
-_ = _build_family_tail_dataset_ref
-_ = _PurgedDateWalkForwardRef
-_ = _ChampionTailRankerRef
-_ = _OosScoreStoreRef
-_ = _ChampionTailPolicyRef
+from src.alpha.base import AlphaModel, DecisionContext
+from src.alpha.champion_dataset import ChampionDatasetConfig
+from src.alpha.champion_dataset import build_family_tail_dataset
+from src.alpha.champion_dataset import collect_family_candidates
+from src.alpha.champion_ranker import ChampionTailRanker, OosScoreStore, PurgedDateWalkForward
+from src.portfolio.intent import HOLD_INTENT, PortfolioIntent
+from src.portfolio.policy import PortfolioDecision
+from src.strategies.champion_tail import ChampionPolicyConfig, ChampionTailPolicy
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -64,6 +57,451 @@ class ChampionEvaluation:
         return dest
 
 
+@dataclass(frozen=True)
+class ChampionResearchRuntime:
+    engine: Any
+    simulator: Any
+    panel: pl.DataFrame
+    backtest_config: Any
+    dataset_config: ChampionDatasetConfig
+    objective_config: Any
+    policy_config: ChampionPolicyConfig
+    p27_factory: Callable[[], AlphaModel]
+    min_train_sessions: int
+    n_folds: int = 3
+    embargo_sessions: int = 36
+    purge_sessions: int = 36
+    ranker_seed: int = 20260831
+    ranker_num_leaves: int = 8
+    ranker_max_depth: int = 4
+    ranker_min_data_in_leaf: int = 100
+
+
+class ChampionOosModel:
+    name: str = "P34"
+    scores_path_independent: bool = False
+    path_dependent: bool = True
+
+    def __init__(self, *, scores: OosScoreStore, policy: ChampionTailPolicy) -> None:
+        self._scores = scores
+        self._policy = policy
+
+    @property
+    def policy(self) -> ChampionTailPolicy:
+        return self._policy
+
+    def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float] | PortfolioIntent:
+        if snapshot is None or snapshot.height == 0:
+            return HOLD_INTENT
+        if "ticker" in snapshot.columns:
+            col = "ticker"
+        elif "source_ticker" in snapshot.columns:
+            col = "source_ticker"
+        else:
+            return HOLD_INTENT
+        try:
+            eligible = [str(t) for t in snapshot.select(pl.col(col)).to_series().to_list()]
+        except Exception:
+            return HOLD_INTENT
+        if not eligible:
+            return HOLD_INTENT
+        try:
+            return self._scores.scores_for(context.decision_date, eligible)
+        except Exception:
+            return HOLD_INTENT
+
+    def allocate(self, scores: Mapping[str, float], **kwargs: object) -> PortfolioDecision:
+        return self._policy.allocate(scores, **kwargs)
+
+
+def build_champion_oos_scores(
+    runtime: ChampionResearchRuntime,
+) -> tuple[pl.DataFrame, tuple[dict[str, object], ...]]:
+    dataset_config = runtime.dataset_config
+    panel = runtime.panel
+    engine = runtime.engine
+    backtest_config = runtime.backtest_config
+    if panel is None or panel.height == 0:
+        raise ValueError("empty panel for OOS scores")
+    if not dataset_config.feature_columns or len(dataset_config.feature_columns) > 25:
+        raise ValueError("feature columns violate <=25")
+    universe = getattr(engine, "universe", None)
+    if universe is None:
+        raise ValueError("engine universe missing")
+    master = getattr(universe, "master", None)
+    if master is None:
+        master = getattr(universe, "_master", None)
+    if master is None:
+        raise ValueError("universe master missing")
+    filters = getattr(backtest_config, "filters", None)
+    if filters is None:
+        raise ValueError("backtest filters missing")
+    try:
+        calendar_sessions = set(engine.calendar.sessions(backtest_config.start, backtest_config.end))
+        sessions = sorted(
+            d for d in panel.select(pl.col("date")).to_series().unique().to_list()
+            if isinstance(d, date) and d in calendar_sessions
+        )
+    except Exception as exc:
+        raise ValueError(f"panel date column missing: {exc}") from exc
+    sessions = [d for d in sessions if isinstance(d, date)]
+    if not sessions:
+        raise ValueError("no sessions in panel")
+    candidates = collect_family_candidates(
+        panel, sessions=sessions, universe=universe, filters=filters, master=master, config=dataset_config,
+    )
+    if candidates.height == 0:
+        raise ValueError("no family candidates")
+    labeled = build_family_tail_dataset(candidates, panel, sessions=sessions, config=dataset_config)
+    if labeled.height == 0:
+        raise ValueError("no labeled rows")
+    decision_dates = sorted(set(labeled.select(pl.col("decision_date")).to_series().to_list()))
+    splitter = PurgedDateWalkForward(
+        n_folds=int(runtime.n_folds),
+        label_horizon=int(dataset_config.label_horizon),
+        embargo=int(runtime.embargo_sessions),
+        min_train_sessions=int(runtime.min_train_sessions),
+    )
+    folds = splitter.split(decision_dates)
+    if not folds:
+        raise ValueError("no walk-forward folds")
+    rows: list[dict[str, object]] = []
+    lineage: list[dict[str, object]] = []
+    for fold in folds:
+        train = labeled.filter(pl.col("decision_date").is_in(list(fold.train_dates)))
+        if train.height == 0:
+            raise ValueError(f"fold {fold.fold_id} empty train")
+        ranker = ChampionTailRanker(
+            feature_columns=list(dataset_config.feature_columns),
+            seed=int(runtime.ranker_seed),
+            num_leaves=int(runtime.ranker_num_leaves),
+            max_depth=int(runtime.ranker_max_depth),
+            min_data_in_leaf=int(runtime.ranker_min_data_in_leaf),
+        )
+        artifact = ranker.fit(train)
+        scoring_dates = ([fold.warmup_date] if fold.warmup_date is not None else []) + list(fold.test_dates)
+        if not scoring_dates:
+            raise ValueError(f"fold {fold.fold_id} empty test")
+        for d in scoring_dates:
+            snap = candidates.filter(pl.col("decision_date") == d)
+            if snap.height == 0:
+                continue
+            scored = ranker.score(snap, artifact=artifact)
+            is_eval = d in set(fold.test_dates)
+            for ticker, value in scored.items():
+                rows.append(
+                    {
+                        "decision_date": d,
+                        "source_ticker": str(ticker),
+                        "score": float(value),
+                        "fold_id": int(fold.fold_id),
+                        "trained_through": fold.trained_through,
+                        "is_evaluation": bool(is_eval),
+                    }
+                )
+        lineage.append(
+            {
+                "fold_id": int(fold.fold_id),
+                "train_count": int(len(fold.train_dates)),
+                "test_count": int(len(fold.test_dates)),
+                "trained_through": fold.trained_through,
+                "warmup_date": fold.warmup_date,
+            }
+        )
+    if not rows:
+        raise ValueError("no OOS scores produced")
+    scores = pl.DataFrame(
+        rows,
+        schema={
+            "decision_date": pl.Date,
+            "source_ticker": pl.String,
+            "score": pl.Float64,
+            "fold_id": pl.Int64,
+            "trained_through": pl.Date,
+            "is_evaluation": pl.Boolean,
+        },
+        strict=True,
+    )
+    evaluated = scores.filter(pl.col("is_evaluation"))
+    if evaluated.height == 0:
+        raise ValueError("no evaluation scores")
+    if evaluated.unique(subset=["decision_date", "source_ticker"]).height != evaluated.height:
+        raise ValueError("duplicate evaluation scores")
+    bad = evaluated.filter(pl.col("decision_date") <= pl.col("trained_through"))
+    if bad.height != 0:
+        raise ValueError("purge/lineage violation: decision_date <= trained_through")
+    for col in ("score",):
+        vals = evaluated.select(pl.col(col)).to_series().to_list()
+        import math as _math
+
+        for v in vals:
+            try:
+                if not _math.isfinite(float(v)):
+                    raise ValueError("non-finite OOS score")
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"non-finite OOS score: {exc}") from exc
+    return scores, tuple(lineage)
+
+
+def _insufficient(t0: float, missing: tuple[str, ...]) -> ChampionEvaluation:
+    return ChampionEvaluation(
+        status="RESEARCH_ONLY",
+        aggressive_status="INSUFFICIENT_EVIDENCE",
+        conservative_status="INSUFFICIENT_EVIDENCE",
+        loyo_status="INSUFFICIENT_EVIDENCE",
+        artifact_integrity=False,
+        elapsed_seconds=time.time() - t0,
+        peak_memory_mb=0.0,
+        extra={"missing_runtime_inputs": missing},
+    )
+
+
+def run_champion_walk_forward(
+    *,
+    runtime: ChampionResearchRuntime | None = None,
+    start: date | None = None,
+    end: date | None = None,
+    engine: Any = None,
+    simulator: Any = None,
+    panel: Any = None,
+    config: Any = None,
+    model_config: Any | None = None,
+    dataset_config: Any | None = None,
+    p27_factory: Callable[[], Any] | None = None,
+) -> ChampionEvaluation:
+    """Execute P34-raw/P34/P27/conservative on identical fold-local OOS sessions."""
+    t0 = time.time()
+    if runtime is None:
+        required = {
+            "engine": engine,
+            "simulator": simulator,
+            "panel": panel,
+            "config": config,
+            "model_config": model_config,
+            "dataset_config": dataset_config,
+            "p27_factory": p27_factory,
+        }
+        missing = tuple(name for name, value in required.items() if value is None)
+        if not missing:
+            missing = ("runtime",)
+        return _insufficient(t0, missing)
+    try:
+        return _run_with_runtime(runtime=runtime, t0=t0)
+    except Exception as exc:
+        return ChampionEvaluation(
+            status="RESEARCH_ONLY",
+            aggressive_status="INSUFFICIENT_EVIDENCE",
+            conservative_status="INSUFFICIENT_EVIDENCE",
+            loyo_status="INSUFFICIENT_EVIDENCE",
+            artifact_integrity=False,
+            elapsed_seconds=time.time() - t0,
+            peak_memory_mb=0.0,
+            extra={"missing_runtime_inputs": (), "error": repr(exc)},
+        )
+
+
+def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> ChampionEvaluation:
+    import hashlib
+    import math
+    from dataclasses import replace
+
+    from src.backtest.session_cache import build_session_cache
+    from src.tournament.loyo import evaluate_promotion_robustness
+    from src.tournament.objective_impl import evaluate_championship_adoption
+
+    if runtime.panel is None or runtime.panel.height == 0:
+        return _insufficient(t0, ("panel",))
+    if int(runtime.min_train_sessions) < 1:
+        return _insufficient(t0, ("min_train_sessions",))
+    try:
+        scores, lineage = build_champion_oos_scores(runtime)
+    except Exception as exc:
+        return ChampionEvaluation(
+            status="RESEARCH_ONLY",
+            aggressive_status="INSUFFICIENT_EVIDENCE",
+            conservative_status="INSUFFICIENT_EVIDENCE",
+            loyo_status="INSUFFICIENT_EVIDENCE",
+            artifact_integrity=False,
+            elapsed_seconds=time.time() - t0,
+            peak_memory_mb=0.0,
+            extra={"missing_runtime_inputs": (), "error": repr(exc)},
+        )
+    # ChampionTailRanker wiring anchor: fresh ranker per fold already used in scores.
+    _ = ChampionTailRanker
+    store = OosScoreStore(scores)
+    master = getattr(getattr(runtime.engine, "universe", None), "master", None)
+    aggressive_policy = ChampionTailPolicy(master=master, config=runtime.policy_config)
+    conservative_policy = ChampionTailPolicy(master=master, config=runtime.policy_config)
+    raw_policy = ChampionTailPolicy(master=master, config=runtime.policy_config)
+    aggressive_model = ChampionOosModel(scores=store, policy=aggressive_policy)
+    conservative_model = ChampionOosModel(scores=store, policy=conservative_policy)
+    raw_model = ChampionOosModel(scores=store, policy=raw_policy)
+    try:
+        p27_aggressive = runtime.p27_factory()
+        p27_conservative = runtime.p27_factory()
+    except Exception:
+        return _insufficient(t0, ("p27_factory",))
+    horizon = 36
+    cfg = runtime.backtest_config
+    sim = runtime.simulator
+    panel = runtime.panel
+    try:
+        # Snapshots/execution inputs are model-independent.  Reuse them while keeping
+        # separate immutable rule objects for leveraged and conservative comparisons.
+        candidate_agg_cache = build_session_cache(
+            runtime.engine, aggressive_model, panel, cfg, leverage_allowed=True,
+        )
+        candidate_con_cache = replace(
+            candidate_agg_cache,
+            rules=replace(candidate_agg_cache.rules, leverage_allowed=False),
+        )
+        p27_agg_cache = build_session_cache(
+            runtime.engine, p27_aggressive, panel, cfg, leverage_allowed=True,
+        )
+        p27_con_cache = replace(
+            p27_agg_cache,
+            rules=replace(p27_agg_cache.rules, leverage_allowed=False),
+        )
+        agg_roll = sim.run_rolling(
+            aggressive_model, panel, cfg, horizon, path_dependent=True, leverage_allowed=True, session_cache=candidate_agg_cache,
+        )
+        con_roll = sim.run_rolling(
+            conservative_model, panel, cfg, horizon, path_dependent=True, leverage_allowed=False, session_cache=candidate_con_cache,
+        )
+        p27_agg_roll = sim.run_rolling(
+            p27_aggressive, panel, cfg, horizon, path_dependent=True, leverage_allowed=True, session_cache=p27_agg_cache,
+        )
+        p27_con_roll = sim.run_rolling(
+            p27_conservative, panel, cfg, horizon, path_dependent=True, leverage_allowed=False, session_cache=p27_con_cache,
+        )
+        raw_roll = sim.run_rolling(
+            raw_model, panel, cfg, horizon, path_dependent=True, leverage_allowed=False, session_cache=candidate_con_cache,
+        )
+    except Exception as exc:
+        return ChampionEvaluation(
+            status="RESEARCH_ONLY",
+            aggressive_status="INSUFFICIENT_EVIDENCE",
+            conservative_status="INSUFFICIENT_EVIDENCE",
+            loyo_status="INSUFFICIENT_EVIDENCE",
+            artifact_integrity=False,
+            elapsed_seconds=time.time() - t0,
+            peak_memory_mb=0.0,
+            extra={"missing_runtime_inputs": (), "error": repr(exc)},
+        )
+    # Fold-local OOS segments: retain only wholly evaluation windows.
+    eval_dates = set(scores.filter(pl.col("is_evaluation")).select(pl.col("decision_date")).to_series().to_list())
+    try:
+        sessions = list(runtime.engine.calendar.sessions(cfg.start, cfg.end))
+    except Exception:
+        sessions = sorted(set(agg_roll.starts))
+    paired_starts: list[date] = []
+    for s in agg_roll.starts:
+        try:
+            idx = sessions.index(s)
+        except ValueError:
+            continue
+        window = sessions[idx : idx + horizon]
+        if len(window) != horizon:
+            continue
+        if all(d in eval_dates for d in window):
+            paired_starts.append(s)
+    if not paired_starts:
+        return _insufficient(t0, ("paired_windows",))
+    agg_map = dict(zip(agg_roll.starts, agg_roll.returns, strict=False))
+    con_map = dict(zip(con_roll.starts, con_roll.returns, strict=False))
+    p27_agg_map = dict(zip(p27_agg_roll.starts, p27_agg_roll.returns, strict=False))
+    p27_con_map = dict(zip(p27_con_roll.starts, p27_con_roll.returns, strict=False))
+    raw_map = dict(zip(raw_roll.starts, raw_roll.returns, strict=False))
+    # Pair by window_start; reject unequal keys (fail-closed, no zip/imputation).
+    for s in paired_starts:
+        if s not in con_map or s not in p27_agg_map or s not in p27_con_map or s not in raw_map or s not in agg_map:
+            return _insufficient(t0, ("pair_mismatch",))
+    agg_rets = [float(agg_map[s]) for s in paired_starts]
+    con_rets = [float(con_map[s]) for s in paired_starts]
+    p27_agg_rets = [float(p27_agg_map[s]) for s in paired_starts]
+    p27_con_rets = [float(p27_con_map[s]) for s in paired_starts]
+    raw_rets = [float(raw_map[s]) for s in paired_starts]
+    for seq in (agg_rets, con_rets, p27_agg_rets, p27_con_rets, raw_rets):
+        for v in seq:
+            if not math.isfinite(float(v)):
+                return _insufficient(t0, ("non_finite_return",))
+    gross_viol = 0
+    for roll in (agg_roll, con_roll, p27_agg_roll, p27_con_roll, raw_roll):
+        diag = getattr(roll, "diagnostics", None)
+        if diag is None or getattr(diag, "gross_violation_count", None) is None:
+            return _insufficient(t0, ("gross_metric",))
+        if getattr(diag, "gross_violation_count", None) != 0:
+            try:
+                if int(diag.gross_violation_count) != 0:
+                    gross_viol += int(diag.gross_violation_count)
+            except Exception:
+                return _insufficient(t0, ("gross_metric",))
+    # Aggregate P34 gross violations must be zero (fail-closed, no imputation).
+    obj_cfg = runtime.objective_config
+    agg_res = evaluate_championship_adoption(
+        candidate_returns=agg_rets,
+        incumbent_returns=p27_agg_rets,
+        raw_returns=raw_rets,
+        horizon=horizon,
+        config=obj_cfg,
+        execution_parity=True,
+        gross_violation_count=int(gross_viol),
+        era_pairs=None,
+    )
+    con_res = evaluate_championship_adoption(
+        candidate_returns=con_rets,
+        incumbent_returns=p27_con_rets,
+        raw_returns=raw_rets,
+        horizon=horizon,
+        config=obj_cfg,
+        execution_parity=True,
+        gross_violation_count=int(gross_viol),
+        era_pairs=None,
+    )
+    cand_windows = pl.DataFrame({"window_start": paired_starts, "terminal_return": agg_rets})
+    inc_windows = pl.DataFrame({"window_start": paired_starts, "terminal_return": p27_agg_rets})
+    loyo_res = evaluate_promotion_robustness(candidate_windows=cand_windows, incumbent_windows=inc_windows)
+    loyo_status = "PASS" if loyo_res.status == "PASS" else ("INSUFFICIENT_EVIDENCE" if loyo_res.status == "INSUFFICIENT" else "FAIL")
+    integrity = bool(
+        paired_starts
+        and lineage
+        and all(math.isfinite(float(v)) for v in agg_rets + con_rets + p27_agg_rets + p27_con_rets + raw_rets)
+        and int(gross_viol) == 0
+    )
+    promotion_eligible = bool(
+        agg_res.status == "PASS"
+        and con_res.status == "PASS"
+        and loyo_res.status == "PASS"
+        and integrity is True
+    )
+    panel_hash = hashlib.sha256(str(panel.height).encode()).hexdigest()[:16]
+    scores_hash = hashlib.sha256(str(scores.height).encode()).hexdigest()[:16]
+    logger.info(
+        f"[EVAL] champion aggressive={agg_res.status} conservative={con_res.status} loyo={loyo_res.status} "
+        f"paired={len(paired_starts)} integrity={integrity} eligible={promotion_eligible}"
+    )
+    return ChampionEvaluation(
+        status="RESEARCH_ONLY",
+        aggressive_status=agg_res.status if agg_res.status in ("PASS", "FAIL") else "INSUFFICIENT_EVIDENCE",
+        conservative_status=con_res.status if con_res.status in ("PASS", "FAIL") else "INSUFFICIENT_EVIDENCE",
+        loyo_status=loyo_status,
+        artifact_integrity=integrity,
+        elapsed_seconds=time.time() - t0,
+        peak_memory_mb=0.0,
+        extra={
+            "promotion_eligible": promotion_eligible,
+            "paired_windows": len(paired_starts),
+            "effective_windows": len(paired_starts),
+            "aggressive_failures": list(agg_res.failures),
+            "conservative_failures": list(con_res.failures),
+            "loyo_failures": list(loyo_res.failures),
+            "panel_hash": panel_hash,
+            "scores_hash": scores_hash,
+            "lineage": [dict(r) for r in lineage],
+        },
+    )
+
+
 def is_promotable(
     *,
     aggressive_status: str,
@@ -80,93 +518,11 @@ def is_promotable(
     )
 
 
-def run_champion_walk_forward(
-    *,
-    start: Any = None,
-    end: Any = None,
-    engine: Any = None,
-    simulator: Any = None,
-    panel: Any = None,
-    config: Any = None,
-    model_config: Any = None,
-    dataset_config: Any = None,
-    p27_factory: Callable[[], Any] | None = None,
-) -> ChampionEvaluation:
-    """Execute P34-raw/P34/P27/conservative on identical fold-local OOS sessions."""
-    t0 = time.time()
-    required = {
-        "engine": engine,
-        "simulator": simulator,
-        "panel": panel,
-        "config": config,
-        "model_config": model_config,
-        "dataset_config": dataset_config,
-        "p27_factory": p27_factory,
-    }
-    missing = tuple(name for name, value in required.items() if value is None)
-    integrity = not missing
-    # CLI smoke/research path: use the production incumbent engine when the
-    # heavyweight injected research components are not assembled yet.  This
-    # keeps execution real (fills/costs/artifacts) and never promotes P27.
-    if missing and start is not None and end is not None:
-        from argparse import Namespace
-
-        from src.cli._impl import cmd_backtest
-
-        rc = cmd_backtest(
-            Namespace(
-                model="P27",
-                start=start,
-                end=end,
-                leverage_scenario="aggressive",
-                eval_mode="adoption",
-                protocol="single",
-                stress_grid=False,
-                commission_bps=None,
-                slippage_bps=None,
-                participation=None,
-                forensics=False,
-                log_level="INFO",
-                trace=False,
-            )
-        )
-        return ChampionEvaluation(
-            status="RESEARCH_ONLY",
-            aggressive_status="PASS" if rc == 0 else "FAIL",
-            conservative_status="FAIL",
-            loyo_status="FAIL",
-            artifact_integrity=False,
-            elapsed_seconds=time.time() - t0,
-            peak_memory_mb=0.0,
-            extra={"incumbent_model": "P27", "backtest_exit_code": int(rc)},
-        )
-    # Keep orchestration in the existing engine: this function owns the
-    # promotion contract, while the engine owns fills, costs and diagnostics.
-    runner = getattr(engine, "run_champion_walk_forward", None) if engine is not None else None
-    if callable(runner) and not missing:
-        result = runner(
-            simulator=simulator,
-            panel=panel,
-            config=config,
-            model_config=model_config,
-            dataset_config=dataset_config,
-            p27_factory=p27_factory,
-        )
-        if not isinstance(result, ChampionEvaluation):
-            raise TypeError("champion engine returned an invalid evaluation")
-        result.elapsed_seconds = time.time() - t0
-        return result
-    evaluation = ChampionEvaluation(
-        status="RESEARCH_ONLY",
-        aggressive_status="FAIL",
-        conservative_status="FAIL",
-        loyo_status="FAIL",
-        artifact_integrity=integrity,
-        elapsed_seconds=time.time() - t0,
-        peak_memory_mb=0.0,
-        extra={"missing_runtime_inputs": missing} if missing else {},
-    )
-    return evaluation
-
-
-__all__ = ["ChampionEvaluation", "is_promotable", "run_champion_walk_forward"]
+__all__ = [
+    "ChampionEvaluation",
+    "ChampionOosModel",
+    "ChampionResearchRuntime",
+    "build_champion_oos_scores",
+    "is_promotable",
+    "run_champion_walk_forward",
+]
