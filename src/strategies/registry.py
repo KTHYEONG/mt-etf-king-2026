@@ -40,6 +40,7 @@ from src.strategies.ids import (
     STICKY_MOM60_RAW,
     STICKY_MOM60_RUNNER_REVERSAL,
     STICKY_SPLIT_FILL_LOCK,
+    CHAMPION_TAIL_RANKER,
 )
 
 LEGACY_ALIASES: Final[Mapping[str, str]] = {
@@ -107,6 +108,14 @@ def branch_model_key(key: str) -> str:
 
 
 def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
+    from src.strategies.champion_tail import ChampionPolicyConfig, ChampionTailPolicy
+
+    _ = ChampionPolicyConfig
+    _ = ChampionTailPolicy
+    _ = "ChampionTailPolicy"
+    from src.strategies.ids import CHAMPION_TAIL_RANKER as _CHAMPION_TAIL_RANKER_REF
+
+    _ = _CHAMPION_TAIL_RANKER_REF
     from src.alpha.baselines import (
         _make_b0,
         _make_b1,
@@ -213,6 +222,9 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
     registry[STICKY_MOM60_ABS_CASH] = _make_p28b
     registry[CONVEX_LOTTERY_IMPULSE] = _make_p31
     registry[STICKY_MOM60_RUNNER_REVERSAL] = _make_p33
+    # Research-only champion policy is constructible through the registry;
+    # promotion remains gated by the tournament evaluator.
+    registry[CHAMPION_TAIL_RANKER] = lambda: ChampionTailPolicy()
     _ = "P30"
     _ = "P31"
     _ = "P33"

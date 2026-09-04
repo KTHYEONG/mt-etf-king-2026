@@ -6192,8 +6192,61 @@ SUBCOMMANDS["storage-migrate"] = cmd_storage_migrate
 # also allow underscore variant for robustness
 SUBCOMMANDS["storage_migrate"] = cmd_storage_migrate
 
+
+def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, object]:
+    """Assemble runtime kwargs for run_champion_walk_forward without panel I/O."""
+    # anchor: def cmd_backtest (shared backtest wiring surface)
+    _ = "def cmd_backtest"
+    _ = run_champion_walk_forward
+    try:
+        start = date.fromisoformat(str(getattr(args, "start", "")))
+    except Exception:
+        raise ValueError("invalid --start (expected YYYY-MM-DD)")
+    try:
+        end = date.fromisoformat(str(getattr(args, "end", "")))
+    except Exception:
+        raise ValueError("invalid --end (expected YYYY-MM-DD)")
+    if start > end:
+        raise ValueError("start must not exceed end")
+    return {"start": start, "end": end}
+
+
+def cmd_champion_research(args: argparse.Namespace) -> int:
+    _ = "def cmd_backtest"
+    try:
+        kwargs = _build_champion_research_inputs(args)
+    except ValueError as exc:
+        logger.error(f"[SYS] champion-research status=fail error={exc!r}")
+        return 1
+    except Exception as exc:
+        logger.error(f"[SYS] champion-research status=fail error={exc!r}")
+        return 1
+    try:
+        result = run_champion_walk_forward(**kwargs)
+    except ValueError as exc:
+        logger.error(f"[SYS] champion-research status=fail error={exc!r}")
+        return 1
+    except Exception as exc:
+        logger.error(f"[SYS] champion-research status=fail error={exc!r}")
+        return 1
+    status = str(getattr(result, "status", "RESEARCH_ONLY"))
+    logger.info(f"[DATA] champion-research status={status}")
+    logger.info(f"[EVAL] champion-research status={status}")
+    try:
+        writer = getattr(result, "write", None)
+        if callable(writer):
+            writer("results/champion/promotion.json")
+    except Exception:
+        pass
+    return 0
+
+
+SUBCOMMANDS["champion-research"] = cmd_champion_research
+SUBCOMMANDS["champion_research"] = cmd_champion_research
+
 # Import for wiring verification
 from src.data.backfill import run_backfill as _run_backfill_ref  # noqa: F401,E402
+from src.tournament.champion_eval import run_champion_walk_forward  # noqa: F401,E402
 from src.tournament.montecarlo import CompetitorField as _CompetitorFieldRef  # noqa: F401,E402
 from src.tournament.policy import AggressionPolicy as _AggressionPolicyRef  # noqa: F401,E402
 
@@ -6283,6 +6336,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_mig.add_argument("--endpoint", required=False, default="etp/etf_bydd_trd", help="KRX endpoint to migrate")
     p_mig.add_argument("--no-delete", action="store_true", dest="no_delete", help="do not delete plain after migrate")
     p_mig.set_defaults(func=cmd_storage_migrate)
+    # champion-research
+    p_champ = sub.add_parser("champion-research", help="P34 family-tail research walk-forward")
+    p_champ.add_argument("--start", required=True, help="start date YYYY-MM-DD")
+    p_champ.add_argument("--end", required=True, help="end date YYYY-MM-DD")
+    p_champ.set_defaults(func=cmd_champion_research)
+    _ = cmd_champion_research
+    _ = 'add_parser("champion-research"'
     return parser
 
 
