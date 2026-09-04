@@ -4,10 +4,20 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+_RESULTS_REL = Path("docs/results")
+
 
 @dataclass(frozen=True)
 class DataPaths:
     root: Path
+    project_root: Path | None = None
+
+    def _anchor_root(self) -> Path:
+        if self.project_root is not None:
+            return self.project_root
+        if self.root.name == "data":
+            return self.root.parent
+        return self.root
 
     def _guard(self, candidate: Path) -> Path:
         root_resolved = self.root.resolve()
@@ -33,9 +43,18 @@ class DataPaths:
 
     def results(self, run_id: str) -> Path:
         self._check_part(run_id)
-        rel = Path("results") / run_id
-        candidate = self.root / rel
-        return self._guard(candidate)
+        anchor = self._anchor_root()
+        candidate = anchor / _RESULTS_REL / run_id
+        return self._guard_under(anchor, candidate)
+
+    def _guard_under(self, anchor: Path, candidate: Path) -> Path:
+        anchor_resolved = anchor.resolve()
+        cand_resolved = candidate.resolve()
+        try:
+            cand_resolved.relative_to(anchor_resolved)
+        except ValueError as exc:
+            raise ValueError(f"path escapes root {anchor}: {candidate}") from exc
+        return candidate
 
     def silver(self, table: str) -> Path:
         self._check_part(table)
@@ -57,6 +76,6 @@ class DataPaths:
 
     def trace(self, run_id: str) -> Path:
         self._check_part(run_id)
-        rel = Path("results") / run_id / "trace"
-        candidate = self.root / rel
-        return self._guard(candidate)
+        anchor = self._anchor_root()
+        candidate = anchor / _RESULTS_REL / run_id / "trace"
+        return self._guard_under(anchor, candidate)
