@@ -282,5 +282,8 @@
   },
   "src/strategies/convex_impulse.py": {
     "testing": "tests/unit/strategies/test_p31_convex_lottery.py"
+  },
+  "src/alpha/champion_dataset.py": {
+    "testing": "tests/unit/alpha/test_champion_dataset.py"
   }
 }
