@@ -79,3 +79,33 @@ def test_collect_family_candidates_is_deployment_pit_one_x_only() -> None:
     assert result.select('source_ticker').to_series().to_list() == ['ONE']
     assert result.select('family_key').to_series().to_list() == [result.item(0, 'family_key')]
     assert result.height == 1
+
+
+def test_collect_family_candidates_source_two_labels_exact_plus_two_vehicle() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.alpha.champion_dataset import ChampionDatasetConfig, build_family_tail_dataset, collect_family_candidates
+    from src.universe.provider import UniverseFilters, UniverseMode
+    from tests.unit.universe.conftest import build_universe
+
+    d0, d1, d2 = date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)
+    panel = pl.DataFrame([
+        {'date': d0, 'ticker': 'ONE', 'name': 'KODEX 200', 'underlying_index_name': 'KOSPI 200', 'is_tradable': True, 'open': 100.0, 'close': 100.0, 'trading_value': 2e12, 'mom_60': 0.10},
+        {'date': d0, 'ticker': 'TWO', 'name': 'KODEX 레버리지', 'underlying_index_name': 'KOSPI 200', 'is_tradable': True, 'open': 100.0, 'close': 100.0, 'trading_value': 2e12, 'mom_60': 0.20},
+        {'date': d1, 'ticker': 'ONE', 'name': 'KODEX 200', 'underlying_index_name': 'KOSPI 200', 'is_tradable': True, 'open': 100.0, 'close': 105.0, 'trading_value': 2e12, 'mom_60': 0.10},
+        {'date': d1, 'ticker': 'TWO', 'name': 'KODEX 레버리지', 'underlying_index_name': 'KOSPI 200', 'is_tradable': True, 'open': 100.0, 'close': 110.0, 'trading_value': 2e12, 'mom_60': 0.20},
+        {'date': d2, 'ticker': 'ONE', 'name': 'KODEX 200', 'underlying_index_name': 'KOSPI 200', 'is_tradable': True, 'open': 105.0, 'close': 106.0, 'trading_value': 2e12, 'mom_60': 0.10},
+        {'date': d2, 'ticker': 'TWO', 'name': 'KODEX 레버리지', 'underlying_index_name': 'KOSPI 200', 'is_tradable': True, 'open': 110.0, 'close': 121.0, 'trading_value': 2e12, 'mom_60': 0.20},
+    ])
+    universe, master, _ = build_universe(panel, adv_window=1, brand_map={})
+    config = ChampionDatasetConfig(feature_columns=('mom_60',), label_horizon=2, entry_cost_rate=0.0, exit_cost_rate=0.0, source_multiple=2)
+    filters = UniverseFilters(mode=UniverseMode.STRUCTURAL, warmup_sessions=0, capital=1, max_order_to_adv=1.0)
+
+    candidates = collect_family_candidates(panel, sessions=[d0], universe=universe, filters=filters, master=master, config=config)
+    labeled = build_family_tail_dataset(candidates, panel, sessions=[d0, d1, d2], config=config)
+
+    assert candidates.get_column('source_ticker').to_list() == ['TWO']
+    assert labeled.item(0, 'source_ticker') == 'TWO'
+    assert labeled.item(0, 'label_return') == 0.21
