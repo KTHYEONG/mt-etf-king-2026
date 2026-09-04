@@ -132,6 +132,7 @@ def champion_runtime():
         policy_config=ChampionPolicyConfig(),
         p27_factory=lambda: BASELINES["P27"](),
         min_train_sessions=20,
+        candidate_mode="family_1x",
     )
 
 
@@ -190,3 +191,61 @@ def test_champion_walk_forward_requires_complete_runtime() -> None:
     assert result.aggressive_status == "INSUFFICIENT_EVIDENCE"
     assert result.artifact_integrity is False
     assert result.extra["missing_runtime_inputs"]
+
+
+def test_p27_matched_oos_model_has_no_private_allocation_or_vehicle_remap() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.alpha.base import DecisionContext
+    from src.alpha.champion_ranker import OosScoreStore
+    from src.portfolio.intent import HOLD_INTENT
+    from src.tournament.champion_eval import P27MatchedOosModel
+
+    scored = date(2026, 3, 2)
+    store = OosScoreStore(pl.DataFrame({'decision_date': [scored], 'source_ticker': ['TWO'], 'score': [0.75], 'fold_id': [0], 'trained_through': [date(2026, 1, 1)], 'is_evaluation': [True]}))
+    model = P27MatchedOosModel(scores=store)
+    context = DecisionContext(decision_date=scored, regime=None, capital=1_000_000_000.0, held={}, rules=None)
+
+    assert model.name == 'P27'
+    assert model.candidate_id == 'P35'
+    assert not hasattr(model, 'allocate')
+    assert model.score(pl.DataFrame({'ticker': ['TWO', 'ONE']}), context) == {'TWO': 0.75}
+    missing = DecisionContext(decision_date=date(2026, 3, 3), regime=None, capital=1_000_000_000.0, held={}, rules=None)
+    assert model.score(pl.DataFrame({'ticker': ['TWO']}), missing) == HOLD_INTENT
+
+
+def test_p27_matched_comparison_profile_uses_identical_incumbent_limits() -> None:
+    from src.portfolio.constraints import load_p27_exposure_limits
+    from src.tournament.champion_eval import p27_matched_comparison_profile
+
+    profile = p27_matched_comparison_profile()
+
+    assert profile.candidate_model_name == 'P27'
+    assert profile.incumbent_model_name == 'P27'
+    assert profile.candidate_limits == load_p27_exposure_limits()
+    assert profile.incumbent_limits == load_p27_exposure_limits()
+    assert profile.candidate_limits == profile.incumbent_limits
+
+
+def test_p35_result_remains_research_only_when_any_gate_fails() -> None:
+    from src.tournament.champion_eval import ChampionEvaluation, is_promotable
+
+    result = ChampionEvaluation(
+        status='RESEARCH_ONLY',
+        aggressive_status='FAIL',
+        conservative_status='PASS',
+        loyo_status='PASS',
+        artifact_integrity=True,
+        extra={'candidate_id': 'P35', 'gross_violation_count': 0},
+    )
+
+    assert result.status == 'RESEARCH_ONLY'
+    assert result.extra['candidate_id'] == 'P35'
+    assert is_promotable(
+        aggressive_status=result.aggressive_status,
+        conservative_status=result.conservative_status,
+        loyo_status=result.loyo_status,
+        artifact_integrity=result.artifact_integrity,
+    ) is False

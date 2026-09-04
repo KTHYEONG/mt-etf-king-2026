@@ -28,3 +28,17 @@ def test_champion_research_cli_passes_real_runtime(monkeypatch) -> None:
 
     assert cmd_champion_research(argparse.Namespace(start="2024-01-02", end="2026-08-27", log_level="ERROR", trace=False)) == 0
     assert "runtime" in captured
+
+
+def test_champion_research_requires_explicit_p27_matched_mode(monkeypatch) -> None:
+    import argparse
+
+    import pytest
+
+    from src.cli import _impl
+
+    monkeypatch.setattr(_impl, 'get_settings', lambda: object())
+    monkeypatch.setattr(_impl, 'DataPaths', lambda root: None)
+    monkeypatch.setattr(_impl, '_load_panel_for_backtest', lambda paths, calendar: None)
+    with pytest.raises(ValueError, match='candidate_mode'):
+        _impl._build_champion_research_inputs(argparse.Namespace(start='2026-01-02', end='2026-08-27', candidate_mode='invalid'))
