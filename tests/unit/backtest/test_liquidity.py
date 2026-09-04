@@ -108,3 +108,50 @@ def test_sell_first_preserves_within_budget_full_target() -> None:
     )
     assert abs(float(out.get("NEW", 0.0)) - 0.90) < 1e-9
     assert abs(float(out.get("OLD", 0.0))) < 1e-12
+
+
+def test_apply_intent_liquidity_constraints_sell_first_when_cap_set() -> None:
+    from src.backtest.liquidity import (
+        apply_intent_liquidity_constraints,
+        cap_target_weights_by_adv,
+        constrain_target_weights_sell_first,
+    )
+    from src.portfolio.constraints import gross_exposure
+
+    equity = 1_000_000_000.0
+    phi = 0.01
+    current = {"OLD": 0.90}
+    target = {"OLD": 0.0, "NEW": 0.90}
+    multiples = {"OLD": 2, "NEW": 2}
+    adv = {"OLD": equity * 0.10 / phi, "NEW": equity * 0.90 / phi}
+    sell_first = constrain_target_weights_sell_first(
+        target,
+        current,
+        equity,
+        adv,
+        phi,
+        leverage_multiples=multiples,
+        max_gross_exposure=1.90,
+    )
+    out = apply_intent_liquidity_constraints(
+        target,
+        current,
+        equity,
+        adv,
+        phi,
+        leverage_multiples=multiples,
+        max_gross_exposure=1.90,
+    )
+    assert out == sell_first
+    assert gross_exposure(out, multiples) <= 1.90 + 1e-9
+    adv_only = cap_target_weights_by_adv(target, current, equity, adv, phi)
+    none_cap = apply_intent_liquidity_constraints(
+        target,
+        current,
+        equity,
+        adv,
+        phi,
+        leverage_multiples=multiples,
+        max_gross_exposure=None,
+    )
+    assert none_cap == adv_only

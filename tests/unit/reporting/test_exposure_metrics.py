@@ -105,3 +105,26 @@ def test_summarise_realised_exposure_uses_max_gross_threshold() -> None:
     relaxed = summarise_realised_exposure(dates, trades, tuple(), master, epsilon=1e-9, max_gross=1.90)
     assert relaxed.gross_violation_count == 0
     assert relaxed.effective_gross_max <= 1.90 + 1e-9
+
+
+def test_artifact_max_gross_for_model_p27_family_is_1_90() -> None:
+    from src.reporting.exposure_metrics import artifact_max_gross_for_model
+
+    for key in (
+        "P27",
+        "P30",
+        "P31",
+        "sticky.mom60_raw",
+        "sticky.fillable_mom60",
+        "convex.lottery_impulse",
+    ):
+        mg = artifact_max_gross_for_model(key)
+        assert abs(float(mg) - 1.90) < 1e-9, key
+
+
+def test_prefer_execution_gross_count_keeps_diagnostics() -> None:
+    from src.reporting.exposure_metrics import prefer_execution_gross_count
+
+    assert prefer_execution_gross_count(0, 1042) == 0
+    assert prefer_execution_gross_count(3, 70) == 3
+    assert prefer_execution_gross_count(None, 70) == 70
