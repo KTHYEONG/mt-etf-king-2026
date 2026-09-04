@@ -230,3 +230,28 @@ def summarise_realised_exposure(
         effective_gross_max=float(effective_gross_max),
         gross_violation_count=int(gross_violation_count),
     )
+
+
+def artifact_max_gross_for_model(model_key: str) -> float:
+    # Model-local max gross; fallback to 1.60 on invalid config.
+    try:
+        from src.portfolio.constraints import resolve_exposure_limits_for_model
+
+        mg = float(resolve_exposure_limits_for_model(str(model_key))[1])
+        if math.isfinite(mg) and mg > 0:
+            return float(mg)
+    except Exception:
+        pass
+    return 1.60
+
+
+def prefer_execution_gross_count(execution_count: int | None, realised_count: int) -> int:
+    # Diagnostics execution count wins; None/non-int falls back to realised.
+    if isinstance(execution_count, bool):
+        pass
+    elif isinstance(execution_count, int):
+        return int(execution_count)
+    try:
+        return int(realised_count)  # type: ignore[arg-type]
+    except Exception:
+        return 0

@@ -139,6 +139,42 @@ def constrain_target_weights_sell_first(
     return {k: float(v) for k, v in out.items()}
 
 
+def apply_intent_liquidity_constraints(
+    target: Mapping[str, float],
+    current: Mapping[str, float],
+    equity: float,
+    adv_by_ticker: Mapping[str, float],
+    max_order_to_adv: float,
+    *,
+    leverage_multiples: Mapping[str, int],
+    max_gross_exposure: float | None,
+) -> dict[str, float]:
+    # Finite positive cap -> sell-first; otherwise ADV-only. Never raise.
+    try:
+        if isinstance(max_gross_exposure, bool) or max_gross_exposure is None:
+            raise ValueError("no cap")
+        cap = float(max_gross_exposure)
+        if not math.isfinite(cap) or not cap > 0:
+            raise ValueError("no cap")
+        return constrain_target_weights_sell_first(
+            target,
+            current,
+            equity,
+            adv_by_ticker,
+            max_order_to_adv,
+            leverage_multiples=leverage_multiples,
+            max_gross_exposure=cap,
+        )
+    except Exception:
+        try:
+            return cap_target_weights_by_adv(target, current, equity, adv_by_ticker, max_order_to_adv)
+        except Exception:
+            try:
+                return {str(k): float(v) for k, v in dict(target).items()}
+            except Exception:
+                return {}
+
+
 def cap_target_weights_by_adv(
     target: Mapping[str, float],
     current: Mapping[str, float],

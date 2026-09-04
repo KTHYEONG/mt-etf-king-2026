@@ -5497,11 +5497,16 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 except Exception:
                     _windows_df = None
                 try:
-                    from src.reporting.exposure_metrics import summarise_realised_exposure
+                    from src.reporting.exposure_metrics import (
+                        artifact_max_gross_for_model,
+                        prefer_execution_gross_count,
+                        summarise_realised_exposure,
+                    )
                     from src.tournament.objective import evaluate_objective_gates
 
                     if _bt_trades is not None:
-                        _exposure_max_gross = 1.60
+                        # prev: _exposure_max_gross = 1.60
+                        _exposure_max_gross = artifact_max_gross_for_model(model_key)
                         if model_key == "P26":
                             try:
                                 from src.portfolio.constraints import load_p26_exposure_limits as _lpe26
@@ -5530,7 +5535,12 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                             "turnover": float(_exposure.turnover),
                             "unfilled_session_rate": float(_exposure.unfilled_session_rate),
                         }
-                        summary["gross_violation_count"] = int(_exposure.gross_violation_count)
+                        # prev: summary["gross_violation_count"] = int(_exposure.gross_violation_count)
+                        summary["gross_violation_count"] = int(
+                            prefer_execution_gross_count(
+                                summary.get("gross_violation_count"), _exposure.gross_violation_count
+                            )
+                        )
                         summary["effective_gross_max"] = float(_exposure.effective_gross_max)
                     _cfg_obj = ObjectiveGateConfig.from_yaml(Path("configs/gates.yaml"))
                     _do_control = bool(_control_flags[_cell_idx]) if _cell_idx < len(_control_flags) else True
@@ -5615,7 +5625,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     try:
                         import json as _json_opt
 
-                        out_dir = Path(f"data/results/{run_id}/p25_optimization.json")
+                        out_dir = paths.results(run_id) / "p25_optimization.json"
                         out_dir.write_text(_json_opt.dumps(_p25_forensics_payload, indent=2), encoding="utf-8")
                         logger.info(f"[EVAL] forensics optimizer wrote {out_dir}")
                     except Exception as _e_opt_write:
@@ -5979,7 +5989,7 @@ def cmd_forensics(args: argparse.Namespace) -> int:
         try:
             run_dir = paths.results(str(run_id))
         except Exception:
-            run_dir = Path("data/results") / str(run_id)
+            run_dir = Path("docs/results") / str(run_id)
         windows_path = Path(run_dir) / "windows.parquet"
         trades_path = Path(run_dir) / "trades.parquet"
         if not windows_path.exists() or not trades_path.exists():
@@ -6097,7 +6107,7 @@ def cmd_loyo(args: argparse.Namespace) -> int:
         try:
             run_dir = paths.results(str(run_id))
         except Exception:
-            run_dir = Path("data/results") / str(run_id)
+            run_dir = Path("docs/results") / str(run_id)
         windows_path = Path(run_dir) / "windows.parquet"
         if not windows_path.exists():
             logger.error(f"[SYS] loyo status=fail error=missing windows for run {run_id}")
@@ -6114,7 +6124,7 @@ def cmd_loyo(args: argparse.Namespace) -> int:
             try:
                 inc_dir = paths.results(str(inc_id))
             except Exception:
-                inc_dir = Path("data/results") / str(inc_id)
+                inc_dir = Path("docs/results") / str(inc_id)
             inc_path = Path(inc_dir) / "windows.parquet"
             if not inc_path.exists():
                 logger.error(f"[SYS] loyo status=fail error=missing windows for incumbent {inc_id}")
