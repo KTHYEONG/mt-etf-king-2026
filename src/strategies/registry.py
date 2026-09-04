@@ -38,6 +38,7 @@ from src.strategies.ids import (
     STICKY_MOM60_HOLD,
     STICKY_MOM60_PEAK_LOCK,
     STICKY_MOM60_RAW,
+    STICKY_MOM60_RUNNER_REVERSAL,
     STICKY_SPLIT_FILL_LOCK,
 )
 
@@ -75,6 +76,7 @@ LEGACY_ALIASES: Final[Mapping[str, str]] = {
     "P29V": STICKY_EQUITY_MOM60_VOL,
     "P30": STICKY_FILLABLE_MOM60,
     "P31": CONVEX_LOTTERY_IMPULSE,
+    "P33": STICKY_MOM60_RUNNER_REVERSAL,
 }
 
 SEMANTIC_ALIASES: Final[Mapping[str, str]] = {v: k for k, v in LEGACY_ALIASES.items()}
@@ -139,6 +141,7 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
         _make_p29v,
         _make_p30,
         _make_p31,
+        _make_p33,
     )
     from src.strategies.sticky.factories import FACTORY_REGISTRY
 
@@ -147,7 +150,10 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
     _ = STICKY_EQUITY_MOM60_VOL
     _ = STICKY_FILLABLE_MOM60
     _ = CONVEX_LOTTERY_IMPULSE
+    _ = STICKY_MOM60_RUNNER_REVERSAL
     _ = LEGACY_ALIASES["P31"]
+    _ = LEGACY_ALIASES["P33"]
+    _ = "'P33': STICKY_MOM60_RUNNER_REVERSAL"
 
     raw: Mapping[str, Callable[[], object]] = {
         BASELINE_BUY_HOLD: _make_b0,
@@ -179,6 +185,7 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
         STICKY_MOM60_RAW: _make_p27,
         STICKY_MOM60_HOLD: _make_p28a,
         STICKY_MOM60_ABS_CASH: _make_p28b,
+        STICKY_MOM60_RUNNER_REVERSAL: _make_p33,
         CONVEX_LOTTERY_IMPULSE: _make_p31,
     }
 
@@ -205,8 +212,10 @@ def build_strategy_registry() -> Mapping[str, Callable[[], object]]:
     registry[STICKY_MOM60_HOLD] = _make_p28a
     registry[STICKY_MOM60_ABS_CASH] = _make_p28b
     registry[CONVEX_LOTTERY_IMPULSE] = _make_p31
+    registry[STICKY_MOM60_RUNNER_REVERSAL] = _make_p33
     _ = "P30"
     _ = "P31"
+    _ = "P33"
     return registry
 
 

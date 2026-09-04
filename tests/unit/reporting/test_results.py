@@ -65,3 +65,66 @@ def test_make_backtest_run_id_safe(tmp_path: Path) -> None:  # noqa: ANN001, ARG
     assert "/" not in ids
     assert "\\" not in ids
     assert "B2" in ids
+
+
+def test_write_backtest_result_updates_registries(tmp_path: Path) -> None:
+    import json
+    from datetime import date
+    import polars as pl
+    from src.core.paths import DataPaths
+    from src.reporting.results import make_backtest_run_id, write_backtest_result
+
+    paths = DataPaths(root=tmp_path / "data", project_root=tmp_path)
+    run_id = make_backtest_run_id("P27", date(2025, 8, 1), date(2025, 11, 14))
+    meta = {"model": "P27", "strategy_id": "sticky.mom60_raw"}
+    summary = {
+        "n_windows": 35,
+        "exceedance": {"0.5": 0.4286},
+        "quantiles": {"0.99": 0.8164},
+        "giveback_median": 0.0569,
+        "championship_gate_status": "PASS",
+    }
+    dest = write_backtest_result(paths, run_id=run_id, meta=meta, summary=summary)
+    assert dest.exists()
+
+    jsonl_path = tmp_path / "docs/results/runs_registry.jsonl"
+    assert jsonl_path.exists()
+    lines = jsonl_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["run_id"] == run_id
+    assert record["model"] == "P27"
+
+    runs_pq_path = tmp_path / "data/results/runs.parquet"
+    assert runs_pq_path.exists()
+    df = pl.read_parquet(runs_pq_path)
+    assert df.height == 1
+    assert df["run_id"][0] == run_id
+    assert df["model"][0] == "P27"
+
+
+def test_rebuild_runs_registry_from_existing_dirs(tmp_path: Path) -> None:
+    import json
+    import polars as pl
+    from src.core.paths import DataPaths
+    from src.reporting.results import rebuild_runs_registry
+
+    res_dir = tmp_path / "docs/results/20260904T064843Z_P27_20250801_20251114_0300_0500_0010"
+    res_dir.mkdir(parents=True, exist_ok=True)
+    meta = {"model": "P27", "start": "2025-08-01", "end": "2025-11-14"}
+    summary = {"n_windows": 35, "exceedance": {"0.5": 0.4286}, "championship_gate_status": "PASS"}
+    (res_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (res_dir / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+
+    paths = DataPaths(root=tmp_path / "data", project_root=tmp_path)
+    count = rebuild_runs_registry(paths)
+    assert count == 1
+
+    jsonl_path = tmp_path / "docs/results/runs_registry.jsonl"
+    assert jsonl_path.exists()
+    runs_pq = tmp_path / "data/results/runs.parquet"
+    assert runs_pq.exists()
+    df = pl.read_parquet(runs_pq)
+    assert df.height == 1
+    assert df["run_id"][0] == "20260904T064843Z_P27_20250801_20251114_0300_0500_0010"
+

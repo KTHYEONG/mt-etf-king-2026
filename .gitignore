@@ -225,3 +225,7 @@ tmp/
 # Repository-local dataset artifacts (raw payloads, normalized Parquet, manifests)
 /data/*
 !/data/.gitkeep
+
+# Results large binary artifacts (Parquet time-series)
+docs/results/**/*.parquet
+
