@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_48_P31_CONVEX_LOTTERY",
+      "date": "2026-09-04",
+      "adr_id": "ADR_20260904_48_P31_CONVEX_LOTTERY",
+      "domain": "alpha",
+      "title": "P31 Convex Lottery Impulse — beta deny · dual-gate cash default",
+      "why": "P27 P>50=4.26% but 96% LOYO concentration in 2025-26; BUY mass 122630/233740 beta 2x (987/1332); session oracle P(convex_max>50%)=14.5% vs beta 6.6% with 97% convex wins when hot.",
+      "resolution": "Implemented ConvexImpulseModel (convex.lottery_impulse/P31): exact-match beta_family deny, macro/synthetic/capacity filters, impulse(mom5>mom20,mom10≥8%,volx≥1.2) else continuation(mom60≥20%,mom20>0) else CASH, crash-cash dd20<-12%, path_dependent HOLD; registry/CLI/constraints/yaml wiring; 8 unit tests + lean_check PASS. Backtest 20260904T033654Z: P>50=4.16% q99=106.5% ruin=0.86% trades=126 (0 beta); 2025 oneshot +47.4%; gross_viol=70 G1_TAIL FAIL PRIMARY_CI vs P27; LOYO concentration=1.0.",
+      "impact": "L4 alpha: P31 operational research candidate; structural beta removal confirmed; CHAMPION_STRATEGY remains sticky.mom60_raw; promotion blocked pending gross invariant fix and gate calibration."
+    },
+    {
       "task_id": "TASK_47_CHAMPION_PATH_LOGIC",
       "date": "2026-09-03",
       "adr_id": "ADR_20260903_47_CHAMPION_PATH_LOGIC",
