@@ -398,3 +398,69 @@ def test_aggregate_counts_execution_not_carry() -> None:
     assert int(rolling.gross_violation_count) == 1
     assert int(rolling.carry_gross_drift_count) == 1
     assert int(rolling.delever_required_count) == 1
+
+
+def test_cash_intent_adv_caps_partial_flatten() -> None:
+    from datetime import date
+
+    from src.backtest.costs import CostConfig, CostModel
+    from src.execution.ledger import PortfolioLedgerState, transition_portfolio_state
+    from src.portfolio.intent import CASH_INTENT
+
+    equity = 1_000_000_000.0
+    phi = 0.01
+    state = PortfolioLedgerState(cash=equity * 0.05, shares={"OLD": (equity * 0.95) / 100.0})
+    opens = {"OLD": 100.0}
+    adv = {"OLD": equity * 0.10 / phi}
+    result = transition_portfolio_state(
+        prior_state=state,
+        intent=CASH_INTENT,
+        decision_date=date(2026, 1, 2),
+        prev_closes=opens,
+        opens=opens,
+        closes={"OLD": 100.0},
+        cost_model=CostModel(CostConfig(0.0, 0.0, 0.0)),
+        adv_by_ticker=adv,
+        max_order_to_adv=phi,
+        exposure_limits=(0.95, 1.90, 0.05),
+        leverage_multiples={"OLD": 2},
+        execution=None,
+        panel=None,
+    )
+    assert result.diagnostics.cash_session is True
+    assert result.diagnostics.post_fill_gross > 1e-9
+    assert result.diagnostics.post_fill_gross <= 1.90 + 1e-9
+    assert abs(result.diagnostics.post_fill_gross - 1.70) < 1e-6
+    assert result.diagnostics.execution_gross_violation is False
+
+
+def test_cash_intent_full_flatten_when_adv_allows() -> None:
+    from datetime import date
+
+    from src.backtest.costs import CostConfig, CostModel
+    from src.execution.ledger import PortfolioLedgerState, transition_portfolio_state
+    from src.portfolio.intent import CASH_INTENT
+
+    equity = 1_000_000_000.0
+    phi = 0.01
+    state = PortfolioLedgerState(cash=equity * 0.05, shares={"OLD": (equity * 0.95) / 100.0})
+    opens = {"OLD": 100.0}
+    adv = {"OLD": equity * 10.0 / phi}
+    result = transition_portfolio_state(
+        prior_state=state,
+        intent=CASH_INTENT,
+        decision_date=date(2026, 1, 2),
+        prev_closes=opens,
+        opens=opens,
+        closes={"OLD": 100.0},
+        cost_model=CostModel(CostConfig(0.0, 0.0, 0.0)),
+        adv_by_ticker=adv,
+        max_order_to_adv=phi,
+        exposure_limits=(0.95, 1.90, 0.05),
+        leverage_multiples={"OLD": 2},
+        execution=None,
+        panel=None,
+    )
+    assert result.diagnostics.cash_session is True
+    assert result.diagnostics.post_fill_gross <= 1e-9
+    assert result.diagnostics.execution_gross_violation is False

@@ -20,7 +20,7 @@ def test_SCENARIO_DSR_04_write_and_refuse(tmp_path: Path) -> None:  # noqa: N802
     meta = {"model": "B1", "start": "2026-01-01", "end": "2026-01-10", "horizon": 20}
     summary = {"n_windows": 10, "quantiles": {"0.5": 0.01}, "cvar_05": -0.02, "right_tail_score": 0.1}
     dest = write_backtest_result(paths, run_id=run_id, meta=meta, summary=summary)
-    assert dest == tmp_path / "results" / run_id
+    assert dest == tmp_path / "docs/results" / run_id
     assert (dest / "meta.json").exists()
     assert (dest / "summary.json").exists()
     with open(dest / "meta.json", encoding="utf-8") as f:
