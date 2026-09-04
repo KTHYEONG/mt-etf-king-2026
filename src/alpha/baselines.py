@@ -2368,6 +2368,49 @@ def _make_p28b() -> StickyLeaderModel:
     return model
 
 
+def _make_p33() -> StickyLeaderModel:
+    from pathlib import Path
+
+    import yaml
+
+    from src.alpha.sticky import StickyLeaderModel
+
+    _ = StickyLeaderModel
+    _ = _make_p27
+    _ = _make_p33
+    base = _make_p27()
+    raw_config: Mapping[str, object] = {}
+    try:
+        config_path = Path("configs/strategies.yaml")
+        if config_path.exists():
+            with config_path.open(encoding="utf-8") as handle:
+                document = yaml.safe_load(handle) or {}
+            portfolio = document.get("portfolio") if isinstance(document, dict) else None
+            sticky = portfolio.get("sticky") if isinstance(portfolio, dict) else None
+            candidate = sticky.get("mom60_runner_reversal") if isinstance(sticky, Mapping) else None
+            if isinstance(candidate, Mapping):
+                raw_config = candidate
+    except Exception:
+        raw_config = {}
+    config = base.config.from_yaml(raw_config) if raw_config else base.config
+    model = StickyLeaderModel(name="P33", config=config)
+    model.name = "P33"
+    model.config.mom_col = "mom_60"
+    model.config.min_gap = 0.04
+    model.config.min_hold = 2
+    model.config.only_plus_2 = True
+    model.config.no_inverse = True
+    model.config.abs_mom_cash = True
+    model.config.exclude_synthetic = True
+    model.config.min_fill_ratio = 0.25
+    model.config.collapse_family = False
+    model.config.same_leader_hold = False
+    model.config.runner_reversal_exit = True
+    model.config.runner_mom_col = "mom_5"
+    _ = "P33"
+    return model
+
+
 from src.strategies.registry import LEGACY_ALIASES, build_strategy_registry, resolve_strategy_id
 
 

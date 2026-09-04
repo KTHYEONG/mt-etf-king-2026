@@ -66,4 +66,137 @@ def write_backtest_result(
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump(summary_doc, f, ensure_ascii=False, indent=2)
         f.write("\n")
+
+    _append_to_registries(paths, run_id=run_id, meta=meta_doc, summary=summary_doc)
     return dest
+
+
+def _extract_summary_record(run_id: str, meta: Mapping[str, object], summary: Mapping[str, object]) -> dict[str, object]:
+    quantiles = summary.get("quantiles") or {}
+    exceedance = summary.get("exceedance") or {}
+    realised = summary.get("realised_exposure") or {}
+    field_rel = summary.get("field_relative") or {}
+
+    def _f(val: object) -> float | None:
+        if val is None:
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
+    def _i(val: object) -> int | None:
+        if val is None:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    return {
+        "run_id": str(run_id),
+        "model": str(meta.get("model") or meta.get("strategy_id") or ""),
+        "strategy_id": str(meta.get("strategy_id") or ""),
+        "legacy_model_id": str(meta.get("legacy_model_id") or ""),
+        "start": str(meta.get("start") or ""),
+        "end": str(meta.get("end") or ""),
+        "horizon": _i(meta.get("horizon")),
+        "n_windows": _i(summary.get("n_windows")),
+        "n_effective": _i(summary.get("n_effective")),
+        "p_gt_30": _f(exceedance.get("0.3")),
+        "p_gt_40": _f(exceedance.get("0.4")),
+        "p_gt_50": _f(exceedance.get("0.5")),
+        "q50": _f(quantiles.get("0.5")),
+        "q90": _f(quantiles.get("0.9")),
+        "q95": _f(quantiles.get("0.95")),
+        "q99": _f(quantiles.get("0.99")),
+        "cvar_05": _f(summary.get("cvar_05")),
+        "giveback_median": _f(summary.get("giveback_median")),
+        "giveback_q90": _f(summary.get("giveback_q90")),
+        "right_tail_score": _f(summary.get("right_tail_score")),
+        "win_rate": _f(field_rel.get("win_rate")),
+        "top2_rate": _f(field_rel.get("top2_rate")),
+        "effective_gross_mean": _f(realised.get("effective_gross_mean")),
+        "effective_gross_max": _f(summary.get("effective_gross_max") or realised.get("effective_gross_max")),
+        "gross_violation_count": _i(summary.get("gross_violation_count") or realised.get("gross_violation_count") or 0),
+        "turnover": _f(realised.get("turnover")),
+        "championship_gate_status": str(summary.get("championship_gate_status") or ""),
+        "adoption_gate_status": str(summary.get("adoption_gate_status") or ""),
+        "objective_gate_status": str(summary.get("objective_gate_status") or ""),
+        "created_at": str(meta.get("created_at") or datetime.now(UTC).isoformat()),
+    }
+
+
+def _append_to_registries(paths: DataPaths, *, run_id: str, meta: Mapping[str, object], summary: Mapping[str, object]) -> None:
+    record = _extract_summary_record(run_id, meta, summary)
+    anchor = paths._anchor_root()
+
+    # 1. Append to docs/results/runs_registry.jsonl (Git tracked)
+    jsonl_dir = anchor / "docs/results"
+    jsonl_dir.mkdir(parents=True, exist_ok=True)
+    jsonl_path = jsonl_dir / "runs_registry.jsonl"
+    with jsonl_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    # 2. Append/Upsert into data/results/runs.parquet (Local analytics table)
+    data_results_dir = paths.root / "results"
+    data_results_dir.mkdir(parents=True, exist_ok=True)
+    runs_pq_path = data_results_dir / "runs.parquet"
+
+    new_row = pl.DataFrame([record])
+    if runs_pq_path.exists():
+        try:
+            existing = pl.read_parquet(runs_pq_path)
+            # filter out existing run_id to support idempotent upsert
+            existing = existing.filter(pl.col("run_id") != run_id)
+            combined = pl.concat([existing, new_row], how="diagonal")
+        except Exception:
+            combined = new_row
+    else:
+        combined = new_row
+    combined.write_parquet(runs_pq_path, compression="zstd")
+
+
+def rebuild_runs_registry(paths: DataPaths) -> int:
+    """Scan docs/results directories and rebuild runs_registry.jsonl and runs.parquet."""
+    anchor = paths._anchor_root()
+    docs_results = anchor / "docs/results"
+    if not docs_results.exists():
+        return 0
+
+    records: list[dict[str, object]] = []
+    # Find all directories containing summary.json and meta.json
+    for child in sorted(docs_results.iterdir()):
+        if not child.is_dir():
+            continue
+        meta_file = child / "meta.json"
+        summ_file = child / "summary.json"
+        if not meta_file.exists() or not summ_file.exists():
+            continue
+        try:
+            with meta_file.open(encoding="utf-8") as f:
+                meta = json.load(f)
+            with summ_file.open(encoding="utf-8") as f:
+                summ = json.load(f)
+            record = _extract_summary_record(child.name, meta, summ)
+            records.append(record)
+        except Exception:
+            continue
+
+    if not records:
+        return 0
+
+    # Write runs_registry.jsonl
+    jsonl_path = docs_results / "runs_registry.jsonl"
+    with jsonl_path.open("w", encoding="utf-8") as f:
+        for r in records:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    # Write runs.parquet
+    data_results_dir = paths.root / "results"
+    data_results_dir.mkdir(parents=True, exist_ok=True)
+    runs_pq_path = data_results_dir / "runs.parquet"
+    df = pl.DataFrame(records)
+    df.write_parquet(runs_pq_path, compression="zstd")
+    return len(records)
+

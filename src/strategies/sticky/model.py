@@ -71,8 +71,13 @@ def blend_rank_scores(primary: Mapping[str, float], aux: Mapping[str, float], *,
     rp = cross_section_percentile_ranks({k: p[k] for k in keys})
     ra = cross_section_percentile_ranks({k: a[k] for k in keys})
     return {k: wp * rp[k] + wa * ra[k] for k in keys}
-
-
+def momentum_horizon(mom_col: str, *, default: int = 5) -> int:
+    try: d = int(default)
+    except Exception: d = 5
+    if d <= 0: d = 5
+    try:
+        s = str(mom_col).strip().rsplit("_", 1)[-1] if isinstance(mom_col, str) and "_" in str(mom_col) else ""; v = int(s) if s.isdigit() else int(d); return int(v) if int(v) > 0 else int(d)
+    except Exception: return int(d)
 @dataclass
 class StickyLeaderConfig:
     mom_col: str = "mom_20"
@@ -93,7 +98,8 @@ class StickyLeaderConfig:
     score_aux_weight: float = 0.0
     exclude_synthetic: bool = False
     min_fill_ratio: float = 0.0
-
+    runner_reversal_exit: bool = False
+    runner_mom_col: str = "mom_5"
     @classmethod
     def from_yaml(cls, raw: Mapping[str, object]) -> StickyLeaderConfig:
         defaults = cls()
@@ -270,6 +276,19 @@ class StickyLeaderConfig:
                 same_leader_hold = bool(raw["same_leader_hold"])
         except Exception:
             same_leader_hold = defaults.same_leader_hold
+        runner_reversal_exit = defaults.runner_reversal_exit
+        try:
+            if "runner_reversal_exit" in raw:
+                runner_reversal_exit = bool(raw["runner_reversal_exit"])
+        except Exception:
+            runner_reversal_exit = defaults.runner_reversal_exit
+        runner_mom_col = defaults.runner_mom_col
+        try:
+            value = raw.get("runner_mom_col")
+            if isinstance(value, str) and value.strip():
+                runner_mom_col = value.strip()
+        except Exception:
+            runner_mom_col = defaults.runner_mom_col
         return cls(
             mom_col=str(mom_col),
             only_plus_2=bool(only_plus_2),
@@ -289,6 +308,8 @@ class StickyLeaderConfig:
             exclude_synthetic=bool(exclude_synthetic),
             min_fill_ratio=float(min_fill_ratio),
             abs_mom_cash=bool(abs_mom_cash),
+            runner_reversal_exit=bool(runner_reversal_exit),
+            runner_mom_col=str(runner_mom_col),
         )
 def collapse_plus2_by_family(scores: Mapping[str, float], snapshot: pl.DataFrame, adv_col: str = "trading_value") -> dict[str, float]:
     if not scores:
@@ -407,8 +428,6 @@ def collapse_plus2_by_family(scores: Mapping[str, float], snapshot: pl.DataFrame
             except Exception:
                 continue
     return out
-
-
 def filter_plus2_scores(snapshot: pl.DataFrame, config: StickyLeaderConfig) -> dict[str, float]:
     if snapshot is None or not isinstance(snapshot, pl.DataFrame):
         return {}
@@ -527,20 +546,12 @@ class StickyLeaderModel:
     config: StickyLeaderConfig
     path_dependent: bool = True
     scores_path_independent: bool = False
-
     def __init__(self, name: str = "P20", config: StickyLeaderConfig | None = None) -> None:
-        self.name = str(name)
-        self.config = config if config is not None else StickyLeaderConfig()
-        self._held: str | None = None
-        self._hold_len: int = 0
-
+        self.name = str(name); self.config = config if config is not None else StickyLeaderConfig(); self._held: str | None = None; self._hold_len: int = 0; self._runner_ticker: str | None = None; self._runner_entry_capital: float | None = None; self._runner_peak_capital: float | None = None; self._runner_held_sessions: int = 0; self._runner_armed: bool = False
     def reset_trackers(self) -> None:
-        self._held = None
-        self._hold_len = 0
-
+        self._held = None; self._hold_len = 0; self._runner_ticker = None; self._runner_entry_capital = None; self._runner_peak_capital = None; self._runner_held_sessions = 0; self._runner_armed = False
     def restore_state(self, held: str | None, hold_len: int) -> None:
         import math as _math
-
         if held is not None and not isinstance(held, str):
             raise ValueError("held must be str or None")
         try:
@@ -558,7 +569,6 @@ class StickyLeaderModel:
             raise ValueError("hold_len must be >=0")
         self._held = held
         self._hold_len = int(hl)
-
     def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float] | object:
         filtered = filter_plus2_scores(snapshot, self.config)
         try:
@@ -582,7 +592,6 @@ class StickyLeaderModel:
             )
             if not filtered:
                 from src.portfolio.intent import CASH_INTENT as _CASH_CAP
-
                 return _CASH_CAP
         try:
             _aux_col = getattr(self.config, "score_aux_col", None)
@@ -609,7 +618,6 @@ class StickyLeaderModel:
                 filtered = blend_rank_scores(filtered, _aux_raw, w_primary=1.0 - _aux_w, w_aux=_aux_w)
             if not filtered:
                 from src.portfolio.intent import CASH_INTENT as _CASH_AUX
-
                 return _CASH_AUX
         if getattr(self.config, "collapse_family", False):
             try:
@@ -640,16 +648,30 @@ class StickyLeaderModel:
         elif held is not None:
             self._hold_len += 1
         # else held is None and _held is None -> keep 0
+        # P33 confirmed-runner-reversal tracker (model-local, reversible cash exit only)
+        _runner_exit = bool(getattr(self.config, "runner_reversal_exit", False)); _runner_cap: float | None = None; _runner_mom: float | None = None; _runner_mc = "mom_5"
+        if _runner_exit:
+            try: _c = float(getattr(context, "capital", float("nan"))); _runner_cap = float(_c) if math.isfinite(_c) and _c > 0 else None
+            except Exception: _runner_cap = None
+            try: _runner_mc = str(getattr(self.config, "runner_mom_col", "mom_5"))
+            except Exception: _runner_mc = "mom_5"
+            try: _hz = int(momentum_horizon(_runner_mc))
+            except Exception: _hz = 5
+            if held is None or _runner_cap is None or _hz <= 0:
+                if held is None: self._runner_ticker = None; self._runner_entry_capital = None; self._runner_peak_capital = None; self._runner_held_sessions = 0
+                self._runner_armed = False
+            elif getattr(self, "_runner_ticker", None) != held: self._runner_ticker = str(held); self._runner_entry_capital = float(_runner_cap); self._runner_peak_capital = float(_runner_cap); self._runner_held_sessions = 1; self._runner_armed = False
+            else:
+                self._runner_held_sessions = int(getattr(self, "_runner_held_sessions", 0) or 0) + 1
+                try: _pk = float(getattr(self, "_runner_peak_capital", _runner_cap)); _pk = float(_runner_cap) if not math.isfinite(_pk) else max(float(_pk), float(_runner_cap)); self._runner_peak_capital = float(_pk); _en = float(getattr(self, "_runner_entry_capital", float("nan"))); _pn = float(getattr(self, "_runner_peak_capital", float("nan"))); self._runner_armed = bool(math.isfinite(_en) and math.isfinite(_pn) and int(getattr(self, "_runner_held_sessions", 0)) >= _hz and _pn > _en)
+                except Exception: self._runner_armed = False
+            if held is not None:
+                try:
+                    if isinstance(snapshot, pl.DataFrame) and _runner_mc in snapshot.columns and "ticker" in snapshot.columns: _df = snapshot.filter(pl.col("ticker") == str(held)).head(1); _runner_mom = (lambda _v: (lambda _f: float(_f) if math.isfinite(float(_f)) else None)(float(_v) if _v is not None else float("nan")))(_df.row(0, named=True).get(_runner_mc)) if _df.height > 0 else None
+                except Exception: _runner_mom = None
         if getattr(self.config, "collapse_family", False):
-            try:
-                n_scores = len(filtered)
-                if filtered:
-                    top_ticker = sorted(filtered.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))[0][0]
-                else:
-                    top_ticker = ""
-                logger.debug(f"[ALGO] ticker={top_ticker} held={held} n_scores={n_scores}")
-            except Exception:
-                pass
+            try: _ns = len(filtered); _tt = sorted(filtered.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))[0][0] if filtered else ""; logger.debug(f"[ALGO] ticker={_tt} held={held} n_scores={_ns}")
+            except Exception: pass
         sticky = apply_sticky_leader(filtered, held, self.config, self._hold_len)
         from src.strategies.sticky.overlays import (
             apply_abs_mom_cash,
@@ -657,11 +679,13 @@ class StickyLeaderModel:
             apply_impulse_switch,
             apply_same_leader_hold,
         )
-
-        impulsed = apply_impulse_switch(sticky, held, snapshot, self.config)
-        crashed = apply_crash_cash(impulsed, held, snapshot, self.config)
-        abs_gated = apply_abs_mom_cash(crashed, self.config)
-        out = apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
+        impulsed = apply_impulse_switch(sticky, held, snapshot, self.config); crashed = apply_crash_cash(impulsed, held, snapshot, self.config); abs_gated = apply_abs_mom_cash(crashed, self.config); out = apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
+        if _runner_exit and held is not None and _runner_cap is not None and _runner_mom is not None:
+            try:
+                _pf = float(getattr(self, "_runner_peak_capital", float("nan"))); _ef = float(getattr(self, "_runner_entry_capital", float("nan")))
+                if bool(getattr(self, "_runner_armed", False)) and math.isfinite(_pf) and math.isfinite(_ef) and _pf > _ef and float(_runner_cap) < _pf and float(_runner_mom) <= 0:
+                    from src.portfolio.intent import CASH_INTENT as _CASH_RUNNER; return _CASH_RUNNER
+            except Exception: pass
         try:
             from collections.abc import Mapping as _Mapping
 
