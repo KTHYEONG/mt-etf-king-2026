@@ -1,0 +1,83 @@
+{
+  "n_windows": 35,
+  "n_effective": 0,
+  "quantiles": {
+    "0.05": -0.08148848333451227,
+    "0.25": 0.08770413487795709,
+    "0.5": 0.31533921331585785,
+    "0.75": 0.6272991933377307,
+    "0.9": 0.6704888695755783,
+    "0.95": 0.7282950357501442,
+    "0.99": 0.8164216358639973
+  },
+  "exceedance": {
+    "0.1": 0.7428571428571429,
+    "0.2": 0.6571428571428571,
+    "0.3": 0.5428571428571428,
+    "0.4": 0.45714285714285713,
+    "0.5": 0.42857142857142855
+  },
+  "cvar_05": -0.10009976117949937,
+  "giveback_median": 0.05694795150518961,
+  "giveback_q90": 0.14230771695793193,
+  "right_tail_score": 0.7083793374380624,
+  "diagnostic_overlay": [],
+  "comparison_mode": {
+    "alpha_equal_limits": [
+      0.95,
+      1.9,
+      0.05
+    ],
+    "candidate_limits": [
+      0.95,
+      1.9,
+      0.05
+    ],
+    "incumbent_limits": [
+      0.95,
+      1.9,
+      0.05
+    ]
+  },
+  "field_relative": {
+    "win_rate": 0.7714285714285715,
+    "top2_rate": 1.0,
+    "median_rank_percentile": 0.5
+  },
+  "oneshot": {
+    "starts": [],
+    "rows": []
+  },
+  "gross_violation_count": 0,
+  "effective_gross_max": 1.9,
+  "championship_gate_status": "PASS",
+  "championship_gate_failures": [],
+  "adoption_gate_status": "PASS",
+  "adoption_gate_fails": [],
+  "windows_rows": 35,
+  "realised_exposure": {
+    "active_name_mean": 0.9571428571428572,
+    "active_family_mean": 0.9571428571428572,
+    "multi_family_rate": 0.0,
+    "invested_weight_mean": 0.9092857142857143,
+    "effective_gross_mean": 1.8185714285714285,
+    "effective_gross_q90": 1.9,
+    "effective_gross_max": 1.9,
+    "gross_violation_count": 0,
+    "mult2_filled_notional_rate": 1.0,
+    "turnover": 2.8499999999999996,
+    "unfilled_session_rate": 0.0
+  },
+  "objective_gate_status": "INSUFFICIENT_EVIDENCE",
+  "objective_gate_fails": [
+    "INSUFFICIENT_SAMPLE"
+  ],
+  "objective_ruin_probability": 1.0,
+  "artifacts": {
+    "daily": "daily.parquet",
+    "trades": "trades.parquet",
+    "windows": "windows.parquet"
+  },
+  "daily_rows": 70,
+  "trade_rows": 69
+}
