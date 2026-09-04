@@ -164,10 +164,18 @@ def rebuild_runs_registry(paths: DataPaths) -> int:
     if not docs_results.exists():
         return 0
 
+    candidate_dirs = []
+    data_results_dir = paths.root / "results"
+    if data_results_dir.exists():
+        candidate_dirs.extend([d for d in data_results_dir.iterdir() if d.is_dir()])
+    if docs_results.exists():
+        candidate_dirs.extend([d for d in docs_results.iterdir() if d.is_dir()])
+
+    seen_run_ids = set()
     records: list[dict[str, object]] = []
     # Find all directories containing summary.json and meta.json
-    for child in sorted(docs_results.iterdir()):
-        if not child.is_dir():
+    for child in sorted(candidate_dirs, key=lambda p: p.name):
+        if child.name in seen_run_ids:
             continue
         meta_file = child / "meta.json"
         summ_file = child / "summary.json"
@@ -180,6 +188,7 @@ def rebuild_runs_registry(paths: DataPaths) -> int:
                 summ = json.load(f)
             record = _extract_summary_record(child.name, meta, summ)
             records.append(record)
+            seen_run_ids.add(child.name)
         except Exception:
             continue
 
