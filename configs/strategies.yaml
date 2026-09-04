@@ -126,6 +126,21 @@ portfolio:
       max_single_weight: 0.95
       max_gross_exposure: 1.9
       min_cash: 0.05
+    lottery_impulse:
+      impulse_min: 0.08
+      volx_min: 1.2
+      continuation_min: 0.20
+      crash_drawdown: -0.12
+      min_gap: 0.04
+      min_hold: 2
+      overlay_mode: identity
+      exclude_name_tokens: [국채, 채권, 달러, 엔선물, 골드, 금선물, gold, 커버드콜, 스티프너, 플래트너]
+      exclude_synthetic: true
+      min_fill_ratio: 0.25
+      beta_family_keys: [코스피 200, 코스피 200 선물지수, 코스닥 150, F-코스닥150 지수, KRX 300]
+      max_single_weight: 0.95
+      max_gross_exposure: 1.9
+      min_cash: 0.05
   p29:
     mom_col: mom_60
     only_plus_2: true
@@ -160,6 +175,37 @@ portfolio:
     exclude_name_tokens: [국채, 채권, 달러, 엔선물, 골드, 금선물, gold, 커버드콜, 스티프너, 플래트너]
     exclude_synthetic: true
     min_fill_ratio: 0.25
+    max_single_weight: 0.95
+    max_gross_exposure: 1.9
+    min_cash: 0.05
+  convex:
+    lottery_impulse:
+      impulse_min: 0.08
+      volx_min: 1.2
+      continuation_min: 0.20
+      crash_drawdown: -0.12
+      min_gap: 0.04
+      min_hold: 2
+      overlay_mode: identity
+      exclude_name_tokens: [국채, 채권, 달러, 엔선물, 골드, 금선물, gold, 커버드콜, 스티프너, 플래트너]
+      exclude_synthetic: true
+      min_fill_ratio: 0.25
+      beta_family_keys: [코스피 200, 코스피 200 선물지수, 코스닥 150, F-코스닥150 지수, KRX 300]
+      max_single_weight: 0.95
+      max_gross_exposure: 1.9
+      min_cash: 0.05
+  p31:
+    impulse_min: 0.08
+    volx_min: 1.2
+    continuation_min: 0.20
+    crash_drawdown: -0.12
+    min_gap: 0.04
+    min_hold: 2
+    overlay_mode: identity
+    exclude_name_tokens: [국채, 채권, 달러, 엔선물, 골드, 금선물, gold, 커버드콜, 스티프너, 플래트너]
+    exclude_synthetic: true
+    min_fill_ratio: 0.25
+    beta_family_keys: [코스피 200, 코스피 200 선물지수, 코스닥 150, F-코스닥150 지수, KRX 300]
     max_single_weight: 0.95
     max_gross_exposure: 1.9
     min_cash: 0.05
