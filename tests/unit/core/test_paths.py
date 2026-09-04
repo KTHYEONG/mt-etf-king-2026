@@ -42,7 +42,7 @@ def test_SCENARIO_DSR_05_bronze_gz_and_results(tmp_path: Path) -> None:  # noqa:
     assert p.suffixes == [".json", ".gz"] or p.name.endswith(".json.gz")
     assert p == root / "raw/krx/etp/etf_bydd_trd/2026/20260827.json.gz"
     # results
-    assert dp.results("run_a") == root / "results" / "run_a"
+    assert dp.results("run_a") == root / "docs/results" / "run_a"
     with pytest.raises(ValueError, match="path traversal not allowed"):
         dp.results("..")
     with pytest.raises(ValueError, match="absolute path not allowed"):
@@ -53,8 +53,8 @@ def test_SCENARIO_DSR_05_bronze_gz_and_results(tmp_path: Path) -> None:  # noqa:
 
 def test_paths_trace_under_results_and_guard(tmp_path: Path) -> None:
     dp = DataPaths(root=tmp_path)
-    assert dp.trace("run_a") == tmp_path / "results" / "run_a" / "trace"
-    assert not (tmp_path / "results").exists()
+    assert dp.trace("run_a") == tmp_path / "docs/results" / "run_a" / "trace"
+    assert not (tmp_path / "docs/results").exists()
     with pytest.raises(ValueError, match="path traversal"):
         dp.trace("..")
     with pytest.raises(ValueError, match="path traversal"):
