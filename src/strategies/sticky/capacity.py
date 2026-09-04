@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 import polars as pl
+
+
+def cached_filtered_scores(
+    cache: dict[int, dict[str, float]], snapshot: pl.DataFrame, scorer: Callable[[pl.DataFrame], dict[str, float]]
+) -> dict[str, float]:
+    key = id(snapshot)
+    if key not in cache:
+        cache[key] = scorer(snapshot)
+    return dict(cache[key])
 
 
 def apply_capacity_filter(
