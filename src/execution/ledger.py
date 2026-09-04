@@ -10,7 +10,7 @@ import polars as pl
 
 from src.backtest.costs import CostModel
 from src.backtest.execution import NextOpenExecution, is_open_fillable
-from src.backtest.liquidity import cap_target_weights_by_adv, constrain_target_weights_sell_first
+from src.backtest.liquidity import apply_intent_liquidity_constraints, cap_target_weights_by_adv, constrain_target_weights_sell_first
 from src.portfolio.intent import CASH_INTENT, HOLD_INTENT, PortfolioIntent, resolve_portfolio_intent
 
 
@@ -213,14 +213,15 @@ def transition_portfolio_state(
     # INV-WEIGHT-2 ADV cap uses weights_before_open
     gross_after_sell = 0.0
     residual_gross_budget = 0.0
-    if not is_hold and not is_cash and target is not None and adv_by_ticker is not None and max_order_to_adv is not None:
+    # CASH passes through liquidity (HOLD skips); prev anchor: if not is_hold and not is_cash and target is not None
+    if not is_hold and target is not None and adv_by_ticker is not None and max_order_to_adv is not None:
         if target:
             try:
                 adv_map = {str(k): float(v) for k, v in dict(adv_by_ticker).items() if v is not None}
                 if exposure_limits is not None:
                     _, _max_gross_sf, _ = exposure_limits
                     mults_sf = leverage_multiples if isinstance(leverage_multiples, Mapping) else {}
-                    target = constrain_target_weights_sell_first(
+                    target = apply_intent_liquidity_constraints(
                         target,
                         weights_before_open,
                         float(equity_open),
@@ -230,7 +231,15 @@ def transition_portfolio_state(
                         max_gross_exposure=float(_max_gross_sf),
                     )
                 else:
-                    target = cap_target_weights_by_adv(target, weights_before_open, float(equity_open), adv_map, float(max_order_to_adv))
+                    target = apply_intent_liquidity_constraints(
+                        target,
+                        weights_before_open,
+                        float(equity_open),
+                        adv_map,
+                        float(max_order_to_adv),
+                        leverage_multiples=leverage_multiples if isinstance(leverage_multiples, Mapping) else {},  # type: ignore[arg-type]
+                        max_gross_exposure=None,
+                    )
             except Exception:
                 pass
 
