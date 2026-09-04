@@ -17,6 +17,45 @@ def test_family_tail_label_uses_next_open_real_one_x_prices() -> None:
     assert result.item(0, 'source_ticker') == 'ONE_X'
 
 
+def test_family_tail_label_normalizes_mixed_numeric_feature_types() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.alpha.champion_dataset import ChampionDatasetConfig, build_family_tail_dataset
+
+    d0, d1, d2 = date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)
+    candidates = pl.DataFrame(
+        {
+            'decision_date': [d0, d0],
+            'source_ticker': ['ONE', 'TWO'],
+            'family_key': ['ONE', 'TWO'],
+            'mom_5': pl.Series('mom_5', [0, 0.073575], dtype=pl.Float64),
+        }
+    )
+    prices = pl.DataFrame(
+        {
+            'date': [d0, d1, d2, d0, d1, d2],
+            'ticker': ['ONE', 'ONE', 'ONE', 'TWO', 'TWO', 'TWO'],
+            'open': [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+            'close': [100.0, 110.0, 120.0, 100.0, 110.0, 120.0],
+        }
+    )
+
+    result = build_family_tail_dataset(
+        candidates,
+        prices,
+        sessions=[d0, d1, d2],
+        config=ChampionDatasetConfig(
+            feature_columns=('mom_5',), label_horizon=2, entry_cost_rate=0.0, exit_cost_rate=0.0,
+        ),
+    )
+
+    assert result.height == 2
+    assert result.schema['mom_5'] == pl.Float64
+    assert result.get_column('mom_5').to_list() == [0.0, 0.073575]
+
+
 def test_collect_family_candidates_is_deployment_pit_one_x_only() -> None:
     from datetime import date
     import polars as pl
