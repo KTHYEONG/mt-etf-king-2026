@@ -227,6 +227,11 @@ portfolio:
     min_cash: 0.05
   adoption:
     vehicle_conf_min: 0.85
+  champion_tail:
+    max_single_weight: 0.80
+    max_effective_gross: 1.60
+    min_cash: 0.05
+    absolute_momentum_cash: true
   tail_concentration:
     enabled: true
     tradable_states:

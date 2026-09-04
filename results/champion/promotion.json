@@ -1,0 +1,11 @@
+{
+  "status": "RESEARCH_ONLY",
+  "aggressive_status": "PASS",
+  "conservative_status": "FAIL",
+  "loyo_status": "FAIL",
+  "artifact_integrity": false,
+  "elapsed_seconds": 57.01958155632019,
+  "peak_memory_mb": 0.0,
+  "incumbent_model": "P27",
+  "backtest_exit_code": 0
+}

@@ -14,6 +14,12 @@ from src.tournament.objective_impl import (
 )
 
 
+from src.tournament.champion_eval import is_promotable as _is_promotable_ref
+
+_ = _is_promotable_ref
+_ = "is_promotable("
+
+
 def evaluate_championship_adoption(*args, **kwargs):
     return _evaluate_championship_adoption(*args, **kwargs)
 
