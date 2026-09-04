@@ -174,6 +174,7 @@ def build_family_tail_dataset(
         net = gross * (1.0 - float(config.exit_cost_rate)) / (1.0 + float(config.entry_cost_rate)) - 1.0
         if not math.isfinite(net):
             continue
+        net = round(float(net), 12)
         out: dict[str, object] = {
             "decision_date": d,
             "source_ticker": ticker,

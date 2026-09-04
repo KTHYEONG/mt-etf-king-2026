@@ -75,6 +75,70 @@ class ChampionResearchRuntime:
     ranker_num_leaves: int = 8
     ranker_max_depth: int = 4
     ranker_min_data_in_leaf: int = 100
+    candidate_mode: str = "p27_matched_2x"
+
+
+@dataclass(frozen=True)
+class P27MatchedComparisonProfile:
+    candidate_model_name: str
+    incumbent_model_name: str
+    candidate_limits: tuple[float, float, float]
+    incumbent_limits: tuple[float, float, float]
+
+
+def p27_matched_comparison_profile() -> P27MatchedComparisonProfile:
+    from src.portfolio.constraints import load_p27_exposure_limits
+
+    candidate_limits = load_p27_exposure_limits()
+    incumbent_limits = load_p27_exposure_limits()
+    return P27MatchedComparisonProfile(
+        candidate_model_name="P27",
+        incumbent_model_name="P27",
+        candidate_limits=(float(candidate_limits[0]), float(candidate_limits[1]), float(candidate_limits[2])),
+        incumbent_limits=(float(incumbent_limits[0]), float(incumbent_limits[1]), float(incumbent_limits[2])),
+    )
+
+
+class P27MatchedOosModel:
+    name: str = "P27"
+    candidate_id: str = "P35"
+
+    def __init__(self, *, scores: OosScoreStore) -> None:
+        self._scores = scores
+
+    def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float] | PortfolioIntent:
+        import math as _math
+
+        if snapshot is None or getattr(snapshot, "height", 0) == 0:
+            return HOLD_INTENT
+        cols = list(getattr(snapshot, "columns", []))
+        if "ticker" in cols:
+            col = "ticker"
+        elif "source_ticker" in cols:
+            col = "source_ticker"
+        else:
+            return HOLD_INTENT
+        try:
+            eligible = [str(t) for t in snapshot.select(pl.col(col)).to_series().to_list()]
+        except Exception:
+            return HOLD_INTENT
+        if not eligible:
+            return HOLD_INTENT
+        if len(set(eligible)) != len(eligible):
+            return HOLD_INTENT
+        try:
+            out = self._scores.scores_for(context.decision_date, eligible)
+        except Exception:
+            return HOLD_INTENT
+        if not out:
+            return HOLD_INTENT
+        for v in out.values():
+            try:
+                if not _math.isfinite(float(v)):
+                    return HOLD_INTENT
+            except Exception:
+                return HOLD_INTENT
+        return {str(k): float(v) for k, v in out.items()}
 
 
 class ChampionOosModel:
@@ -117,7 +181,17 @@ class ChampionOosModel:
 def build_champion_oos_scores(
     runtime: ChampionResearchRuntime,
 ) -> tuple[pl.DataFrame, tuple[dict[str, object], ...]]:
+    from dataclasses import replace as _replace
+
+    from src.alpha.champion_dataset import ChampionDatasetConfig as ChampionDatasetConfig  # noqa: F401
+
     dataset_config = runtime.dataset_config
+    # replace(runtime.dataset_config, source_multiple=2) when runtime.candidate_mode == 'p27_matched_2x' before collect_family_candidates
+    if getattr(runtime, "candidate_mode", "p27_matched_2x") == "p27_matched_2x":
+        try:
+            dataset_config = _replace(dataset_config, source_multiple=2)
+        except Exception:
+            pass
     panel = runtime.panel
     engine = runtime.engine
     backtest_config = runtime.backtest_config
@@ -328,14 +402,45 @@ def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> Champio
         )
     # ChampionTailRanker wiring anchor: fresh ranker per fold already used in scores.
     _ = ChampionTailRanker
+    # profile = p27_matched_comparison_profile(); fail closed before run_rolling unless candidate_model_name == incumbent_model_name == 'P27' and candidate_limits == incumbent_limits
+    _profile: P27MatchedComparisonProfile | None = None
+    try:
+        _profile = p27_matched_comparison_profile()
+    except Exception:
+        _profile = None
+    _is_p35 = getattr(runtime, "candidate_mode", "p27_matched_2x") == "p27_matched_2x"
+    if _is_p35:
+        if (
+            _profile is None
+            or _profile.candidate_model_name != "P27"
+            or _profile.incumbent_model_name != "P27"
+            or tuple(_profile.candidate_limits) != tuple(_profile.incumbent_limits)
+        ):
+            return ChampionEvaluation(
+                status="RESEARCH_ONLY",
+                aggressive_status="INSUFFICIENT_EVIDENCE",
+                conservative_status="INSUFFICIENT_EVIDENCE",
+                loyo_status="INSUFFICIENT_EVIDENCE",
+                artifact_integrity=False,
+                elapsed_seconds=time.time() - t0,
+                peak_memory_mb=0.0,
+                extra={"missing_runtime_inputs": ("comparison_profile",), "candidate_id": "P35"},
+            )
     store = OosScoreStore(scores)
+    _ = P27MatchedComparisonProfile
     master = getattr(getattr(runtime.engine, "universe", None), "master", None)
-    aggressive_policy = ChampionTailPolicy(master=master, config=runtime.policy_config)
-    conservative_policy = ChampionTailPolicy(master=master, config=runtime.policy_config)
-    raw_policy = ChampionTailPolicy(master=master, config=runtime.policy_config)
-    aggressive_model = ChampionOosModel(scores=store, policy=aggressive_policy)
-    conservative_model = ChampionOosModel(scores=store, policy=conservative_policy)
-    raw_model = ChampionOosModel(scores=store, policy=raw_policy)
+    if _is_p35:
+        # P27MatchedOosModel(scores=OosScoreStore(scores)) for P35; it deliberately has no allocate method so TournamentSimulator applies P27's generic Top-1 execution path
+        aggressive_model: Any = P27MatchedOosModel(scores=OosScoreStore(scores))
+        conservative_model: Any = P27MatchedOosModel(scores=OosScoreStore(scores))
+        raw_model: Any = P27MatchedOosModel(scores=OosScoreStore(scores))
+    else:
+        aggressive_policy = ChampionTailPolicy(master=master, config=runtime.policy_config)
+        conservative_policy = ChampionTailPolicy(master=master, config=runtime.policy_config)
+        raw_policy = ChampionTailPolicy(master=master, config=runtime.policy_config)
+        aggressive_model = ChampionOosModel(scores=store, policy=aggressive_policy)
+        conservative_model = ChampionOosModel(scores=store, policy=conservative_policy)
+        raw_model = ChampionOosModel(scores=store, policy=raw_policy)
     try:
         p27_aggressive = runtime.p27_factory()
         p27_conservative = runtime.p27_factory()
@@ -437,6 +542,22 @@ def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> Champio
             except Exception:
                 return _insufficient(t0, ("gross_metric",))
     # Aggregate P34 gross violations must be zero (fail-closed, no imputation).
+    if _is_p35 and int(gross_viol) != 0:
+        return ChampionEvaluation(
+            status="RESEARCH_ONLY",
+            aggressive_status="INSUFFICIENT_EVIDENCE",
+            conservative_status="INSUFFICIENT_EVIDENCE",
+            loyo_status="INSUFFICIENT_EVIDENCE",
+            artifact_integrity=False,
+            elapsed_seconds=time.time() - t0,
+            peak_memory_mb=0.0,
+            extra={
+                "missing_runtime_inputs": ("gross_violation",),
+                "candidate_id": "P35",
+                "source_multiple": 2,
+                "promotion_eligible": False,
+            },
+        )
     obj_cfg = runtime.objective_config
     agg_res = evaluate_championship_adoption(
         candidate_returns=agg_rets,
@@ -480,6 +601,30 @@ def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> Champio
         f"[EVAL] champion aggressive={agg_res.status} conservative={con_res.status} loyo={loyo_res.status} "
         f"paired={len(paired_starts)} integrity={integrity} eligible={promotion_eligible}"
     )
+    # write candidate_id='P35', source_multiple=2, selection_equivalent=True, and both equal exposure tuples into promotion.json; preserve status='RESEARCH_ONLY'
+    extra: dict[str, Any] = {
+        "promotion_eligible": promotion_eligible,
+        "paired_windows": len(paired_starts),
+        "effective_windows": len(paired_starts),
+        "aggressive_failures": list(agg_res.failures),
+        "conservative_failures": list(con_res.failures),
+        "loyo_failures": list(loyo_res.failures),
+        "panel_hash": panel_hash,
+        "scores_hash": scores_hash,
+        "lineage": [dict(r) for r in lineage],
+    }
+    if _is_p35 and _profile is not None:
+        extra.update(
+            {
+                "candidate_id": "P35",
+                "source_multiple": 2,
+                "selection_equivalent": True,
+                "candidate_model_name": _profile.candidate_model_name,
+                "incumbent_model_name": _profile.incumbent_model_name,
+                "candidate_limits": list(_profile.candidate_limits),
+                "incumbent_limits": list(_profile.incumbent_limits),
+            }
+        )
     return ChampionEvaluation(
         status="RESEARCH_ONLY",
         aggressive_status=agg_res.status if agg_res.status in ("PASS", "FAIL") else "INSUFFICIENT_EVIDENCE",
@@ -488,17 +633,7 @@ def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> Champio
         artifact_integrity=integrity,
         elapsed_seconds=time.time() - t0,
         peak_memory_mb=0.0,
-        extra={
-            "promotion_eligible": promotion_eligible,
-            "paired_windows": len(paired_starts),
-            "effective_windows": len(paired_starts),
-            "aggressive_failures": list(agg_res.failures),
-            "conservative_failures": list(con_res.failures),
-            "loyo_failures": list(loyo_res.failures),
-            "panel_hash": panel_hash,
-            "scores_hash": scores_hash,
-            "lineage": [dict(r) for r in lineage],
-        },
+        extra=extra,
     )
 
 
@@ -522,7 +657,10 @@ __all__ = [
     "ChampionEvaluation",
     "ChampionOosModel",
     "ChampionResearchRuntime",
+    "P27MatchedComparisonProfile",
+    "P27MatchedOosModel",
     "build_champion_oos_scores",
     "is_promotable",
+    "p27_matched_comparison_profile",
     "run_champion_walk_forward",
 ]
