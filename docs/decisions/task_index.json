@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_50_P33_CONFIRMED_RUNNER_REVERSAL",
+      "date": "2026-09-04",
+      "adr_id": "ADR_20260904_50_P33_CONFIRMED_RUNNER_REVERSAL",
+      "domain": "quant",
+      "title": "P33 Confirmed Runner Reversal — empirical rejection and P27 retention",
+      "why": "P27 tail giveback analysis motivated a PIT runner-reversal exit; full rolling output and a complete 2025 window run were executed under the P32 next-open/cost/ADV protocol.",
+      "resolution": "Implemented P33 model-local runner tracking, five-session mom_5 confirmation, peak-equity plus non-positive momentum CASH exit, registry/YAML/CLI/backtest wiring, and focused tests. Empirical 2025-08-01..2025-11-14 artifact produced P33 P>50=2.86%, right-tail score=0.407, championship/adoption FAIL; same-period P27 P>50=42.86%, right-tail score=0.708, PASS. P33 remains research-only and P27 remains champion.",
+      "impact": "P33 is fail-closed with gross_violation_count=0 but is not promoted because it materially reduces the championship right tail; persistent P33/P27 artifacts are available under docs/results for review."
+    },
+    {
       "task_id": "TASK_49_P32_CHAMPION_GROSS_HYGIENE",
       "date": "2026-09-04",
       "adr_id": "ADR_20260904_49_P32_CHAMPION_GROSS_HYGIENE",

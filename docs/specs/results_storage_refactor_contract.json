@@ -1,0 +1,52 @@
+{
+  "feature": "results_storage_refactor",
+  "domain": "results",
+  "target_file": "src/reporting/results.py",
+  "symbol": "write_backtest_result",
+  "signature": "def write_backtest_result(paths: DataPaths, *, run_id: str, meta: Mapping[str, object], summary: Mapping[str, object], daily: pl.DataFrame | None = None, trades: pl.DataFrame | None = None, windows: pl.DataFrame | None = None) -> Path",
+  "requirements": [
+    "Keep write_backtest_result signature identical and return Path to dest directory.",
+    "Parquet artifacts daily.parquet, trades.parquet, windows.parquet are written to dest.",
+    "Append summary row to data/results/runs.parquet (or tmp_path / data/results/runs.parquet depending on paths.root).",
+    "Append summary row to docs/results/runs_registry.jsonl.",
+    "Provide rebuild_runs_registry(paths: DataPaths) function to scan all existing result directories under docs/results and recreate/sync data/results/runs.parquet and docs/results/runs_registry.jsonl."
+  ],
+  "changes": [
+    {
+      "name": "write_backtest_result",
+      "signature": "def write_backtest_result(paths: DataPaths, *, run_id: str, meta: Mapping[str, object], summary: Mapping[str, object], daily: pl.DataFrame | None = None, trades: pl.DataFrame | None = None, windows: pl.DataFrame | None = None) -> Path",
+      "kind": "function",
+      "file_hint": "src/reporting/results.py"
+    },
+    {
+      "name": "rebuild_runs_registry",
+      "signature": "def rebuild_runs_registry(paths: DataPaths) -> int",
+      "kind": "function",
+      "file_hint": "src/reporting/results.py"
+    }
+  ],
+  "wiring": [
+    {
+      "caller_file": "src/cli/_impl.py",
+      "anchor": "write_backtest_result(",
+      "import_symbol": "write_backtest_result",
+      "invocation_expression": "write_backtest_result("
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "test_write_backtest_result_updates_registries",
+      "target_test_file": "tests/unit/reporting/test_results.py",
+      "execution_command": "uv run pytest tests/unit/reporting/test_results.py -k test_write_backtest_result_updates_registries -q",
+      "expected_behavior": "write_backtest_result appends to runs_registry.jsonl and data/results/runs.parquet",
+      "test_skeleton": "def test_write_backtest_result_updates_registries(tmp_path: Path) -> None:\n    import json\n    from datetime import date\n    import polars as pl\n    from src.core.paths import DataPaths\n    from src.reporting.results import make_backtest_run_id, write_backtest_result\n\n    paths = DataPaths(root=tmp_path / \"data\", project_root=tmp_path)\n    run_id = make_backtest_run_id(\"P27\", date(2025, 8, 1), date(2025, 11, 14))\n    meta = {\"model\": \"P27\", \"strategy_id\": \"sticky.mom60_raw\"}\n    summary = {\n        \"n_windows\": 35,\n        \"exceedance\": {\"0.5\": 0.4286},\n        \"quantiles\": {\"0.99\": 0.8164},\n        \"giveback_median\": 0.0569,\n        \"championship_gate_status\": \"PASS\"\n    }\n    dest = write_backtest_result(paths, run_id=run_id, meta=meta, summary=summary)\n    assert dest.exists()\n\n    jsonl_path = tmp_path / \"docs/results/runs_registry.jsonl\"\n    assert jsonl_path.exists()\n    lines = jsonl_path.read_text(encoding=\"utf-8\").strip().splitlines()\n    assert len(lines) == 1\n    record = json.loads(lines[0])\n    assert record[\"run_id\"] == run_id\n    assert record[\"model\"] == \"P27\"\n\n    runs_pq_path = tmp_path / \"data/results/runs.parquet\"\n    assert runs_pq_path.exists()\n    df = pl.read_parquet(runs_pq_path)\n    assert df.height == 1\n    assert df[\"run_id\"][0] == run_id\n    assert df[\"model\"][0] == \"P27\"\n"
+    },
+    {
+      "scenario_id": "test_rebuild_runs_registry_from_existing_dirs",
+      "target_test_file": "tests/unit/reporting/test_results.py",
+      "execution_command": "uv run pytest tests/unit/reporting/test_results.py -k test_rebuild_runs_registry_from_existing_dirs -q",
+      "expected_behavior": "rebuild_runs_registry scans docs/results directories and creates runs.parquet and runs_registry.jsonl",
+      "test_skeleton": "def test_rebuild_runs_registry_from_existing_dirs(tmp_path: Path) -> None:\n    import json\n    import polars as pl\n    from src.core.paths import DataPaths\n    from src.reporting.results import rebuild_runs_registry\n\n    res_dir = tmp_path / \"docs/results/20260904T064843Z_P27_20250801_20251114_0300_0500_0010\"\n    res_dir.mkdir(parents=True, exist_ok=True)\n    meta = {\"model\": \"P27\", \"start\": \"2025-08-01\", \"end\": \"2025-11-14\"}\n    summary = {\"n_windows\": 35, \"exceedance\": {\"0.5\": 0.4286}, \"championship_gate_status\": \"PASS\"}\n    (res_dir / \"meta.json\").write_text(json.dumps(meta), encoding=\"utf-8\")\n    (res_dir / \"summary.json\").write_text(json.dumps(summary), encoding=\"utf-8\")\n\n    paths = DataPaths(root=tmp_path / \"data\", project_root=tmp_path)\n    count = rebuild_runs_registry(paths)\n    assert count == 1\n\n    jsonl_path = tmp_path / \"docs/results/runs_registry.jsonl\"\n    assert jsonl_path.exists()\n    runs_pq = tmp_path / \"data/results/runs.parquet\"\n    assert runs_pq.exists()\n    df = pl.read_parquet(runs_pq)\n    assert df.height == 1\n    assert df[\"run_id\"][0] == \"20260904T064843Z_P27_20250801_20251114_0300_0500_0010\"\n"
+    }
+  ]
+}

@@ -222,7 +222,10 @@
     "testing": "tests/unit/strategies/test_r2_alpha_split.py"
   },
   "src/strategies/sticky/model.py": {
-    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
+    "testing": [
+      "tests/unit/strategies/test_r2_alpha_split.py",
+      "tests/unit/strategies/test_p33_confirmed_runner_reversal.py"
+    ]
   },
   "src/strategies/sticky/overlays.py": {
     "testing": "tests/unit/strategies/test_r2_alpha_split.py"
