@@ -270,5 +270,8 @@
   },
   "src/strategies/sticky/capacity.py": {
     "testing": "tests/unit/strategies/test_p30_fillable_sticky.py"
+  },
+  "src/strategies/convex_impulse.py": {
+    "testing": "tests/unit/strategies/test_p31_convex_lottery.py"
   }
 }

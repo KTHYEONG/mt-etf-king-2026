@@ -1,8 +1,9 @@
 # Latest — KRX Rolling-36D Championship Results
 
-**as_of**: 2026-09-03  
-**scope**: 현재 코드베이스(`main`) — sell-first execution (TASK_41) + tail forensics (TASK_42) 반영  
+**as_of**: 2026-09-04  
+**scope**: 현재 코드베이스(`main`) — sell-first execution (TASK_41) + tail forensics (TASK_42) + P31 convex impulse (TASK_48) 반영  
 **primary_run**: `20260903T034356Z_P27_20180102_20260827_0300_0500_0010`  
+**research_run**: `20260904T033654Z_P31_20180102_20260827_0300_0500_0010`  
 **champion**: `P27` (`sticky.mom60_raw`) · **anchor**: `P21` (`sticky.impulse_crash`)
 
 ---
@@ -15,9 +16,10 @@
 | **실행 무결성** | `gross_violation_count=0`, `effective_gross_max=1.91` (prior run 1,958 / 3.55) |
 | **Tail forensics (P2)** | `primary_gap=timing` — entry+exit timing 손실이 selection보다 큼; per-window dominant는 selection 53.6% |
 | **우측 꼬리 연구 1위 (미채택)** | **P26** — raw `P>50%=5.31%`, `championship_score=0.064` (gate FAIL) |
-| **역사 벤치마크** | 제2회 우승 +47.82% · P27 2025 oneshot +41.4% · oracle ceiling `P>50%≈20.1%` |
+| **구조 연구 후보 (미채택)** | **P31** — beta 2x 제거·`q99=106.5%`·2025 oneshot +47.4% but `gross_viol=70`, gate FAIL |
+| **역사 벤치마크** | 제2회 우승 +47.82% · P27 2025 oneshot +41.4% · P31 2025 oneshot +47.4% · oracle ceiling `P>50%≈20.1%` |
 
-**핵심**: sell-first 실행으로 gross invariant가 복구되어 P27이 **채택 gate를 통과**했다. Tail 지표는 violation run 대비 보수적(`P>50%` 4.69%→4.26%, `q99` 86.9%→80.8%)이나 **신뢰 가능한 수준**이다. Forensics는 **집계 기준 timing gap**, **개별 윈도우 기준 selection gap**을 동시에 보여주며, P3는 timing/giveback controller + selection ensemble 병행이 타당하다.
+**핵심**: sell-first 실행으로 gross invariant가 복구되어 P27이 **채택 gate를 통과**했다. **P31**은 beta 2x를 제거하고 2025 oneshot +47.4%·q99 106.5%를 달성했으나 `gross_viol=70`·P>30% 열위로 **연구용**에 머문다. Forensics는 **집계 기준 timing gap**, **개별 윈도우 기준 selection gap**을 동시에 보여주며, P3는 timing/giveback controller + selection ensemble 병행이 타당하다.
 
 ---
 
@@ -36,7 +38,7 @@
 | Participation φ | 1% (`max_order_to_adv=0.01`) |
 | 비용 | commission 3 bps + slippage 5 bps |
 | 체결 | `NextOpenExecution` (causal open fill, TASK_37) |
-| Exposure (P21–P28) | max_single=0.95, max_gross=1.90, min_cash=0.05 |
+| Exposure (P21–P31) | max_single=0.95, max_gross=1.90, min_cash=0.05 |
 | 실행 순서 | sell-first (`constrain_target_weights_sell_first`, TASK_41) |
 
 `championship_score` = `configs/gates.yaml` 의 `championship` 시나리오 가중 exceedance  
@@ -149,13 +151,94 @@ Tail 수치 하락은 gross inflation artifact 제거에 따른 **보수적 재�
 
 ---
 
-## 4. Tail Forensics Attribution (TASK_42)
+## 4. Research — P31 (Convex Lottery Impulse, TASK_48)
+
+**run_id**: `20260904T033654Z_P31_20180102_20260827_0300_0500_0010`  
+**semantic_id**: `convex.lottery_impulse`  
+**path**: `data/results/20260904T033654Z_P31_20180102_20260827_0300_0500_0010/`  
+**artifacts**: `summary.json`, `meta.json`, `loyo_report.json`, `windows.parquet` (2,090 rows), `daily.parquet` (2,125 rows), `trades.parquet` (126 rows)  
+**incumbent**: P27 (`20260903T034356Z_…`) · **판정**: 연구용 — **채택 불가** (`gross_viol=70`, adoption/championship FAIL)
+
+**가설**: P27의 beta 2x(122630/233740) 집중이 tail ceiling을 제한; sector convex 2x + impulse gate + CASH default로 우측 꼬리를 회복할 수 있다.
+
+### 4.1 Tail & 분포 지표 (vs P27)
+
+| 지표 | P31 | P27 | Δ |
+| --- | ---: | ---: | ---: |
+| P>30% | 5.55% | 8.71% | −3.16pp |
+| P>40% | 5.22% | 6.22% | −1.00pp |
+| P>50% | **4.16%** | **4.26%** | −0.10pp |
+| P>60% | 3.35% | 3.92% | −0.57pp |
+| championship_score | 0.0440 | 0.0534 | −0.0094 |
+| median (q50) | +0.00% | +0.00% | — |
+| q90 | +0.24% | +27.0% | −26.8pp |
+| q95 | +44.2% | +42.9% | +1.3pp |
+| q99 | **+106.5%** | +80.8% | **+25.7pp** |
+| CVaR(5%) | −13.4% | −30.1% | +16.7pp |
+| giveback_median | 0.00% | 3.40% | — |
+| giveback_q90 | 4.28% | 17.6% | −13.3pp |
+| right_tail_score | 0.346 | 0.387 | −0.041 |
+| objective_ruin (P<-25%) | **0.86%** | 2.54% | −1.68pp |
+
+### 4.2 실행·노출 진단
+
+| 지표 | P31 | P27 | 비고 |
+| --- | ---: | ---: | --- |
+| gross_violation_count | **70** | **0** | CASH↔TARGET 전환 — **채택 blocker** |
+| effective_gross_max | 1.90 | 1.91 | limit 내 |
+| invested_weight_mean | **3.4%** | — | 과도한 cashification |
+| trade_rows | **126** | 1,332 | beta 2x BUY **0건** |
+| field win_rate | 33.6% | 59.0% | vs P21 incumbent |
+
+**체결 ticker** (전량 sector convex 2x): `488080`(53), `494310`(50), `243880`(14), `462330`(9). `122630`/`233740` 없음.
+
+### 4.3 Annual oneshot (36D)
+
+| year | start | P31 | P27 |
+| ---: | --- | ---: | ---: |
+| 2018 | 2018-09-21 | 0.0% | −11.3% |
+| 2019 | 2019-09-23 | 0.0% | −4.1% |
+| 2020 | 2020-09-21 | 0.0% | +4.0% |
+| 2021 | 2021-09-23 | 0.0% | 0.0% |
+| 2022 | 2022-09-21 | 0.0% | 0.0% |
+| 2023 | 2023-09-21 | −1.7% | −2.1% |
+| 2024 | 2024-09-23 | −1.7% | −0.4% |
+| **2025** | **2025-09-22** | **+47.4%** | **+41.4%** |
+
+제2회 우승 +47.82% 대비 P31 −0.4pp · P27 −6.4pp (2025 anchor 동일).
+
+### 4.4 Gate & LOYO
+
+| gate | status | failures |
+| --- | --- | --- |
+| objective | **FAIL** | `G1_TAIL` (P>30% 5.55% < 8%) |
+| championship | **FAIL** | `PRIMARY_CI_VS_INCUMBENT`, scenario vs incumbent |
+| adoption | **FAIL** | 동일 |
+| LOYO | **FAIL** | `P50_NOT_IMPROVED`, `CONCENTRATION=1.0` (P>50% 전부 2025–26) |
+
+LOYO non-inferior: 6/9 years. 2018–22 impulse gate 미충족 → 거의 전기간 flat.
+
+### 4.5 해석
+
+| signal | implication |
+| --- | --- |
+| beta 제거 성공 | sector convex만 체결; 구조적 가설 부분 검증 |
+| q99↑ ruin↓ | cash-default + crash-cash가 tail shape 개선 |
+| P>30/P>40↓ | gate 과엄격 → 2018–24 투자일수 극소 |
+| gross_viol=70 | sell-first CASH 전환 미준수 — 수정 전 채택 불가 |
+| P>50 미개선 | concentration 100% 2025–26 — LOYO FAIL 지속 |
+
+**다음**: gross invariant 수정 → gate calibration (impulse threshold) → LOYO 재평가.
+
+---
+
+## 5. Tail Forensics Attribution (TASK_42)
 
 **command**: `uv run mt-etf forensics --run-id 20260903T034356Z_P27_20180102_20260827_0300_0500_0010`  
 **report**: `data/results/…/tail_attribution_report.json`  
 **runtime**: ~3–4 min
 
-### 4.1 Window set
+### 5.1 Window set
 
 | 항목 | 값 |
 | --- | ---: |
@@ -164,7 +247,7 @@ Tail 수치 하락은 gross inflation artifact 제거에 따른 **보수적 재�
 | selection rule | top_q=0.95 (upper 5%) ∪ near-miss [20%, 50%) |
 | oracle | ex-post +2x close-to-close BH per family (research proxy) |
 
-### 4.2 Aggregate losses
+### 5.2 Aggregate losses
 
 | loss bucket | mean | share of total* |
 | --- | ---: | ---: |
@@ -181,7 +264,7 @@ Tail 수치 하락은 gross inflation artifact 제거에 따른 **보수적 재�
 | selection_dominates_timing | **false** |
 | **primary_gap** | **timing** |
 
-### 4.3 Per-window dominant bucket
+### 5.3 Per-window dominant bucket
 
 | bucket | count | share |
 | --- | ---: | ---: |
@@ -191,7 +274,7 @@ Tail 수치 하락은 gross inflation artifact 제거에 따른 **보수적 재�
 | giveback | 26 | 9.8% |
 | NONE | 10 | 3.8% |
 
-### 4.4 Worst-case windows (by loss type)
+### 5.4 Worst-case windows (by loss type)
 
 **selection** (top 3)
 
@@ -227,7 +310,7 @@ Tail 수치 하락은 gross inflation artifact 제거에 따른 **보수적 재�
 
 windows with `giveback_loss > 0.30`: **35**
 
-### 4.5 P3 방향 시사
+### 5.5 P3 방향 시사
 
 | signal | implication |
 | --- | --- |
@@ -237,7 +320,7 @@ windows with `giveback_loss > 0.30`: **35**
 
 ---
 
-## 5. Sticky Family 비교 (reference, pre–sell-first runs)
+## 6. Sticky Family 비교 (reference, pre–sell-first runs)
 
 아래는 sell-first 이전 artifact-complete run 기준 참고치. **채택 판정은 §3 rebaseline만 사용.**
 
@@ -248,15 +331,17 @@ windows with `giveback_loss > 0.30`: **35**
 | P28B | sticky.mom60_abs_cash | `20260902T114008Z_…` | 4.11% | 76.7% | 2.58% | 87 | FAIL |
 | P26 | sticky.mom60_concentrated | `20260901T034103Z_…` | **5.31%** | 89.9% | 4.55% | 0 | FAIL |
 | P21 | sticky.impulse_crash | `20260902T034957Z_…` | 2.73% | 71.5% | 2.01% | — | — |
+| **P31** | convex.lottery_impulse | `20260904T033654Z_…` | 4.16% | **106.5%** | **0.86%** | 70 | FAIL |
 
 ---
 
-## 6. 벤치마크·천장
+## 7. 벤치마크·천장
 
 | 기준 | P>50% | 비고 |
 | --- | ---: | --- |
 | P21 anchor | 2.73% | impulse+crash+lock@40% |
 | **P27 champion (sell-first)** | **4.26%** | 운영 채택 |
+| P31 convex research | 4.16% | beta 제거·q99↑, gross_viol=70 |
 | P27 prior (gross inflated) | 4.69% | 신뢰 불가 tail |
 | P26 tail research | 5.31% | gross_viol=0, gate FAIL |
 | Oracle (selection+timing) | ~20.1% | TASK_39, 2090 windows |
@@ -264,7 +349,7 @@ windows with `giveback_loss > 0.30`: **35**
 
 ---
 
-## 7. 채택 판정 로직 (현재 코드)
+## 8. 채택 판정 로직 (현재 코드)
 
 ```
 CHAMPION_STRATEGY = sticky.mom60_raw   # legacy P27
@@ -274,6 +359,7 @@ ANCHOR_STRATEGY   = sticky.impulse_crash  # legacy P21
 | 후보 | tail | gross hygiene | field | gate | 운영 |
 | --- | --- | --- | --- | --- | --- |
 | **P27 (sell-first)** | ★★★★ | ★★★★★ | ★★★★★ | **PASS** | **채택** |
+| P31 | ★★★★☆ (q99) | ✗ (70) | ★★ | FAIL | 연구용 |
 | P26 | ★★★★★ | ★★★★★ | — | FAIL | 연구용 |
 | P28A | ★★★★☆ | ✗ (33397) | △ | FAIL | 기각 |
 | P28B | ★★★ | ★★★★ | △ | FAIL | 기각 |
@@ -281,12 +367,21 @@ ANCHOR_STRATEGY   = sticky.impulse_crash  # legacy P21
 
 ---
 
-## 8. 재현 명령
+## 9. 재현 명령
 
 ```bash
 # Champion full-period adoption backtest (~10 min)
 uv run mt-etf backtest --model P27 \
   --start 2018-01-02 --end 2026-08-27 --eval-mode adoption
+
+# P31 convex impulse research backtest (~27 min)
+uv run mt-etf backtest --model P31 \
+  --start 2018-01-02 --end 2026-08-27 --eval-mode adoption
+
+# P31 LOYO vs P27 incumbent
+uv run mt-etf loyo \
+  --run-id 20260904T033654Z_P31_20180102_20260827_0300_0500_0010 \
+  --incumbent-run-id 20260903T034356Z_P27_20180102_20260827_0300_0500_0010
 
 # Tail forensics attribution (~3–4 min; requires windows+trades parquet)
 uv run mt-etf forensics \
@@ -304,11 +399,12 @@ uv run mt-etf decide --model P27
 
 ---
 
-## 9. TSV — pandas 직접 로드용 (primary P27)
+## 10. TSV — pandas 직접 로드용
 
 ```tsv
 model	semantic_id	run_id	p_gt_30	p_gt_40	p_gt_50	p_gt_60	q50	q90	q95	q99	cvar_05	ruin	gross_viol	effective_gross_max	rts	champ_gate	adopt_gate	field_win_rate	primary_gap
 P27	sticky.mom60_raw	20260903T034356Z_P27_20180102_20260827_0300_0500_0010	0.087081	0.062201	0.047368	0.039234	0.000000	0.269686	0.428840	0.808328	-0.301259	0.025359	0	1.913200	0.386601	PASS	PASS	0.590431	timing
+P31	convex.lottery_impulse	20260904T033654Z_P31_20180102_20260827_0300_0500_0010	0.055502	0.052153	0.041627	0.033493	0.000000	0.002432	0.441991	1.064522	-0.134439	0.008612	70	1.900000	0.346231	FAIL	FAIL	0.335885	—
 ```
 
 ```python
@@ -319,25 +415,27 @@ df = pd.read_csv(io.StringIO(tsv), sep="\t")
 
 ---
 
-## 10. 신뢰도·한계
+## 11. 신뢰도·한계
 
 1. **Sell-first rebaseline** (`20260903T034356Z`): TASK_41 적용; gross_violation 0, gate PASS. Prior `20260902T091905Z` tail 수치는 gross inflation으로 **비교 전용**.
-2. **carry_gross_drift_count=19,430**: rolling window×session 진단 합산; unique calendar day 수가 아님.
-3. **Forensics oracle**: ex-post +2x family BH — 연구용 상한 proxy; tradable claim 아님.
-4. **trades.parquet vs windows.parquet**: artifact completion 시 full-span `engine.run` trades + path_dependent rolling windows — attribution에 minor path mismatch 가능.
-5. **우승확률 아님**: `P>50%≈4%` 수준은 역사 우승(+48%)·oracle(20%) 대비 gap 큼.
+2. **P31 research** (`20260904T033654Z`): beta 2x 제거·sector convex만 체결; `gross_viol=70`으로 tail 수치 신뢰 제한 — gross fix 후 재평가 필요.
+3. **carry_gross_drift_count=19,430**: rolling window×session 진단 합산; unique calendar day 수가 아님.
+4. **Forensics oracle**: ex-post +2x family BH — 연구용 상한 proxy; tradable claim 아님.
+5. **trades.parquet vs windows.parquet**: artifact completion 시 full-span `engine.run` trades + path_dependent rolling windows — attribution에 minor path mismatch 가능.
+6. **우승확률 아님**: `P>50%≈4%` 수준은 역사 우승(+48%)·oracle(20%) 대비 gap 큼.
 
 ---
 
-## 11. Artifact Index
+## 12. Artifact Index
 
 | model | run_id | path | notes |
 | --- | --- | --- | --- |
 | **P27** ★ | `20260903T034356Z_P27_20180102_20260827_0300_0500_0010` | `data/results/…/` | sell-first, gate PASS, forensics |
+| **P31** | `20260904T033654Z_P31_20180102_20260827_0300_0500_0010` | `data/results/…/` | convex impulse research, loyo_report |
 | P27 (superseded) | `20260902T091905Z_P27_20180102_20260827_0300_0500_0010` | `data/results/…/summary.json` | gross_viol=1958, gate FAIL |
 | P28A | `20260902T093604Z_P28A_20180102_20260827_0300_0500_0010` | `data/results/…/summary.json` | HOLD drift, 기각 |
 | P28B | `20260902T114008Z_P28B_20180102_20260827_0300_0500_0010` | `data/results/…/summary.json` | ruin 최저, tail 열위 |
 | P26 | `20260901T034103Z_P26_20180102_20260827_0300_0500_0010` | `data/results/…/` | tail research |
 | P21 | `20260902T034957Z_P21_20180102_20260827_0300_0500_0010` | `data/results/…/summary.json` | anchor |
 
-**다음 갱신 트리거**: P3 family/regime alpha 구현 · P29+ 채택 · silver end-date 연장.
+**다음 갱신 트리거**: P31 gross fix · gate calibration · P3 family/regime alpha · silver end-date 연장.
