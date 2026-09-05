@@ -1,0 +1,147 @@
+{
+  "feature": "champion_attainability_recovery",
+  "title": "P35 primary-tail learning and path-faithful promotion evidence",
+  "domain": "tournament_etf",
+  "target_file": "src/tournament/champion_eval.py",
+  "context_files": [
+    "results/champion/promotion.json",
+    "data/results/20260904T050718Z_P27_20180102_20260827_0300_0500_0010/summary.json",
+    "configs/gates.yaml",
+    "configs/ml.yaml",
+    "src/alpha/champion_dataset.py",
+    "src/alpha/champion_ranker.py",
+    "src/tournament/champion_eval.py",
+    "src/tournament/simulator.py",
+    "src/backtest/session_cache.py",
+    "tests/unit/alpha/test_champion_dataset.py",
+    "tests/unit/tournament/test_champion_eval.py",
+    "tests/unit/tournament/test_champion_power_gate.py"
+  ],
+  "evidence": {
+    "normalized_etf_daily": {
+      "rows": 1386318,
+      "sessions": 2123,
+      "tickers": 1378,
+      "date_range": ["2018-01-02", "2026-08-27"],
+      "required_field_nulls": {"open": 0, "close": 0, "volume": 0, "trading_value": 0, "is_tradable": 0}
+    },
+    "p27_full_run": {
+      "run_id": "20260904T050718Z_P27_20180102_20260827_0300_0500_0010",
+      "p_gt_30": 0.08660287081339713,
+      "p_gt_40": 0.06507177033492823,
+      "p_gt_50": 0.049282296650717705,
+      "ruin_probability": 0.026794258373205742,
+      "observation": "Tail is concentrated in 2025-2026; 2026 has both the largest gains and 17.3% rolling ruin windows."
+    },
+    "p35_full_walk_forward": {
+      "command": "uv run mt-etf --log-level INFO champion-research --start 2018-01-02 --end 2026-08-27 --candidate-mode p27_matched_2x",
+      "elapsed_seconds": 471.63569355010986,
+      "paired_windows": 881,
+      "artifact_integrity": true,
+      "matched_limits": [0.95, 1.9, 0.05],
+      "failures": ["SCENARIO_CHAMPIONSHIP_VS_INCUMBENT", "SCENARIO_HOT_FIELD_VS_INCUMBENT", "PRIMARY_CI_VS_INCUMBENT", "P50_NOT_IMPROVED", "LOYO_INSUFFICIENT", "CONCENTRATION"],
+      "root_cause": "The ranker learns raw 36-session return instead of the primary threshold curve. Fast rolling returns no BacktestResult/trade trace, so both candidates reconstruct as cash and n_effective_discordant is falsely zero."
+    }
+  },
+  "assumptions_and_invariants": [
+    "P27 remains incumbent; this creates a research-only P35 candidate and never promotes a live strategy.",
+    "Primary-scenario thresholds and weights in configs/gates.yaml are the sole P35 learning objective; they are not duplicated as constants.",
+    "Labels use the actual eligible 2X ETF, next-session open entry, horizon close exit, and configured entry/exit costs; synthetic leverage is forbidden.",
+    "Purge >= 36, embargo >= 36, fold-local fit, decision_date > trained_through, deployment universe, next-open execution, P27 matched limits (0.95, 1.90, 0.05), and zero gross violations remain mandatory.",
+    "Malformed objective vectors, missing OOS data/lineage, non-finite values, or malformed holding traces are insufficient evidence and cannot promote."
+  ],
+  "changes": [
+    {"name": "ChampionDatasetConfig.tail_thresholds", "signature": "tail_thresholds: tuple[float, ...] = ()", "kind": "dataclass_field", "target_file": "src/alpha/champion_dataset.py"},
+    {"name": "ChampionDatasetConfig.tail_weights", "signature": "tail_weights: tuple[float, ...] = ()", "kind": "dataclass_field", "target_file": "src/alpha/champion_dataset.py"},
+    {"name": "build_family_tail_dataset", "signature": "def build_family_tail_dataset(candidates: pl.DataFrame, prices: pl.DataFrame, *, sessions: Sequence[date], config: ChampionDatasetConfig) -> pl.DataFrame", "kind": "function", "target_file": "src/alpha/champion_dataset.py"},
+    {"name": "ChampionModelArtifact.target_column", "signature": "target_column: str = 'label_rank'", "kind": "dataclass_field", "target_file": "src/alpha/champion_ranker.py"},
+    {"name": "fit", "signature": "def fit(self, train: pl.DataFrame) -> ChampionModelArtifact", "kind": "function", "target_file": "src/alpha/champion_ranker.py"},
+    {"name": "RollingResult.window_primary_holdings", "signature": "window_primary_holdings: tuple[tuple[str | None, ...], ...] | None = None", "kind": "dataclass_field", "target_file": "src/tournament/simulator.py"},
+    {"name": "simulate_window_from_cache", "signature": "def simulate_window_from_cache(..., primary_holdings_out: list[str | None] | None = None) -> tuple[float, float, float] | tuple[float, float, float, tuple[float, ...]]", "kind": "function", "target_file": "src/tournament/simulator.py"},
+    {"name": "_count_effective_discordant", "signature": "def _count_effective_discordant(*, paired_starts: Sequence[date], sessions: Sequence[date], horizon: int, candidate_backtest: object | None, incumbent_backtest: object | None, candidate_window_holdings: Sequence[Sequence[str | None]] | None = None, incumbent_window_holdings: Sequence[Sequence[str | None]] | None = None) -> int", "kind": "function", "target_file": "src/tournament/champion_eval.py"},
+    {"name": "resolve_promotion_status", "signature": "def resolve_promotion_status(*, aggressive_status: str, conservative_status: str, loyo_status: str, artifact_integrity: bool, n_effective_discordant: int, min_effective_discordant: int) -> str", "kind": "function", "target_file": "src/tournament/champion_eval.py"}
+  ],
+  "implementation_blueprint": [
+    "In p27_matched_2x mode, inject source_multiple=2 plus the primary ChampionshipObjectiveConfig threshold/weight vectors into ChampionDatasetConfig. Validate equal non-empty vectors, strictly ascending positive finite thresholds, finite non-negative weights, and positive total weight. Empty vectors preserve legacy family_1x raw-rank behavior only.",
+    "For a validated objective, compute label_tail_utility = sum(weight_i * 1[real vehicle net return > threshold_i]); sort each decision-date cross-section by (label_tail_utility, label_return, ticker) and emit normalized label_rank. Fit LambdaRank on label_rank, retain raw label_return for audit, record target_column='label_rank', and fail closed if the target or trained predictor is unusable.",
+    "In fast rolling, record one horizon-length primary-holding trace per window after each resolved transition: highest strictly positive held weight with ticker tie-break, otherwise None. Feed these traces to _count_effective_discordant; a paired window is discordant if any session differs. Invalid/misaligned traces yield zero evidence; absent traces use legacy BacktestResult reconstruction.",
+    "Report known scenario/LOYO failure as RESEARCH_ONLY before evaluating power. Return INSUFFICIENT_POWER only when all gates pass but valid discordant evidence is below the configured minimum; preserve the existing PROMOTE conjunction.",
+    "Benchmark full-panel candidate collection/cache construction before and after. Reuse date-indexed PIT snapshots within a run instead of repeated whole-panel filters while preserving eligibility, ADV, score, open/close, and returned labels exactly."
+  ],
+  "wiring": [
+    {"caller_file": "src/tournament/champion_eval.py", "anchor": "def build_champion_oos_scores", "import_symbol": "ChampionDatasetConfig", "invocation_expression": "tail_weights=tuple(runtime.objective_config.scenario_weights[runtime.objective_config.primary_scenario])"},
+    {"caller_file": "src/tournament/champion_eval.py", "anchor": "def _run_with_runtime", "import_symbol": "champion_promotion_status", "invocation_expression": "candidate_window_holdings=agg_roll.window_primary_holdings"},
+    {"caller_file": "src/tournament/simulator.py", "anchor": "def run_rolling", "import_symbol": "simulate_window_from_cache", "invocation_expression": "primary_holdings_out=primary_holdings"}
+  ],
+  "requirements": [
+    "Optimize the configured primary 0.30/0.40/0.50/0.60 exceedance curve, with continuous net return only as deterministic equal-utility tie-break.",
+    "Do not relax P27-matched exposure, capacity, sponsorship, confidence, gross, PIT, or promotion gates; a failed candidate remains research-only.",
+    "Fast and slow rolling must expose equivalent holding traces under identical inputs; traces are diagnostics, never a parallel allocator.",
+    "The full 2018-01-02 through 2026-08-27 evaluation is an empirical validation command, not a shortened test target."
+  ],
+  "design_rationale": {
+    "alternatives_considered": [
+      "Tuning P27 gap/hold or increasing leverage: rejected because it already reaches 1.90 gross and its tail/ruin are concentrated in 2025-2026.",
+      "Promoting the current P35: rejected because both matched scenarios, primary CI, P50, LOYO, and concentration fail.",
+      "Mean-return learning: rejected because tournament adoption is a weighted exceedance curve, not average return.",
+      "Inferring discordance from absent fast-path backtests: rejected because both paths become all-cash and spuriously show zero power.",
+      "1X proxy labels: rejected because they remove actual 2X volatility drag."
+    ],
+    "chosen_reason": "Align fold-local learning with the tournament primary tail objective and align power evidence with the exact fast-path decisions that generated returns, while retaining all risk and equal-exposure constraints.",
+    "failure_modes": [
+      "Malformed objective falls back to raw return and optimizes a different game.",
+      "Fast-path candidate difference is lost because no trade trace is available.",
+      "Future data, synthetic leverage, non-sponsor vehicles, or unequal exposure make a candidate look superior.",
+      "Repeated full-panel scans make researchers truncate the requested range."
+    ]
+  },
+  "performance_budget": {
+    "expected_data_scale": "1,386,318 rows, 2,123 sessions, 1,378 tickers, 327,553,962-byte feature Parquet; measured full P35 runtime 471.636 s.",
+    "memory_target_mb": 1400,
+    "storage_format": "Existing Parquet with PyArrow/Polars; no CSV conversion or external temporary files.",
+    "dtype_precision": "Float64 for prices, costs, labels, compounding, thresholds, and gates; do not downcast PnL to Float32.",
+    "chunking_strategy": "One date-indexed PIT snapshot per session per run; process fold scores by session; retain required feature and eligibility columns only; never shorten dates, folds, or horizon.",
+    "acceleration_candidate": "JIT/compiled only after vectorized date-index benchmarking proves the state-dependent 36-session ledger remains dominant."
+  },
+  "scenarios": [
+    {
+      "scenario_id": "test_family_tail_dataset_ranks_primary_tail_utility_before_raw_return",
+      "target_test_file": "tests/unit/alpha/test_champion_dataset.py",
+      "execution_command": "uv run pytest tests/unit/alpha/test_champion_dataset.py -k test_family_tail_dataset_ranks_primary_tail_utility_before_raw_return -q",
+      "expected_behavior": "Actual 2X labels follow the primary-tail vector and deterministic rank.",
+      "test_skeleton": "def test_family_tail_dataset_ranks_primary_tail_utility_before_raw_return() -> None:\n    from datetime import date\n\n    import polars as pl\n\n    from src.alpha.champion_dataset import ChampionDatasetConfig, build_family_tail_dataset\n\n    d0, d1, d2 = date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)\n    candidates = pl.DataFrame({'decision_date': [d0, d0], 'source_ticker': ['TWO_A', 'TWO_B'], 'family_key': ['A', 'B'], 'mom_5': [0.1, 0.2]})\n    prices = pl.DataFrame({'date': [d0, d1, d2, d0, d1, d2], 'ticker': ['TWO_A', 'TWO_A', 'TWO_A', 'TWO_B', 'TWO_B', 'TWO_B'], 'open': [100.0] * 6, 'close': [100.0, 155.0, 155.0, 100.0, 135.0, 135.0]})\n    config = ChampionDatasetConfig(feature_columns=('mom_5',), label_horizon=2, entry_cost_rate=0.0, exit_cost_rate=0.0, source_multiple=2, tail_thresholds=(0.30, 0.40, 0.50, 0.60), tail_weights=(0.10, 0.25, 0.45, 0.20))\n\n    result = build_family_tail_dataset(candidates, prices, sessions=[d0, d1, d2], config=config).sort('source_ticker')\n\n    assert result.get_column('label_tail_utility').to_list() == [0.8, 0.1]\n    assert result.get_column('label_rank').to_list() == [1.0, 0.5]\n    assert result.get_column('label_return').to_list() == [0.55, 0.35]\n"
+    },
+    {
+      "scenario_id": "test_champion_dataset_rejects_malformed_primary_tail_objective",
+      "target_test_file": "tests/unit/alpha/test_champion_dataset.py",
+      "execution_command": "uv run pytest tests/unit/alpha/test_champion_dataset.py -k test_champion_dataset_rejects_malformed_primary_tail_objective -q",
+      "expected_behavior": "Unequal threshold/weight vectors fail closed.",
+      "test_skeleton": "def test_champion_dataset_rejects_malformed_primary_tail_objective() -> None:\n    from datetime import date\n\n    import polars as pl\n    import pytest\n\n    from src.alpha.champion_dataset import ChampionDatasetConfig, build_family_tail_dataset\n\n    d0, d1, d2 = date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)\n    candidates = pl.DataFrame({'decision_date': [d0], 'source_ticker': ['TWO'], 'family_key': ['A'], 'mom_5': [0.1]})\n    prices = pl.DataFrame({'date': [d0, d1, d2], 'ticker': ['TWO', 'TWO', 'TWO'], 'open': [100.0] * 3, 'close': [100.0, 140.0, 140.0]})\n    config = ChampionDatasetConfig(feature_columns=('mom_5',), label_horizon=2, entry_cost_rate=0.0, exit_cost_rate=0.0, source_multiple=2, tail_thresholds=(0.30, 0.40), tail_weights=(1.0,))\n\n    with pytest.raises(ValueError, match='tail'):\n        build_family_tail_dataset(candidates, prices, sessions=[d0, d1, d2], config=config)\n"
+    },
+    {
+      "scenario_id": "test_champion_ranker_records_label_rank_as_training_target",
+      "target_test_file": "tests/unit/alpha/test_champion_ranker.py",
+      "execution_command": "uv run pytest tests/unit/alpha/test_champion_ranker.py -k test_champion_ranker_records_label_rank_as_training_target -q",
+      "expected_behavior": "LambdaRank records tail-derived label_rank as relevance target.",
+      "test_skeleton": "def test_champion_ranker_records_label_rank_as_training_target() -> None:\n    from datetime import date\n\n    import polars as pl\n\n    from src.alpha.champion_ranker import ChampionTailRanker\n\n    train = pl.DataFrame({'decision_date': [date(2026, 1, 2), date(2026, 1, 2)], 'source_ticker': ['TWO_A', 'TWO_B'], 'family_key': ['A', 'B'], 'mom_5': [0.1, 0.2], 'label_return': [0.9, 0.35], 'label_tail_utility': [1.0, 0.1], 'label_rank': [1.0, 0.5]})\n\n    artifact = ChampionTailRanker(('mom_5',), min_data_in_leaf=100).fit(train)\n\n    assert artifact.target_column == 'label_rank'\n    assert artifact.trained_through == date(2026, 1, 2)\n"
+    },
+    {
+      "scenario_id": "test_count_effective_discordant_uses_fast_window_holding_traces",
+      "target_test_file": "tests/unit/tournament/test_champion_power_gate.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_champion_power_gate.py -k test_count_effective_discordant_uses_fast_window_holding_traces -q",
+      "expected_behavior": "Fast traces reveal real decision differences with no BacktestResult.",
+      "test_skeleton": "def test_count_effective_discordant_uses_fast_window_holding_traces() -> None:\n    from datetime import date\n\n    from src.tournament.champion_eval import _count_effective_discordant\n\n    sessions = [date(2026, 1, d) for d in (5, 6, 7)]\n    count = _count_effective_discordant(paired_starts=[sessions[0], sessions[1]], sessions=sessions, horizon=2, candidate_backtest=None, incumbent_backtest=None, candidate_window_holdings=(('TWO_A', 'TWO_A'), ('TWO_B', 'TWO_B')), incumbent_window_holdings=(('TWO_A', 'TWO_A'), ('TWO_A', 'TWO_A')))\n\n    assert count == 1\n"
+    },
+    {
+      "scenario_id": "test_resolve_promotion_status_preserves_known_gate_failure_before_power",
+      "target_test_file": "tests/unit/tournament/test_champion_power_gate.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_champion_power_gate.py -k test_resolve_promotion_status_preserves_known_gate_failure_before_power -q",
+      "expected_behavior": "Known gate failure remains RESEARCH_ONLY even with low power.",
+      "test_skeleton": "def test_resolve_promotion_status_preserves_known_gate_failure_before_power() -> None:\n    from src.tournament.champion_eval import resolve_promotion_status\n\n    status = resolve_promotion_status(aggressive_status='FAIL', conservative_status='PASS', loyo_status='PASS', artifact_integrity=True, n_effective_discordant=0, min_effective_discordant=5)\n\n    assert status == 'RESEARCH_ONLY'\n"
+    }
+  ],
+  "post_implementation_validation": [
+    "uv run pytest tests/unit/alpha/test_champion_dataset.py tests/unit/alpha/test_champion_ranker.py tests/unit/tournament/test_champion_eval.py tests/unit/tournament/test_champion_power_gate.py -q",
+    "uv run mt-etf --log-level INFO champion-research --start 2018-01-02 --end 2026-08-27 --candidate-mode p27_matched_2x"
+  ]
+}
