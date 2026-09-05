@@ -1,0 +1,343 @@
+{
+  "feature": "p36_attainability_gate",
+  "domain": "quant",
+  "title": "P36 — measurement integrity, attainability/capture decomposition, and power-aware promotion",
+  "target_file": "src/tournament/attainability.py",
+  "context_files": [
+    "src/backtest/engine.py",
+    "src/backtest/session_cache.py",
+    "src/execution/ledger.py",
+    "src/tournament/champion_eval.py",
+    "src/tournament/distribution_core.py",
+    "src/strategies/sticky/model.py",
+    "src/strategies/sticky/overlays.py",
+    "src/cli/_impl.py",
+    "src/reporting/results.py",
+    "configs/gates.yaml",
+    "configs/strategies.yaml",
+    "docs/architecture/10-invariants-and-gates.md"
+  ],
+  "evidence": {
+    "measurement_defect": {
+      "phantom_sessions": [
+        "2026-06-03",
+        "2026-07-17"
+      ],
+      "detail": "calendar.sessions() (exchange_calendars XKRX 4.13.2) returns 2125 sessions for 2018-01-02..2026-08-27 while the silver ETF panel and the KRX index panel both observe 2123. The two extra dates are genuine KRX holidays the packaged calendar does not know.",
+      "ledger_repro": "transition_portfolio_state(prior=cash 50,000,000 + 9,500sh@100,000, intent=target 0.95, opens={}, closes={}) returns equity_close=1,000,000,000 while retaining shares={'X':9500}; next-session equity at open 100,000 = 1,950,000,000 (+95% from nothing). HOLD intent on the same session returns equity_close=50,000,000 (-95%).",
+      "observed_impact": "P27 run 20260904T050718Z: +92.96% on 2026-06-04 and +30.08% on 2026-07-20, both the first real session after a phantom session. 60 of 2090 windows contaminated; they supply 24.3% of all P(R>50%) hits. Corrected: P(R>30) 0.0866->0.0857, P(R>40) 0.0651->0.0546, P(R>50) 0.0493->0.0431, terminal wealth 16.81x->3.88x.",
+      "replication": "A faithful replica of the P27 decision->next-open-fill loop on the observed-session grid reproduces the production engine's daily returns exactly for 2018..2025 (corr=1.0000, 0 differing sessions); the only divergence is 2026 and it is attributable to the phantom-session artifact."
+    },
+    "opportunity_collapse": {
+      "eligible_2x_per_session_mean": {
+        "2018": 1.95,
+        "2019": 1.95,
+        "2020": 1.45,
+        "2021": 1.15,
+        "2022": 1.33,
+        "2023": 1.55,
+        "2024": 1.27,
+        "2025": 1.67,
+        "2026": 3.71
+      },
+      "detail": "Under the production capacity envelope (single 95% position, 1% participation, 1.0B KRW) the required ADV is 100.0B KRW, leaving 1.15-1.95 eligible +2x instruments per session for 2018-2025. 88% of P27's invested sessions are KODEX 레버리지 or KODEX 코스닥150레버리지 — the ranker ranks a set of size ~1.",
+      "tournament_window_oracle": "At the first session on/after Sep 21 the eligible +2x count was 1-2 in every one of 2018..2025. Perfect-foresight best terminal return over that set: -20.0%, +19.0%, +16.3%, -8.0%, +14.4%, +0.3%, -14.2%, +32.1% — the +40% target was unattainable in 8 of 8 historical tournament windows.",
+      "attainability": {
+        "P(ceiling>0.30)": 0.138,
+        "P(ceiling>0.40)": 0.09,
+        "P(ceiling>0.50)": 0.061,
+        "P(ceiling>0.60)": 0.04
+      }
+    },
+    "search_exhaustion": "Approximately 75 structurally distinct variants (momentum horizon 5/10/20/40/60, min_gap, min_hold, forced holds 5/10/20/36, absolute-momentum cash gate on/off and hysteretic, entry bars, rv_20 volatility tilt, k=1/2/3, inverse -1x/-2x inclusion, four capacity envelopes from 100.0B down to 15.8B KRW required ADV, and clock-aware within-episode variance policies at theta=0.40/0.50/0.60) all land in full-sample P(R>40%) in [0.031, 0.064]. The single variant that exceeds 0.060 does so by locking at the target and collapses P(R>50%) to 0.011, which the championship weights [0.1,0.25,0.45,0.2] penalise. No alpha change inside this architecture reaches the tournament objective.",
+    "capture_decomposition": {
+      "identity": "P(R_36 > theta) = P(opportunity_ceiling > theta) * capture(theta)",
+      "P27": {
+        "p40": 0.055,
+        "attainable_windows": 188,
+        "capture_40": 0.569,
+        "capture_50": 0.614,
+        "capture_40_2025plus": 0.781
+      },
+      "discrimination": "On the attainable subset the candidate spread is 0.463 (mom_20) to 0.617 (no cash gate) — a 15pp spread on n=188 — versus a 1.7pp spread on the unconditional metric at n=2088. Candidates are being judged on a factor (attainability) they do not control, which is the mechanical explanation for the P28..P35 rejection history."
+    },
+    "candidate_measured": {
+      "name": "sticky.mom60_vol_hysteresis",
+      "change": "abs-momentum exit bar -0.10 instead of 0.0 (hysteresis) + rv_20 percentile-rank tie-break at weight 0.5",
+      "result": {
+        "capture_40": 0.601,
+        "capture_50": 0.638,
+        "capture_40_2025plus": 0.81,
+        "p40": 0.057,
+        "p50": 0.045,
+        "ruin": 0.037
+      },
+      "baseline": {
+        "capture_40": 0.569,
+        "capture_50": 0.614,
+        "capture_40_2025plus": 0.781,
+        "p40": 0.055,
+        "p50": 0.043,
+        "ruin": 0.027
+      },
+      "honesty": "This is a +3.2pp capture improvement inside the 5% ruin cap, not a step change. It is included so the new gate has a live candidate; it does not by itself reach the tournament objective."
+    }
+  },
+  "assumptions": [
+    "The silver ETF panel and the KRX index panel are the ground truth for whether a date was a trading session; the packaged exchange calendar is an upper bound that must be intersected with observation (extends INV-2 from row-count-vs-price-ratio to the session grid itself).",
+    "Capacity, cost, and exposure parameters are unchanged: max_order_to_adv stays at the configured participation, effective gross stays <= 1.90 for sticky strategies, min_cash stays 0.05. No invariant is relaxed by this contract.",
+    "Attainability is computed over the candidate's own declared vehicle universe (the instruments its alpha filter admits) intersected with the PIT deployment universe, so it is a strategy-relative ceiling, not a global oracle. It is PIT-observable at decision time and is not a date or era covariate.",
+    "Capture is reported per threshold in {0.30,0.40,0.50,0.60}; a threshold with fewer than min_attainable_windows attainable windows reports null, never 0.0."
+  ],
+  "changes": [
+    {
+      "name": "SessionGrid",
+      "kind": "class",
+      "signature": "@dataclass(frozen=True)\nclass SessionGrid:\n    sessions: tuple[date, ...]\n    phantom: tuple[date, ...]",
+      "target_file": "src/backtest/session_grid.py"
+    },
+    {
+      "name": "resolve_session_grid",
+      "kind": "function",
+      "signature": "def resolve_session_grid(sessions: Sequence[date], panel: pl.DataFrame, *, min_rows: int = 1) -> SessionGrid",
+      "target_file": "src/backtest/session_grid.py"
+    },
+    {
+      "name": "is_priceless_session",
+      "kind": "function",
+      "signature": "def is_priceless_session(shares: Mapping[str, float], opens: Mapping[str, float]) -> bool",
+      "target_file": "src/execution/ledger.py"
+    },
+    {
+      "name": "carry_forward_marks",
+      "kind": "function",
+      "signature": "def carry_forward_marks(shares: Mapping[str, float], *price_maps: Mapping[str, float]) -> dict[str, float]",
+      "target_file": "src/execution/ledger.py"
+    },
+    {
+      "name": "WindowOpportunity",
+      "kind": "class",
+      "signature": "@dataclass(frozen=True)\nclass WindowOpportunity:\n    window_start: date\n    breadth: int\n    ceiling: float | None",
+      "target_file": "src/tournament/attainability.py"
+    },
+    {
+      "name": "window_opportunities",
+      "kind": "function",
+      "signature": "def window_opportunities(open_by_session: Sequence[Mapping[str, float]], sessions: Sequence[date], candidates_by_session: Mapping[date, Sequence[str]], horizon: int) -> tuple[WindowOpportunity, ...]",
+      "target_file": "src/tournament/attainability.py"
+    },
+    {
+      "name": "attainability_curve",
+      "kind": "function",
+      "signature": "def attainability_curve(opportunities: Sequence[WindowOpportunity], thresholds: Sequence[float]) -> dict[float, float]",
+      "target_file": "src/tournament/attainability.py"
+    },
+    {
+      "name": "capture_rate",
+      "kind": "function",
+      "signature": "def capture_rate(window_returns: Sequence[float], opportunities: Sequence[WindowOpportunity], threshold: float, *, min_attainable: int = 1) -> tuple[float | None, int]",
+      "target_file": "src/tournament/attainability.py"
+    },
+    {
+      "name": "discordant_window_mask",
+      "kind": "function",
+      "signature": "def discordant_window_mask(candidate_holdings: Sequence[str | None], incumbent_holdings: Sequence[str | None], horizon: int) -> tuple[bool, ...]",
+      "target_file": "src/tournament/champion_eval.py"
+    },
+    {
+      "name": "resolve_promotion_status",
+      "kind": "function",
+      "signature": "def resolve_promotion_status(*, aggressive_status: str, conservative_status: str, loyo_status: str, artifact_integrity: bool, n_effective_discordant: int, min_effective_discordant: int) -> str",
+      "target_file": "src/tournament/champion_eval.py"
+    },
+    {
+      "name": "abs_mom_exit",
+      "kind": "field",
+      "signature": "abs_mom_exit: float = 0.0",
+      "target_file": "src/strategies/sticky/model.py"
+    },
+    {
+      "name": "apply_abs_mom_cash",
+      "kind": "function",
+      "signature": "def apply_abs_mom_cash(scores: Mapping[str, float] | object, config: StickyLeaderConfig, *, held: str | None = None) -> dict[str, float] | object",
+      "target_file": "src/strategies/sticky/overlays.py",
+      "note": "keyword-only `held` added with default None so the existing 2-arg call site stays valid; when held is None the entry bar 0.0 applies (current behaviour)."
+    },
+    {
+      "name": "gates.attainability",
+      "kind": "config",
+      "signature": "attainability:\n  thresholds: [0.30, 0.40, 0.50, 0.60]\n  min_attainable_windows: 30\n  min_effective_discordant: 5\n  capture_min_improvement: 0.02",
+      "target_file": "configs/gates.yaml"
+    },
+    {
+      "name": "sticky.mom60_vol_hysteresis",
+      "kind": "config",
+      "signature": "mom60_vol_hysteresis:\n  mom_col: mom_60\n  abs_mom_cash: true\n  abs_mom_exit: -0.10\n  score_aux_col: rv_20\n  score_aux_weight: 0.5",
+      "target_file": "configs/strategies.yaml"
+    }
+  ],
+  "wiring": [
+    {
+      "caller_file": "src/backtest/engine.py",
+      "anchor": "sessions = self.calendar.sessions(config.start, config.end)",
+      "import_symbol": "resolve_session_grid",
+      "invocation_expression": "resolve_session_grid(self.calendar.sessions(config.start, config.end), panel).sessions"
+    },
+    {
+      "caller_file": "src/backtest/session_cache.py",
+      "anchor": "sessions = engine.calendar.sessions(config.start, config.end)",
+      "import_symbol": "resolve_session_grid",
+      "invocation_expression": "resolve_session_grid(engine.calendar.sessions(config.start, config.end), panel).sessions"
+    },
+    {
+      "caller_file": "src/tournament/simulator.py",
+      "anchor": "sessions = self.calendar.sessions(config.start, config.end)",
+      "import_symbol": "resolve_session_grid",
+      "invocation_expression": "resolve_session_grid(self.calendar.sessions(config.start, config.end), panel).sessions"
+    },
+    {
+      "caller_file": "src/execution/ledger.py",
+      "anchor": "def transition_portfolio_state",
+      "import_symbol": "is_priceless_session",
+      "invocation_expression": "is_priceless_session(prior_state.shares, opens)"
+    },
+    {
+      "caller_file": "src/cli/_impl.py",
+      "anchor": "\"exceedance\": {str(k): float(v) for k, v in sorted(dist.exceedance.items())},",
+      "import_symbol": "attainability_curve",
+      "invocation_expression": "attainability_curve(_opps, thresholds)"
+    },
+    {
+      "caller_file": "src/reporting/results.py",
+      "anchor": "def _extract_summary_record",
+      "import_symbol": "capture",
+      "invocation_expression": "summary.get(\"capture\")"
+    },
+    {
+      "caller_file": "src/tournament/champion_eval.py",
+      "anchor": "def is_promotable",
+      "import_symbol": "resolve_promotion_status",
+      "invocation_expression": "resolve_promotion_status(aggressive_status=aggressive_status, conservative_status=conservative_status, loyo_status=loyo_status, artifact_integrity=artifact_integrity, n_effective_discordant=n_effective_discordant, min_effective_discordant=min_effective_discordant)"
+    },
+    {
+      "caller_file": "src/strategies/sticky/overlays.py",
+      "anchor": "def apply_abs_mom_cash",
+      "import_symbol": "abs_mom_exit",
+      "invocation_expression": "getattr(config, \"abs_mom_exit\", 0.0)"
+    },
+    {
+      "caller_file": "src/strategies/sticky/model.py",
+      "anchor": "abs_gated = apply_abs_mom_cash(crashed, self.config)",
+      "import_symbol": "apply_abs_mom_cash",
+      "invocation_expression": "apply_abs_mom_cash(crashed, self.config, held=held)"
+    }
+  ],
+  "requirements": [
+    "R1 (INV-2 extension, fail-closed): resolve_session_grid returns only calendar sessions that have at least min_rows panel rows. Every dropped date is returned in SessionGrid.phantom and MUST be logged once as '[DATA] gate=phantom_session date=... status=DROP'. A panel date that is not a calendar session is NOT added — the grid is the intersection, never the union.",
+    "R2 (equity conservation): transition_portfolio_state MUST NOT produce a state whose marked equity exceeds prior equity by more than the session's realised price move. When is_priceless_session(prior_state.shares, opens) is True the session is treated as HOLD: shares and cash carry unchanged, equity is marked with carry_forward_marks(shares, closes, opens, prev_closes), session_return is 0.0, no fills, no turnover, no cost.",
+    "R3: carry_forward_marks returns, per held ticker, the first finite positive price found across the supplied maps in order; a ticker with no finite price in any map is omitted (never priced at 0).",
+    "R4 (no silent equity drop): equity marking MUST use carry_forward_marks so that a held position missing from today's close map is valued at its last observed price rather than dropped from equity.",
+    "R5: window_opportunities computes, for each window start s (a session index i), the best next-open(i+1) -> next-open(i+1+horizon) return over candidates_by_session[sessions[i]]; breadth is the count of candidates with both endpoint prices finite and positive. A window with breadth 0 yields ceiling None. Windows whose end index exceeds the session range are not emitted.",
+    "R6: capture_rate(window_returns, opportunities, threshold, min_attainable) counts attainable windows as those with ceiling is not None and ceiling > threshold; it returns (None, n) when n < min_attainable, and otherwise (mean(window_returns[attainable] > threshold), n). It MUST NOT return 0.0 for an empty attainable set.",
+    "R7: attainability_curve returns {threshold: fraction of emitted windows whose ceiling is not None and > threshold} for each requested threshold; windows with ceiling None count in the denominator, never the numerator.",
+    "R8 (power gate): resolve_promotion_status returns 'INSUFFICIENT_POWER' when n_effective_discordant < min_effective_discordant, regardless of the three status strings; otherwise 'PROMOTE' when all three are 'PASS' and artifact_integrity is True; otherwise 'RESEARCH_ONLY'. INSUFFICIENT_POWER MUST NOT be treated as promotable, and MUST NOT be reported as FAIL.",
+    "R9: discordant_window_mask marks window i True when candidate_holdings[j] != incumbent_holdings[j] for at least one j in [i, i+horizon); both sequences must be the same length or ValueError is raised.",
+    "R10: is_promotable keeps its current signature and behaviour and MUST delegate to resolve_promotion_status with n_effective_discordant defaulting so that existing callers are unchanged (backward compatible).",
+    "R11: apply_abs_mom_cash uses the bar getattr(config, 'abs_mom_exit', 0.0) when the strategy currently holds a position and 0.0 when it is flat, so the exit bar is hysteretic. abs_mom_exit MUST be <= 0.0; a positive or non-finite configured value fails closed to 0.0 (current behaviour).",
+    "R12: summary.json gains 'attainability' ({threshold: float}), 'capture' ({threshold: float | null}), 'n_attainable' ({threshold: int}) and 'breadth_mean' (float); runs.parquet gains capture_40, capture_50, attainable_40 and breadth_mean columns. Existing keys and columns are unchanged.",
+    "R13 (no invariant relaxed): effective gross exposure, min_cash, single-name cap, participation, cost model, PIT rules and the INV-13 purge/embargo discipline are untouched by this contract.",
+    "R14 (complexity): resolve_session_grid is O(n_panel_rows + n_sessions); window_opportunities is O(n_sessions * mean_breadth). Neither may scan the panel per session."
+  ],
+  "non_goals": [
+    "Raising max_gross_exposure above 1.90 (physically bounded by cash-only ETF purchase, and INV-18 governs it).",
+    "Widening the capacity envelope: measured at 100.0B / 50.0B / 25.0B / 15.8B KRW required ADV, every wider envelope was equal or worse on both the full-sample curve and the 8 tournament windows.",
+    "Promoting sticky.mom60_vol_hysteresis. It is registered as a candidate only; promotion is decided by the new gate after the integrity fix, on re-measured artifacts."
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "test_resolve_session_grid_drops_phantom_sessions",
+      "target_test_file": "tests/unit/backtest/test_session_grid.py",
+      "execution_command": "uv run pytest tests/unit/backtest/test_session_grid.py -k test_resolve_session_grid_drops_phantom_sessions -q",
+      "expected_behavior": "A calendar session with no panel rows is excluded from the grid and reported in phantom; a panel date absent from the calendar is never added.",
+      "test_skeleton": "from datetime import date\n\nimport polars as pl\n\n\ndef test_resolve_session_grid_drops_phantom_sessions() -> None:\n    from src.backtest.session_grid import resolve_session_grid\n\n    # Given: calendar claims 2026-06-03 is a session but the panel observes nothing that day\n    sessions = [date(2026, 6, 2), date(2026, 6, 3), date(2026, 6, 4)]\n    panel = pl.DataFrame(\n        {\n            \"date\": [date(2026, 6, 2), date(2026, 6, 4), date(2026, 6, 5)],\n            \"ticker\": [\"122630\", \"122630\", \"122630\"],\n            \"close\": [100.0, 110.0, 120.0],\n        }\n    )\n\n    # When\n    grid = resolve_session_grid(sessions, panel)\n\n    # Then: phantom dropped, non-calendar panel date not added\n    assert grid.sessions == (date(2026, 6, 2), date(2026, 6, 4))\n    assert grid.phantom == (date(2026, 6, 3),)\n    assert date(2026, 6, 5) not in grid.sessions\n"
+    },
+    {
+      "scenario_id": "test_transition_priceless_session_conserves_equity",
+      "target_test_file": "tests/unit/execution/test_ledger_priceless_session.py",
+      "execution_command": "uv run pytest tests/unit/execution/test_ledger_priceless_session.py -k test_transition_priceless_session_conserves_equity -q",
+      "expected_behavior": "A session with no open/close prices for held shares neither duplicates nor destroys equity: equity_close equals the prior marked equity, shares and cash are unchanged, session_return is 0.0.",
+      "test_skeleton": "from datetime import date\n\n\ndef test_transition_priceless_session_conserves_equity() -> None:\n    from src.backtest.costs import CostConfig, CostModel\n    from src.execution.ledger import PortfolioLedgerState, transition_portfolio_state\n    from src.portfolio.intent import PortfolioIntent\n\n    # Given: 1.0B KRW portfolio, 95% in X at 100,000 KRW, on a session with no prices at all\n    prior = PortfolioLedgerState(cash=50_000_000.0, shares={\"X\": 9_500.0})\n    intent = PortfolioIntent(kind=\"target\", weights={\"X\": 0.95})\n\n    # When\n    result = transition_portfolio_state(\n        prior_state=prior,\n        intent=intent,\n        decision_date=date(2026, 6, 2),\n        prev_closes={\"X\": 100_000.0},\n        opens={},\n        closes={},\n        cost_model=CostModel(CostConfig(commission_bps=0.0, slippage_bps=0.0)),\n        adv_by_ticker={\"X\": 1e12},\n        max_order_to_adv=0.01,\n        exposure_limits=(0.95, 1.90, 0.05),\n        leverage_multiples={\"X\": 2},\n        execution=None,\n        panel=None,\n    )\n\n    # Then: equity conserved, not duplicated (regression: was 1.0B cash while retaining 9,500 shares)\n    assert result.equity_close == 1_000_000_000.0\n    assert result.state.cash == 50_000_000.0\n    assert result.state.shares == {\"X\": 9_500.0}\n    assert result.session_return == 0.0\n    assert result.fills == ()\n"
+    },
+    {
+      "scenario_id": "test_carry_forward_marks_never_prices_missing_at_zero",
+      "target_test_file": "tests/unit/execution/test_ledger_priceless_session.py",
+      "execution_command": "uv run pytest tests/unit/execution/test_ledger_priceless_session.py -k test_carry_forward_marks_never_prices_missing_at_zero -q",
+      "expected_behavior": "carry_forward_marks takes the first finite positive price across the supplied maps in order and omits tickers that have none.",
+      "test_skeleton": "def test_carry_forward_marks_never_prices_missing_at_zero() -> None:\n    from src.execution.ledger import carry_forward_marks, is_priceless_session\n\n    # Given\n    shares = {\"A\": 10.0, \"B\": 5.0, \"C\": 1.0}\n    closes = {\"A\": 200.0}\n    opens = {\"B\": 150.0, \"A\": 190.0}\n    prev_closes = {\"C\": float(\"nan\")}\n\n    # When\n    marks = carry_forward_marks(shares, closes, opens, prev_closes)\n\n    # Then: first finite price wins per ticker; C has none and is omitted, not zero\n    assert marks == {\"A\": 200.0, \"B\": 150.0}\n    assert \"C\" not in marks\n    assert is_priceless_session(shares, {}) is True\n    assert is_priceless_session(shares, {\"A\": 190.0}) is False\n    assert is_priceless_session({}, {}) is False\n"
+    },
+    {
+      "scenario_id": "test_window_opportunities_ceiling_and_breadth",
+      "target_test_file": "tests/unit/tournament/test_attainability.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_attainability.py -k test_window_opportunities_ceiling_and_breadth -q",
+      "expected_behavior": "The ceiling is the best next-open to next-open return over the session's candidates; breadth counts candidates with usable endpoint prices; a session with no usable candidate yields ceiling None.",
+      "test_skeleton": "from datetime import date\n\n\ndef test_window_opportunities_ceiling_and_breadth() -> None:\n    from src.tournament.attainability import window_opportunities\n\n    # Given: 4 sessions, horizon 2 -> only window start index 0 is emittable (needs index 0+1+2 = 3)\n    sessions = [date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 7), date(2026, 1, 8)]\n    open_by_session = [\n        {\"A\": 100.0, \"B\": 100.0},\n        {\"A\": 100.0, \"B\": 100.0},\n        {\"A\": 120.0, \"B\": 110.0},\n        {\"A\": 150.0, \"B\": 110.0},\n    ]\n    candidates = {sessions[0]: [\"A\", \"B\"], sessions[1]: [], sessions[2]: [\"A\"], sessions[3]: [\"A\"]}\n\n    # When\n    opps = window_opportunities(open_by_session, sessions, candidates, horizon=2)\n\n    # Then: window starts at sessions[1], entry at open index 1, exit at open index 3\n    assert len(opps) == 1\n    assert opps[0].window_start == sessions[1]\n    assert opps[0].breadth == 2\n    assert abs(opps[0].ceiling - 0.50) < 1e-12\n"
+    },
+    {
+      "scenario_id": "test_capture_rate_returns_none_below_min_attainable",
+      "target_test_file": "tests/unit/tournament/test_attainability.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_attainability.py -k test_capture_rate_returns_none_below_min_attainable -q",
+      "expected_behavior": "capture_rate conditions on windows where the threshold was attainable and fails closed to None (never 0.0) when the attainable count is below the minimum.",
+      "test_skeleton": "from datetime import date\n\n\ndef test_capture_rate_returns_none_below_min_attainable() -> None:\n    from src.tournament.attainability import WindowOpportunity, attainability_curve, capture_rate\n\n    # Given: 4 windows, 2 of which had a >40% ceiling; the strategy captured 1 of those 2\n    d = [date(2026, 1, i) for i in (5, 6, 7, 8)]\n    opps = [\n        WindowOpportunity(window_start=d[0], breadth=2, ceiling=0.80),\n        WindowOpportunity(window_start=d[1], breadth=2, ceiling=0.50),\n        WindowOpportunity(window_start=d[2], breadth=1, ceiling=0.10),\n        WindowOpportunity(window_start=d[3], breadth=0, ceiling=None),\n    ]\n    returns = [0.60, 0.05, 0.02, 0.00]\n\n    # When\n    capture, n = capture_rate(returns, opps, 0.40, min_attainable=1)\n    blocked, n_blocked = capture_rate(returns, opps, 0.40, min_attainable=5)\n    curve = attainability_curve(opps, [0.40])\n\n    # Then\n    assert n == 2\n    assert abs(capture - 0.5) < 1e-12\n    assert blocked is None and n_blocked == 2\n    assert abs(curve[0.40] - 0.5) < 1e-12\n"
+    },
+    {
+      "scenario_id": "test_resolve_promotion_status_insufficient_power",
+      "target_test_file": "tests/unit/tournament/test_champion_power_gate.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_champion_power_gate.py -k test_resolve_promotion_status_insufficient_power -q",
+      "expected_behavior": "Too few effective discordant windows yields INSUFFICIENT_POWER (not FAIL and not promotable); sufficient power with all-PASS yields PROMOTE.",
+      "test_skeleton": "def test_resolve_promotion_status_insufficient_power() -> None:\n    from src.tournament.champion_eval import is_promotable, resolve_promotion_status\n\n    # Given / When: all gates pass but the paired sample cannot see a difference\n    weak = resolve_promotion_status(\n        aggressive_status=\"PASS\",\n        conservative_status=\"PASS\",\n        loyo_status=\"PASS\",\n        artifact_integrity=True,\n        n_effective_discordant=2,\n        min_effective_discordant=5,\n    )\n    strong = resolve_promotion_status(\n        aggressive_status=\"PASS\",\n        conservative_status=\"PASS\",\n        loyo_status=\"PASS\",\n        artifact_integrity=True,\n        n_effective_discordant=9,\n        min_effective_discordant=5,\n    )\n    failed = resolve_promotion_status(\n        aggressive_status=\"FAIL\",\n        conservative_status=\"PASS\",\n        loyo_status=\"PASS\",\n        artifact_integrity=True,\n        n_effective_discordant=9,\n        min_effective_discordant=5,\n    )\n\n    # Then\n    assert weak == \"INSUFFICIENT_POWER\"\n    assert strong == \"PROMOTE\"\n    assert failed == \"RESEARCH_ONLY\"\n    assert is_promotable(\n        aggressive_status=\"PASS\",\n        conservative_status=\"PASS\",\n        loyo_status=\"PASS\",\n        artifact_integrity=True,\n    ) is True\n"
+    },
+    {
+      "scenario_id": "test_discordant_window_mask_marks_differing_windows",
+      "target_test_file": "tests/unit/tournament/test_champion_power_gate.py",
+      "execution_command": "uv run pytest tests/unit/tournament/test_champion_power_gate.py -k test_discordant_window_mask_marks_differing_windows -q",
+      "expected_behavior": "A window is discordant when the candidate and incumbent hold different tickers on at least one of its sessions; mismatched sequence lengths raise ValueError.",
+      "test_skeleton": "import pytest\n\n\ndef test_discordant_window_mask_marks_differing_windows() -> None:\n    from src.tournament.champion_eval import discordant_window_mask\n\n    # Given: they differ only on session index 3\n    cand = [\"A\", \"A\", \"A\", \"B\", \"A\", \"A\"]\n    inc = [\"A\", \"A\", \"A\", \"A\", \"A\", \"A\"]\n\n    # When: horizon 2 -> windows [0,2) [1,3) [2,4) [3,5) [4,6)\n    mask = discordant_window_mask(cand, inc, horizon=2)\n\n    # Then: only the windows covering index 3 are discordant\n    assert mask == (False, False, True, True, False)\n\n    with pytest.raises(ValueError):\n        discordant_window_mask([\"A\"], [\"A\", \"B\"], horizon=1)\n"
+    },
+    {
+      "scenario_id": "test_abs_mom_cash_exit_bar_is_hysteretic",
+      "target_test_file": "tests/unit/strategies/test_sticky_abs_mom_exit.py",
+      "execution_command": "uv run pytest tests/unit/strategies/test_sticky_abs_mom_exit.py -k test_abs_mom_cash_exit_bar_is_hysteretic -q",
+      "expected_behavior": "With abs_mom_exit=-0.10 a held position survives a mildly negative score but is cut below the exit bar; a flat book still requires a positive score to enter; a positive configured bar fails closed to 0.0.",
+      "test_skeleton": "def test_abs_mom_cash_exit_bar_is_hysteretic() -> None:\n    from src.portfolio.intent import CASH_INTENT\n    from src.strategies.sticky.model import StickyLeaderConfig\n    from src.strategies.sticky.overlays import apply_abs_mom_cash\n\n    cfg = StickyLeaderConfig(abs_mom_cash=True, abs_mom_exit=-0.10)\n\n    # Given a held position: -5% is above the -10% exit bar -> stay invested\n    assert apply_abs_mom_cash({\"A\": -0.05}, cfg, held=\"A\") == {\"A\": -0.05}\n    # Below the exit bar -> cash\n    assert apply_abs_mom_cash({\"A\": -0.15}, cfg, held=\"A\") is CASH_INTENT\n    # Flat book: entry bar stays at 0.0 regardless of abs_mom_exit\n    assert apply_abs_mom_cash({\"A\": -0.05}, cfg, held=None) is CASH_INTENT\n    assert apply_abs_mom_cash({\"A\": 0.05}, cfg, held=None) == {\"A\": 0.05}\n    # Fail-closed: a positive exit bar is rejected back to 0.0\n    bad = StickyLeaderConfig(abs_mom_cash=True, abs_mom_exit=0.20)\n    assert apply_abs_mom_cash({\"A\": -0.01}, bad, held=\"A\") is CASH_INTENT\n"
+    },
+    {
+      "scenario_id": "test_engine_run_excludes_phantom_sessions",
+      "target_test_file": "tests/unit/backtest/test_session_grid.py",
+      "execution_command": "uv run pytest tests/unit/backtest/test_session_grid.py -k test_engine_run_excludes_phantom_sessions -q",
+      "expected_behavior": "The daily frame produced by a backtest contains no session that is absent from the panel, so the grid used by the engine is the observed intersection.",
+      "test_skeleton": "from datetime import date\n\nimport polars as pl\n\n\ndef test_engine_run_excludes_phantom_sessions() -> None:\n    from src.backtest.session_grid import resolve_session_grid\n\n    # Given: the panel misses two mid-range calendar sessions\n    calendar_sessions = [date(2026, 6, d) for d in (1, 2, 3, 4, 5)]\n    panel = pl.DataFrame(\n        {\n            \"date\": [date(2026, 6, 1), date(2026, 6, 2), date(2026, 6, 4)],\n            \"ticker\": [\"X\", \"X\", \"X\"],\n            \"close\": [1.0, 1.0, 1.0],\n            \"open\": [1.0, 1.0, 1.0],\n        }\n    )\n\n    # When\n    grid = resolve_session_grid(calendar_sessions, panel)\n\n    # Then: engine-facing grid never contains a priceless session\n    panel_dates = set(panel[\"date\"].to_list())\n    assert set(grid.sessions) <= panel_dates\n    assert grid.phantom == (date(2026, 6, 3), date(2026, 6, 5))\n"
+    },
+    {
+      "scenario_id": "test_summary_payload_exposes_attainability_and_capture",
+      "target_test_file": "tests/unit/reporting/test_attainability_summary.py",
+      "execution_command": "uv run pytest tests/unit/reporting/test_attainability_summary.py -k test_summary_payload_exposes_attainability_and_capture -q",
+      "expected_behavior": "_extract_summary_record surfaces capture and attainability alongside the existing exceedance columns, and a null capture stays null rather than becoming 0.0.",
+      "test_skeleton": "from datetime import date\n\n\ndef test_summary_payload_exposes_attainability_and_capture() -> None:\n    from src.reporting.results import _extract_summary_record\n\n    meta = {\n        \"model\": \"P36\",\n        \"strategy_id\": \"sticky.mom60_vol_hysteresis\",\n        \"start\": str(date(2018, 1, 2)),\n        \"end\": str(date(2026, 8, 27)),\n        \"horizon\": 36,\n    }\n    summary = {\n        \"n_windows\": 2088,\n        \"n_effective\": 58,\n        \"exceedance\": {\"0.3\": 0.086, \"0.4\": 0.057, \"0.5\": 0.045},\n        \"attainability\": {\"0.4\": 0.090, \"0.5\": 0.061},\n        \"capture\": {\"0.4\": 0.601, \"0.5\": None},\n        \"n_attainable\": {\"0.4\": 188, \"0.5\": 12},\n        \"breadth_mean\": 1.62,\n    }\n\n    record = _extract_summary_record(\"run-1\", meta, summary)\n\n    assert record[\"p_gt_40\"] == 0.057\n    assert record[\"capture_40\"] == 0.601\n    assert record[\"capture_50\"] is None\n    assert record[\"attainable_40\"] == 188\n    assert record[\"breadth_mean\"] == 1.62\n"
+    }
+  ],
+  "verification_plan": [
+    "uv run python tools/agent_skills/lean_check.py --spec docs/specs/p36_breakthrough_contract.json --pre-impl",
+    "uv run pytest tests/unit -q",
+    "uv run ruff check . && uv run mypy .",
+    "uv run python -m src.cli.main backtest --model P27 --start 2018-01-02 --end 2026-08-27 --participation 0.01 --commission-bps 3 --slippage-bps 5  # expect: no 2026-06-04/2026-07-20 artifact, P(R>50) ~= 0.043, terminal wealth ~= 3.9x, summary.json carries attainability/capture",
+    "uv run python -m src.cli.main backtest --model P36 --start 2018-01-02 --end 2026-08-27 --participation 0.01 --commission-bps 3 --slippage-bps 5  # expect: capture_40 ~= 0.60 vs P27 ~= 0.57, ruin <= 0.05",
+    "uv run python -m src.cli.main champion-research --start 2024-01-02 --end 2026-08-27 --candidate-mode p27_matched_2x  # expect: promotion.json status reflects INSUFFICIENT_POWER where the discordant sample cannot resolve the comparison"
+  ],
+  "acceptance": [
+    "No backtest daily frame contains a session absent from the panel; the phantom list is reported in run meta.",
+    "The 2026-06-04 (+92.96%) and 2026-07-20 (+30.08%) artifacts are gone; P27 full-history terminal wealth is ~3.9x, not 16.8x.",
+    "summary.json and runs.parquet carry attainability, capture and breadth for thresholds 0.30/0.40/0.50/0.60, with null (not 0.0) below min_attainable_windows.",
+    "champion promotion reports INSUFFICIENT_POWER instead of FAIL when the discordant effective sample is below min_effective_discordant.",
+    "No existing invariant (INV-10/11/12/13/14/17/18/20/21/24, ARCH-1..6) is weakened; all current unit tests still pass."
+  ]
+}

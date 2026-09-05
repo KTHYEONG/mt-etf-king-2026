@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P36_ATTAINABILITY_GATE",
+      "date": "2026-09-05",
+      "adr_id": "ADR_20260905_P36_ATTAINABILITY_GATE",
+      "domain": "quant",
+      "title": "P36 — measurement integrity, attainability/capture, power-aware promotion",
+      "why": "Phantom XKRX sessions and priceless-session ledger inflation distorted tail metrics; promotion lacked attainable-vs-captured decomposition and a discordant-window power gate.",
+      "resolution": "Shipped session grid, priceless-session HOLD, attainability/capture summaries, champion INSUFFICIENT_POWER resolution, and cmd_backtest P36 artifact wiring with full lean_check coverage.",
+      "impact": "Backtest runs now record attainability, capture, and breadth; champion promotion fails closed when effective discordant windows fall below gates.yaml minimum.",
+      "archive_path": "docs/decisions/archive/TASK_P36_ATTAINABILITY_GATE/p36_breakthrough_contract.json"
+    },
+    {
       "task_id": "TASK_P35_P27_MATCHED_RANKER",
       "date": "2026-09-05",
       "adr_id": "ADR_20260905_P35_P27_MATCHED_RANKER",

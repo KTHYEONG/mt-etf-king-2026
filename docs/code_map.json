@@ -5,17 +5,26 @@
   "src/alpha/baselines.py": {
     "testing": "tests/unit/alpha/test_baselines.py"
   },
+  "src/alpha/champion_dataset.py": {
+    "testing": "tests/unit/alpha/test_champion_dataset.py"
+  },
+  "src/alpha/champion_ranker.py": {
+    "testing": "tests/unit/alpha/test_champion_ranker.py"
+  },
   "src/alpha/cluster.py": {
     "testing": "tests/unit/alpha/test_cluster.py"
   },
+  "src/alpha/intensity.py": {
+    "testing": "tests/unit/alpha/test_intensity.py"
+  },
   "src/alpha/leadership.py": {
-    "testing": [
-      "tests/unit/alpha/test_leadership.py",
-      "tests/unit/alpha/test_p12.py"
-    ]
+    "testing": "tests/unit/alpha/test_leadership.py"
   },
   "src/alpha/state.py": {
     "testing": "tests/unit/alpha/test_state.py"
+  },
+  "src/alpha/sticky.py": {
+    "testing": "tests/unit/alpha/test_sticky.py"
   },
   "src/alpha/theme.py": {
     "testing": "tests/unit/alpha/test_theme.py"
@@ -35,11 +44,38 @@
   "src/backtest/metrics.py": {
     "testing": "tests/unit/backtest/test_metrics.py"
   },
-  "src/cli.py": {
-    "testing": [
-      "tests/unit/test_cli.py",
-      "tests/unit/cli/test_p17_adoption_wiring.py"
-    ]
+  "src/backtest/pnl.py": {
+    "testing": "tests/unit/backtest/test_next_open_pnl.py"
+  },
+  "src/backtest/session_cache.py": {
+    "testing": "tests/unit/backtest/test_session_cache.py"
+  },
+  "src/backtest/session_grid.py": {
+    "testing": "tests/unit/backtest/test_session_grid.py"
+  },
+  "src/cli/_impl.py": {
+    "testing": "tests/unit/cli/test__impl.py"
+  },
+  "src/cli/commands/backtest.py": {
+    "testing": "tests/unit/cli/test_refactor_wiring.py"
+  },
+  "src/cli/commands/config.py": {},
+  "src/cli/commands/data.py": {},
+  "src/cli/commands/decide.py": {},
+  "src/cli/commands/features.py": {},
+  "src/cli/commands/forensics.py": {},
+  "src/cli/commands/loyo.py": {},
+  "src/cli/commands/replay.py": {},
+  "src/cli/commands/storage.py": {},
+  "src/cli/commands/universe.py": {},
+  "src/cli/constants.py": {
+    "testing": "tests/unit/cli/test_constants.py"
+  },
+  "src/cli/dispatch.py": {
+    "testing": "tests/unit/cli/test_dispatch.py"
+  },
+  "src/cli/main.py": {
+    "testing": "tests/unit/test_cli.py"
   },
   "src/core/calendar.py": {
     "testing": "tests/unit/core/test_calendar.py"
@@ -56,11 +92,17 @@
   "src/core/sops_env.py": {
     "testing": "tests/unit/core/test_sops_env.py"
   },
+  "src/core/trace.py": {
+    "testing": "tests/unit/core/test_trace.py"
+  },
   "src/data/backfill.py": {
     "testing": "tests/unit/data/test_backfill.py"
   },
   "src/data/bronze.py": {
     "testing": "tests/unit/data/test_bronze.py"
+  },
+  "src/data/panel.py": {
+    "testing": "tests/unit/data/test_panel.py"
   },
   "src/data/providers/base.py": {
     "testing": "tests/unit/data/providers/test_base.py"
@@ -79,6 +121,9 @@
   },
   "src/data/validation.py": {
     "testing": "tests/unit/data/test_validation.py"
+  },
+  "src/execution/ledger.py": {
+    "testing": "tests/unit/execution/test_ledger.py"
   },
   "src/features/breadth.py": {
     "testing": "tests/unit/features/test_breadth.py"
@@ -110,25 +155,152 @@
   "src/portfolio/constraints.py": {
     "testing": "tests/unit/portfolio/test_constraints.py"
   },
+  "src/portfolio/convexity.py": {
+    "testing": "tests/unit/portfolio/test_convexity.py"
+  },
+  "src/portfolio/exposure.py": {
+    "testing": "tests/unit/portfolio/test_exposure.py"
+  },
+  "src/portfolio/intent.py": {
+    "testing": "tests/unit/portfolio/test_intent.py"
+  },
+  "src/portfolio/policy.py": {
+    "testing": "tests/unit/portfolio/test_policy.py"
+  },
+  "src/portfolio/selection.py": {
+    "testing": "tests/unit/portfolio/test_selection.py"
+  },
   "src/portfolio/sizing.py": {
+    "testing": "tests/unit/portfolio/test_sizing.py"
+  },
+  "src/portfolio/split_fill.py": {
+    "testing": "tests/unit/portfolio/test_split_fill.py"
+  },
+  "src/portfolio/state.py": {
+    "testing": "tests/unit/portfolio/test_state.py"
+  },
+  "src/reporting/dashboard.py": {
+    "testing": "tests/unit/reporting/test_dashboard.py"
+  },
+  "src/reporting/exposure_metrics.py": {
+    "testing": "tests/unit/reporting/test_exposure_metrics.py"
+  },
+  "src/reporting/results.py": {
+    "testing": "tests/unit/reporting/test_results.py"
+  },
+  "src/reporting/tail_forensics.py": {
+    "testing": "tests/unit/reporting/test_tail_forensics.py"
+  },
+  "src/reporting/timeseries.py": {
+    "testing": "tests/unit/reporting/test_timeseries.py"
+  },
+  "src/reporting/trace_store.py": {
+    "testing": "tests/unit/reporting/test_trace_store.py"
+  },
+  "src/strategies/baselines/core.py": {
+    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
+  },
+  "src/strategies/baselines/portfolio.py": {
+    "testing": "tests/unit/strategies/test_portfolio.py"
+  },
+  "src/strategies/champion_tail.py": {
+    "testing": "tests/unit/strategies/test_champion_tail.py"
+  },
+  "src/strategies/convex_impulse.py": {
+    "testing": "tests/unit/strategies/test_p31_convex_lottery.py"
+  },
+  "src/strategies/ids.py": {
+    "testing": "tests/unit/strategies/test_ids.py"
+  },
+  "src/strategies/registry.py": {
+    "testing": "tests/unit/strategies/test_registry.py"
+  },
+  "src/strategies/sticky/capacity.py": {
     "testing": [
-      "tests/unit/portfolio/test_sizing.py",
-      "tests/unit/portfolio/test_lottery_exposure.py",
-      "tests/unit/portfolio/test_overlay_stack.py"
+      "tests/unit/strategies/test_capacity.py",
+      "tests/unit/strategies/test_p30_fillable_sticky.py"
     ]
+  },
+  "src/strategies/sticky/config.py": {
+    "testing": [
+      "tests/unit/strategies/test_r5_config_yaml.py",
+      "tests/unit/strategies/test_sticky_config.py"
+    ]
+  },
+  "src/strategies/sticky/factories.py": {
+    "testing": [
+      "tests/unit/strategies/test_p30_fillable_sticky.py",
+      "tests/unit/strategies/test_r2_alpha_split.py"
+    ]
+  },
+  "src/strategies/sticky/model.py": {
+    "testing": [
+      "tests/unit/alpha/test_p27.py",
+      "tests/unit/strategies/test_model.py",
+      "tests/unit/strategies/test_p29_equity_sticky.py",
+      "tests/unit/strategies/test_p30_fillable_sticky.py",
+      "tests/unit/strategies/test_p31_convex_lottery.py",
+      "tests/unit/strategies/test_p33_confirmed_runner_reversal.py",
+      "tests/unit/strategies/test_r2_alpha_split.py",
+      "tests/unit/strategies/test_sticky_abs_mom_exit.py"
+    ]
+  },
+  "src/strategies/sticky/overlays.py": {
+    "testing": [
+      "tests/unit/strategies/test_overlays.py",
+      "tests/unit/strategies/test_sticky_abs_mom_exit.py"
+    ]
+  },
+  "src/tournament/adoption_reports.py": {
+    "testing": "tests/unit/tournament/test_adoption_reports.py"
+  },
+  "src/tournament/attainability.py": {
+    "testing": "tests/unit/tournament/test_attainability.py"
+  },
+  "src/tournament/champion_eval.py": {
+    "testing": "tests/unit/tournament/test_champion_eval.py"
+  },
+  "src/tournament/championship.py": {
+    "testing": "tests/unit/tournament/test_championship.py"
   },
   "src/tournament/distribution.py": {
-    "testing": [
-      "tests/unit/tournament/test_distribution.py",
-      "tests/unit/tournament/test_distribution_tail.py",
-      "tests/unit/tournament/test_p24_championship_lock.py"
-    ]
+    "testing": "tests/unit/tournament/test_distribution.py"
+  },
+  "src/tournament/distribution_core.py": {
+    "testing": "tests/unit/tournament/test_distribution_core.py"
+  },
+  "src/tournament/eval_cache.py": {
+    "testing": "tests/unit/tournament/test_eval_cache.py"
+  },
+  "src/tournament/eval_mode.py": {
+    "testing": "tests/unit/tournament/test_eval_mode.py"
   },
   "src/tournament/harness.py": {
-    "testing": [
-      "tests/unit/tournament/test_harness.py",
-      "tests/unit/tournament/test_backtest_perf_cut.py"
-    ]
+    "testing": "tests/unit/tournament/test_harness.py"
+  },
+  "src/tournament/loyo.py": {
+    "testing": "tests/unit/tournament/test_loyo.py"
+  },
+  "src/tournament/montecarlo.py": {
+    "testing": "tests/unit/tournament/test_montecarlo.py"
+  },
+  "src/tournament/objective.py": {
+    "testing": "tests/unit/tournament/test_objective.py"
+  },
+  "src/tournament/objective_core.py": {
+    "testing": "tests/unit/tournament/test_objective_core.py"
+  },
+  "src/tournament/objective_impl.py": {
+    "testing": "tests/unit/tournament/test_objective_impl.py"
+  },
+  "src/tournament/optimization.py": {
+    "testing": "tests/unit/tournament/test_p25_optimization.py"
+  },
+  "src/tournament/overlay_returns.py": {
+    "testing": "tests/unit/tournament/test_overlay_returns.py"
+  },
+  "src/tournament/policy.py": {
+    "testing": "tests/unit/tournament/test_policy.py"
   },
   "src/tournament/replay.py": {
     "testing": "tests/unit/tournament/test_replay.py"
@@ -150,140 +322,5 @@
   },
   "src/universe/tournament.py": {
     "testing": "tests/unit/universe/test_tournament.py"
-  },
-  "src/portfolio/policy.py": {
-    "architecture": "docs/specs/09_vehicle_exposure.md",
-    "testing": "tests/unit/portfolio/test_policy.py"
-  },
-  "src/data/panel.py": {
-    "architecture": "docs/architecture/02-system-layers.md",
-    "testing": "tests/unit/data/test_panel.py"
-  },
-  "src/portfolio/selection.py": {
-    "testing": "tests/unit/portfolio/test_canonical_scores.py"
-  },
-  "src/tournament/eval_mode.py": {
-    "architecture": "docs/architecture/08-research-harness.md",
-    "testing": "tests/unit/tournament/test_eval_mode.py"
-  },
-  "src/alpha/intensity.py": {
-    "testing": "tests/unit/alpha/test_intensity.py"
-  },
-  "src/reporting/timeseries.py": {
-    "testing": "tests/unit/reporting/test_timeseries.py"
-  },
-  "src/reporting/trace_store.py": {
-    "testing": "tests/unit/reporting/test_trace_store.py"
-  },
-  "src/portfolio/exposure.py": {
-    "testing": "tests/unit/portfolio/test_exposure.py"
-  },
-  "src/tournament/eval_cache.py": {
-    "testing": "tests/unit/tournament/test_eval_cache.py"
-  },
-  "src/portfolio/convexity.py": {
-    "testing": "tests/unit/portfolio/test_convexity.py"
-  },
-  "src/reporting/tail_forensics.py": {
-    "testing": "tests/unit/reporting/test_tail_forensics.py"
-  },
-  "src/alpha/sticky.py": {
-    "testing": [
-      "tests/unit/alpha/test_p20.py",
-      "tests/unit/alpha/test_p21.py",
-      "tests/unit/alpha/test_p22.py",
-      "tests/unit/alpha/test_p28a.py",
-      "tests/unit/alpha/test_p28b.py"
-    ]
-  },
-  "src/portfolio/split_fill.py": {
-    "testing": "tests/unit/portfolio/test_split_fill.py"
-  },
-  "src/tournament/policy.py": {
-    "testing": "tests/unit/tournament/test_policy.py"
-  },
-  "src/tournament/objective.py": {
-    "testing": [
-      "tests/unit/tournament/test_championship_objective.py",
-      "tests/unit/tournament/test_objective.py"
-    ],
-    "architecture": "docs/architecture/08-research-harness.md"
-  },
-  "src/backtest/pnl.py": {
-    "testing": "tests/unit/backtest/test_next_open_pnl.py"
-  },
-  "src/execution/ledger.py": {
-    "testing": "tests/unit/execution/test_ledger.py"
-  },
-  "src/strategies/baselines/core.py": {
-    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
-  },
-  "src/strategies/baselines/portfolio.py": {
-    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
-  },
-  "src/strategies/sticky/model.py": {
-    "testing": [
-      "tests/unit/strategies/test_r2_alpha_split.py",
-      "tests/unit/strategies/test_p33_confirmed_runner_reversal.py"
-    ]
-  },
-  "src/strategies/sticky/overlays.py": {
-    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
-  },
-  "src/strategies/sticky/factories.py": {
-    "testing": "tests/unit/strategies/test_r2_alpha_split.py"
-  },
-  "src/strategies/sticky/config.py": {
-    "testing": "tests/unit/strategies/test_sticky_config.py"
-  },
-  "src/cli/dispatch.py": {
-    "testing": "tests/unit/cli/test_r3_cli_split.py"
-  },
-  "src/cli/commands/backtest.py": {
-    "testing": "tests/unit/cli/test_r3_cli_split.py"
-  },
-  "src/cli/commands/decide.py": {
-    "testing": "tests/unit/cli/test_r3_cli_split.py"
-  },
-  "src/cli/main.py": {
-    "testing": "tests/unit/cli/test_refactor_wiring.py"
-  },
-  "src/tournament/distribution_core.py": {
-    "testing": "tests/unit/tournament/test_r4_split.py"
-  },
-  "src/tournament/overlay_returns.py": {
-    "testing": "tests/unit/tournament/test_r4_split.py"
-  },
-  "src/tournament/championship.py": {
-    "testing": "tests/unit/tournament/test_r4_split.py"
-  },
-  "src/tournament/objective_core.py": {
-    "testing": "tests/unit/tournament/test_r4_split.py"
-  },
-  "src/reporting/results.py": {
-    "testing": "tests/unit/reporting/test_r5_meta_strategy_id.py"
-  },
-  "src/strategies/registry.py": {
-    "architecture": "docs/architecture/02-system-layers.md",
-    "testing": [
-      "tests/unit/strategies/test_registry.py",
-      "tests/unit/cli/test_champion_research.py"
-    ]
-  },
-  "src/cli/commands/forensics.py": {},
-  "src/tournament/loyo.py": {
-    "testing": "tests/unit/tournament/test_loyo.py"
-  },
-  "src/strategies/sticky/capacity.py": {
-    "testing": [
-      "tests/unit/strategies/test_p30_fillable_sticky.py",
-      "tests/unit/strategies/test_model.py"
-    ]
-  },
-  "src/strategies/convex_impulse.py": {
-    "testing": "tests/unit/strategies/test_p31_convex_lottery.py"
-  },
-  "src/alpha/champion_dataset.py": {
-    "testing": "tests/unit/alpha/test_champion_dataset.py"
   }
 }
