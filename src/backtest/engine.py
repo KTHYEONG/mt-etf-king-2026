@@ -13,6 +13,7 @@ from src.alpha.base import AlphaModel, DecisionContext
 from src.backtest.costs import CostConfig, CostModel
 from src.backtest.execution import Fill, NextOpenExecution
 from src.backtest.session_cache import build_close_map
+from src.backtest.session_grid import resolve_session_grid  # noqa: F401
 from src.core.calendar import TradingCalendar
 from src.core.logging_setup import tagged_log
 from src.core.trace import CANDIDATE_CAP, CandidateTrace, GateTrace, NullTraceSink, SessionTrace, TraceSink
@@ -255,9 +256,9 @@ class BacktestEngine:
         except Exception:
             pass
         try:
-            sessions = self.calendar.sessions(config.start, config.end)
+            sessions = list(resolve_session_grid(self.calendar.sessions(config.start, config.end), panel).sessions)
         except Exception:
-            sessions = []
+            sessions = self.calendar.sessions(config.start, config.end)
 
         cost_model = CostModel(config.costs)
         unfilled_records: list[tuple[date, str]] = []
