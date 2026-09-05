@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P35_TAIL_OBJECTIVE_RECOVERY",
+      "date": "2026-09-05",
+      "adr_id": "ADR_20260905_P35_TAIL_OBJECTIVE_RECOVERY",
+      "domain": "tournament",
+      "title": "P35 tail-objective 학습 및 path-faithful 승격 검증",
+      "why": "P35 ranker가 raw return을 학습하고 fast rolling의 holding trace가 없어 discordant power가 0으로 측정됐다.",
+      "resolution": "Primary exceedance utility 기반 label_rank 학습과 실제 fast/slow holding trace를 연결하고, known gate 실패를 RESEARCH_ONLY로 우선 처리했다.",
+      "impact": "전체 2018-01-02..2026-08-27 평가에서 881개 discordant window를 복원했지만 tail·LOYO 게이트 실패로 P27을 유지한다.",
+      "archive_path": "docs/decisions/archive/TASK_P35_TAIL_OBJECTIVE_RECOVERY/champion_attainability_recovery_contract.json"
+    },
+    {
       "task_id": "TASK_P36_ATTAINABILITY_GATE",
       "date": "2026-09-05",
       "adr_id": "ADR_20260905_P36_ATTAINABILITY_GATE",
