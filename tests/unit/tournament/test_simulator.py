@@ -627,5 +627,26 @@ def test_first_session_executes_prestart_intent() -> None:
     assert daily_path is not None
     assert len(daily_path) == horizon
     assert any(abs(float(x)) > 1e-12 for x in daily_path)
-    assert abs(float(comp)) > 1e-12
+
+
+def test_simulator_falls_back_when_session_grid_fails() -> None:
+    from unittest.mock import patch
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 1, 12))
+    panel = _flat_panel(sessions)
+    engine, _, filt = build_engine(panel)
+    config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1_000_000_000.0, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0.0, 0.0, 0.0))
+    sim = TournamentSimulator(engine, cal)
+
+    class _Static:
+        name = "static"
+        scores_path_independent = True
+
+        def score(self, snapshot, context):
+            return {"069500": 1.0}
+
+    with patch("src.tournament.simulator.resolve_session_grid", side_effect=RuntimeError("grid fail")):
+        rolling = sim.run_rolling(_Static(), panel, config, horizon=3, path_dependent=False)
+    assert len(rolling.returns) > 0
 

@@ -193,6 +193,93 @@ def test_champion_walk_forward_requires_complete_runtime() -> None:
     assert result.extra["missing_runtime_inputs"]
 
 
+def test_champion_walk_forward_runtime_sets_power_fields(champion_runtime) -> None:
+    from src.tournament.champion_eval import run_champion_walk_forward
+
+    result = run_champion_walk_forward(runtime=champion_runtime)
+    assert result.status in {"RESEARCH_ONLY", "INSUFFICIENT_POWER", "PROMOTE"}
+
+
+def test_run_with_runtime_sets_discordant_power_fields(champion_runtime) -> None:
+    import time
+    from dataclasses import dataclass, field
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    import polars as pl
+
+    from src.tournament.champion_eval import _run_with_runtime
+    from src.tournament.loyo import PromotionRobustnessResult, SliceMetrics
+    from src.tournament.objective_impl import ChampionshipAdoptionResult
+
+    sessions = champion_runtime.panel["date"].unique().sort().to_list()
+    scores = pl.DataFrame(
+        {
+            "decision_date": sessions,
+            "source_ticker": ["AAA"] * len(sessions),
+            "score": [0.5] * len(sessions),
+            "is_evaluation": [True] * len(sessions),
+            "trained_through": [sessions[0]] * len(sessions),
+            "fold_id": [0] * len(sessions),
+        }
+    )
+    lineage = ({"fold": 0, "test_count": 1},)
+    starts = tuple(sessions[:80])
+    rets = tuple(0.01 for _ in starts)
+
+    @dataclass
+    class _Rules:
+        leverage_allowed: bool = True
+
+    @dataclass
+    class _Cache:
+        rules: _Rules = field(default_factory=_Rules)
+
+    diag = SimpleNamespace(gross_violation_count=0)
+    trades = pl.DataFrame(
+        {"decision_date": [sessions[0]], "ticker": ["AAA"], "weight_after": [0.95]}
+    )
+    roll = SimpleNamespace(
+        starts=starts,
+        returns=rets,
+        diagnostics=diag,
+        backtest=SimpleNamespace(trades=trades),
+    )
+    adoption = ChampionshipAdoptionResult(
+        status="PASS",
+        failures=(),
+        candidate=None,
+        incumbent=None,
+        raw=None,
+        scenario_delta_ci={},
+        era_deltas={},
+    )
+    loyo = PromotionRobustnessResult(
+        status="PASS",
+        failures=(),
+        full_candidate=SliceMetrics("full", 1, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        full_incumbent=None,
+        year_metrics={},
+        era_metrics={},
+        loyo_pass_count=1,
+        loyo_n_years=1,
+        concentration_2025_2026=0.0,
+        loyo_rows=(),
+    )
+
+    with (
+        patch("src.tournament.champion_eval.build_champion_oos_scores", return_value=(scores, lineage)),
+        patch("src.backtest.session_cache.build_session_cache", return_value=_Cache()),
+        patch.object(champion_runtime.simulator, "run_rolling", return_value=roll),
+        patch("src.tournament.objective_impl.evaluate_championship_adoption", return_value=adoption),
+        patch("src.tournament.loyo.evaluate_promotion_robustness", return_value=loyo),
+    ):
+        result = _run_with_runtime(runtime=champion_runtime, t0=time.time())
+
+    assert "n_effective_discordant" in result.extra
+    assert result.status in {"INSUFFICIENT_POWER", "PROMOTE", "RESEARCH_ONLY"}
+
+
 def test_p27_matched_oos_model_has_no_private_allocation_or_vehicle_remap() -> None:
     from datetime import date
 
