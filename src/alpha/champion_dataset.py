@@ -18,6 +18,33 @@ class ChampionDatasetConfig:
     entry_cost_rate: float
     exit_cost_rate: float
     source_multiple: int = 1
+    tail_thresholds: tuple[float, ...] = ()
+    tail_weights: tuple[float, ...] = ()
+
+
+def _validate_primary_tail_objective(
+    thresholds: tuple[float, ...], weights: tuple[float, ...]
+) -> tuple[tuple[float, ...], tuple[float, ...]] | None:
+    thr = tuple(float(v) for v in (thresholds or ()))
+    wts = tuple(float(v) for v in (weights or ()))
+    if not thr and not wts:
+        return None
+    if len(thr) == 0 or len(wts) == 0:  # pragma: no cover - defensive malformed config
+        raise ValueError("tail objective vectors must be non-empty and equal length")
+    if len(thr) != len(wts):
+        raise ValueError("tail thresholds/weights length mismatch")
+    for v in thr:
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError("tail thresholds must be positive finite")
+    for i in range(1, len(thr)):
+        if not thr[i] > thr[i - 1]:
+            raise ValueError("tail thresholds must be strictly ascending")
+    for v in wts:
+        if not math.isfinite(v) or v < 0:
+            raise ValueError("tail weights must be finite non-negative")
+    if sum(wts) <= 0:
+        raise ValueError("tail weights must have positive total")
+    return thr, wts
 
 
 def collect_family_candidates(
@@ -121,6 +148,7 @@ def build_family_tail_dataset(
     config: ChampionDatasetConfig,
 ) -> pl.DataFrame:
     """Real unlevered path label: enter open(i+1), exit close(i+horizon), both costs."""
+    tail = _validate_primary_tail_objective(config.tail_thresholds, config.tail_weights)
     if candidates.height == 0:
         return pl.DataFrame(
             {
@@ -128,6 +156,7 @@ def build_family_tail_dataset(
                 "source_ticker": [],
                 "family_key": [],
                 "label_return": [],
+                "label_tail_utility": [],
                 "label_rank": [],
             }
         )
@@ -181,6 +210,12 @@ def build_family_tail_dataset(
             "family_key": row.get("family_key"),
             "label_return": net,
         }
+        if tail is not None:
+            thr, wts = tail
+            util = sum(float(w) for t, w in zip(thr, wts, strict=True) if float(net) > float(t))
+            out["label_tail_utility"] = round(float(util), 12)
+        else:
+            out["label_tail_utility"] = 0.0
         for col in config.feature_columns:
             out[col] = row.get(col)
         enriched.append(out)
@@ -191,6 +226,7 @@ def build_family_tail_dataset(
                 "source_ticker": [],
                 "family_key": [],
                 "label_return": [],
+                "label_tail_utility": [],
                 "label_rank": [],
             }
         )
@@ -198,12 +234,32 @@ def build_family_tail_dataset(
         enriched,
         schema_overrides={
             "label_return": pl.Float64,
+            "label_tail_utility": pl.Float64,
             **dict.fromkeys(config.feature_columns, pl.Float64),
         },
         strict=False,
     )
+    if tail is not None:
+        # Primary-tail cross-section: sort by (utility, net return, ticker) with
+        # deterministic equal-utility tie-break; smallest ticker ranks highest.
+        ranks: dict[int, float] = {}
+        by_date_u: dict[date, list[tuple[int, float, float, str]]] = {}
+        rets = frame.select("label_return").to_series().to_list()
+        utils = frame.select("label_tail_utility").to_series().to_list()
+        tickers = frame.select("source_ticker").to_series().to_list()
+        dts = frame.select("decision_date").to_series().to_list()
+        for idx, (dd, u, r, t) in enumerate(zip(dts, utils, rets, tickers, strict=True)):
+            by_date_u.setdefault(dd, []).append((idx, float(u), float(r), str(t)))
+        for items in by_date_u.values():  # noqa: PERF102
+            pre = sorted(items, key=lambda kv: kv[3], reverse=True)
+            ordered_items = sorted(pre, key=lambda kv: (kv[1], kv[2]))
+            n = len(ordered_items)
+            for rank, (idx, _u, _r, _t) in enumerate(ordered_items, start=1):
+                ranks[idx] = float(rank) / float(n) if n else 0.0
+        frame = frame.with_columns(pl.Series("label_rank", [ranks[i] for i in range(frame.height)]))
+        return frame
     # Cross-sectional within-date rank of net return (no leverage multiplier).
-    ranks: dict[int, float] = {}
+    ranks = {}
     by_date: dict[date, list[tuple[int, float]]] = {}
     rets = frame.select("label_return").to_series().to_list()
     dts = frame.select("decision_date").to_series().to_list()
