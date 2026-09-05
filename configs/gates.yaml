@@ -21,3 +21,9 @@ championship:
   bootstrap_resamples: 2000
   seed: 20260831
   min_era_effective: 5
+
+attainability:
+  thresholds: [0.30, 0.40, 0.50, 0.60]
+  min_attainable_windows: 30
+  min_effective_discordant: 5
+  capture_min_improvement: 0.02

@@ -3,67 +3,7 @@
   "aggressive_status": "FAIL",
   "conservative_status": "FAIL",
   "loyo_status": "FAIL",
-  "artifact_integrity": true,
-  "elapsed_seconds": 231.58685278892517,
-  "peak_memory_mb": 0.0,
-  "promotion_eligible": false,
-  "paired_windows": 163,
-  "effective_windows": 163,
-  "aggressive_failures": [
-    "SCENARIO_WEAK_FIELD_VS_INCUMBENT",
-    "SCENARIO_CHAMPIONSHIP_VS_INCUMBENT",
-    "SCENARIO_HOT_FIELD_VS_INCUMBENT",
-    "PRIMARY_CI_VS_INCUMBENT"
-  ],
-  "conservative_failures": [
-    "SCENARIO_WEAK_FIELD_VS_INCUMBENT",
-    "SCENARIO_CHAMPIONSHIP_VS_INCUMBENT",
-    "SCENARIO_HOT_FIELD_VS_INCUMBENT",
-    "PRIMARY_CI_VS_INCUMBENT"
-  ],
-  "loyo_failures": [
-    "P50_NOT_IMPROVED",
-    "LOYO_INSUFFICIENT",
-    "CONCENTRATION"
-  ],
-  "panel_hash": "8f64359b0cbd97b0",
-  "scores_hash": "0c62cc42d6479a69",
-  "lineage": [
-    {
-      "fold_id": 0,
-      "train_count": 252,
-      "test_count": 85,
-      "trained_through": "2025-02-27",
-      "warmup_date": "2025-06-17"
-    },
-    {
-      "fold_id": 1,
-      "train_count": 337,
-      "test_count": 85,
-      "trained_through": "2025-07-04",
-      "warmup_date": "2025-10-22"
-    },
-    {
-      "fold_id": 2,
-      "train_count": 422,
-      "test_count": 85,
-      "trained_through": "2025-11-10",
-      "warmup_date": "2026-02-26"
-    }
-  ],
-  "candidate_id": "P35",
-  "source_multiple": 2,
-  "selection_equivalent": true,
-  "candidate_model_name": "P27",
-  "incumbent_model_name": "P27",
-  "candidate_limits": [
-    0.95,
-    1.9,
-    0.05
-  ],
-  "incumbent_limits": [
-    0.95,
-    1.9,
-    0.05
-  ]
+  "artifact_integrity": false,
+  "elapsed_seconds": 0.0,
+  "peak_memory_mb": 0.0
 }
