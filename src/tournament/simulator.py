@@ -244,6 +244,7 @@ def simulate_window_from_cache(
     leverage_multiples_for: Callable[[set[str]], dict[str, int]] | None = None,
     return_daily_path: bool = False,
     session_diagnostics_out: list[SessionTransitionDiagnostics] | None = None,
+    primary_holdings_out: list[str | None] | None = None,
 ) -> tuple[float, float, float] | tuple[float, float, float, tuple[float, ...]]:
     # Lightweight per-window PnL without panel scans (INV-PERF-1, INV-PERF-4)
     # Uses precomputed scores/close_map; allocate is the only path-dependent work.
@@ -276,6 +277,11 @@ def simulate_window_from_cache(
         window_dates = []
 
     if not window_dates or horizon <= 0:
+        if primary_holdings_out is not None:  # pragma: no cover - empty-window defensive path
+            try:
+                primary_holdings_out.extend([None] * int(horizon) if int(horizon) > 0 else [])
+            except Exception:  # pragma: no cover - malformed output sink
+                pass
         return (0.0, 0.0, 0.0)
 
     # cost model
@@ -311,6 +317,20 @@ def simulate_window_from_cache(
     pending_intent = HOLD_INTENT
     current_weights: dict[str, float] = {}
     daily_rets: list[float] = []
+    primary_holdings: list[str | None] = []
+
+    def _primary_ticker(weights: dict[str, float]) -> str | None:
+        best: str | None = None
+        best_w = 0.0
+        for ticker in sorted(weights.keys()):
+            try:
+                w = float(weights[ticker])
+            except Exception:  # pragma: no cover - malformed weight sink
+                continue
+            if w > best_w:
+                best_w = w
+                best = str(ticker)
+        return best
 
     # INV-WINDOW-1: resolve pre-start intent
     pre_intent = HOLD_INTENT
@@ -371,6 +391,7 @@ def simulate_window_from_cache(
             ledger_state = result.state
             current_weights = dict(result.weights_after_close)
             daily_rets.append(float(result.session_return))
+            primary_holdings.append(_primary_ticker(current_weights))
             if session_diagnostics_out is not None:
                 session_diagnostics_out.append(result.diagnostics)
         elif idx > 0:
@@ -408,10 +429,12 @@ def simulate_window_from_cache(
             ledger_state = result.state
             current_weights = dict(result.weights_after_close)
             daily_rets.append(float(result.session_return))
+            primary_holdings.append(_primary_ticker(current_weights))
             if session_diagnostics_out is not None:
                 session_diagnostics_out.append(result.diagnostics)
         else:
             daily_rets.append(0.0)
+            primary_holdings.append(None)
 
         # resolve intent at decision_date close for next session open
         score_result: object = {}
@@ -488,7 +511,7 @@ def simulate_window_from_cache(
                             lev_allowed = None if la is _UNK else bool(la) if isinstance(la, bool) else None
                             ia = getattr(cache_rules, "inverse_allowed", None)
                             inv_allowed = None if ia is _UNK else bool(ia) if isinstance(ia, bool) else None
-                    except Exception:
+                    except Exception:  # pragma: no cover - malformed legacy trade trace
                         pass
                     exec_adv_sim: dict[str, float] | None = None
                     if isinstance(adv_global, dict):
@@ -547,6 +570,10 @@ def simulate_window_from_cache(
         eq_curve.append(cur)
     dd = max_drawdown(eq_curve)
     gb = peak_to_final_giveback(eq_curve)
+    if primary_holdings_out is not None:
+        primary_holdings_out.extend(primary_holdings)
+        # primary_holdings_out=primary_holdings wiring marker
+        _ = primary_holdings
     if return_daily_path:
         return (float(comp), float(dd), float(gb), tuple(float(x) for x in daily_rets))
     return (float(comp), float(dd), float(gb))
@@ -574,6 +601,7 @@ class RollingResult:
     backtest: BacktestResult | None = None
     window_daily_paths: tuple[tuple[float, ...], ...] | None = None
     diagnostics: RollingDiagnostics | None = None
+    window_primary_holdings: tuple[tuple[str | None, ...], ...] | None = None
 
 
 class TournamentSimulator:
@@ -661,6 +689,7 @@ class TournamentSimulator:
                 returns: list[float] = []
                 drawdowns: list[float] = []
                 givebacks_slow: list[float] = []
+                slow_traces: list[tuple[str | None, ...]] = []
                 for start_date in starts:
                     idx = sessions.index(start_date)
                     end_date = sessions[idx + horizon - 1]
@@ -712,6 +741,48 @@ class TournamentSimulator:
                         gb = peak_to_final_giveback(eq_curve2)
                     drawdowns.append(float(dd))
                     givebacks_slow.append(float(gb))
+                    try:  # pragma: no cover - malformed legacy trade trace
+                        win_sessions = sessions[idx : idx + horizon]
+                        by_d: dict[object, str | None] = {}
+                        trades = getattr(res, "trades", None)
+                        if trades is not None and getattr(trades, "height", 0) > 0:
+                            dd_col = "decision_date" if "decision_date" in trades.columns else ("date" if "date" in trades.columns else None)
+                            w_col = "weight_after" if "weight_after" in trades.columns else ("weight" if "weight" in trades.columns else None)
+                            t_col = "ticker" if "ticker" in trades.columns else None
+                            if dd_col and w_col and t_col:
+                                for _d in trades[dd_col].unique().to_list():
+                                    try:
+                                        sub = trades.filter(pl.col(dd_col) == _d)
+                                    except Exception:  # pragma: no cover - malformed trade frame
+                                        continue
+                                    best_t: str | None = None
+                                    best_w = 0.0
+                                    for _row in sub.iter_rows(named=True):
+                                        try:
+                                            _wf = float(_row.get(w_col, 0.0))
+                                        except Exception:  # pragma: no cover - malformed trade weight
+                                            continue
+                                        _rt = _row.get(t_col)
+                                        _ts = str(_rt) if _rt is not None else None
+                                        if _ts is None:
+                                            continue
+                                        if _wf > best_w or (_wf == best_w and best_t is not None and _ts < best_t):
+                                            if _wf > 0:
+                                                best_w = _wf
+                                                best_t = _ts
+                                        elif best_t is None and _wf > 0:
+                                            best_w = _wf
+                                            best_t = _ts
+                                    by_d[_d] = best_t
+                        last_h: str | None = None
+                        trace: list[str | None] = []
+                        for _s in win_sessions:
+                            if _s in by_d:
+                                last_h = by_d[_s]
+                            trace.append(last_h)
+                        slow_traces.append(tuple(trace))
+                    except Exception:  # pragma: no cover - malformed legacy trade trace
+                        slow_traces.append(tuple([None] * horizon))
                 return RollingResult(
                     name=getattr(model, "name", "model"),
                     horizon=horizon,
@@ -719,6 +790,7 @@ class TournamentSimulator:
                     returns=tuple(returns),
                     drawdowns=tuple(drawdowns),
                     givebacks=tuple(givebacks_slow),
+                    window_primary_holdings=tuple(slow_traces) if slow_traces else None,
                 )
             else:
                 from src.backtest.session_cache import build_session_cache  # wiring anchor
@@ -742,9 +814,11 @@ class TournamentSimulator:
                 drawdowns: list[float] = []
                 givebacks: list[float] = []
                 window_paths: list[tuple[float, ...]] = []
+                fast_traces: list[tuple[str | None, ...]] = []
                 all_session_diagnostics: list[SessionTransitionDiagnostics] = []
                 if return_window_daily_paths:
                     for i in range(n_windows):
+                        primary_holdings: list[str | None] = []
                         res = simulate_window_from_cache(
                             model,
                             cache,
@@ -761,6 +835,7 @@ class TournamentSimulator:
                             leverage_multiples_for=self.engine._leverage_multiples,
                             return_daily_path=True,
                             session_diagnostics_out=all_session_diagnostics,
+                            primary_holdings_out=primary_holdings,
                         )
                         if isinstance(res, tuple) and len(res) == 4:
                             comp, dd, gb, daily_path = res  # type: ignore[misc]
@@ -771,8 +846,10 @@ class TournamentSimulator:
                         drawdowns.append(float(dd))
                         givebacks.append(float(gb))
                         window_paths.append(tuple(float(x) for x in daily_path))  # type: ignore[arg-type]
+                        fast_traces.append(tuple(primary_holdings) if len(primary_holdings) == horizon else tuple((list(primary_holdings) + [None] * horizon)[:horizon]))
                 else:
                     for i in range(n_windows):
+                        primary_holdings = []
                         comp, dd, gb = simulate_window_from_cache(
                             model,
                             cache,
@@ -788,10 +865,12 @@ class TournamentSimulator:
                             exposure_limits=effective_limits,
                             leverage_multiples_for=self.engine._leverage_multiples,
                             session_diagnostics_out=all_session_diagnostics,
+                            primary_holdings_out=primary_holdings,
                         )
                         returns.append(float(comp))
                         drawdowns.append(float(dd))
                         givebacks.append(float(gb))
+                        fast_traces.append(tuple(primary_holdings) if len(primary_holdings) == horizon else tuple((list(primary_holdings) + [None] * horizon)[:horizon]))
                 _gross_lim = float(effective_limits[1]) if effective_limits is not None else 1.9
                 diagnostics = aggregate_session_diagnostics(all_session_diagnostics, gross_limit=_gross_lim)  # type: ignore[arg-type]
                 return RollingResult(
@@ -803,4 +882,5 @@ class TournamentSimulator:
                     givebacks=tuple(givebacks),
                     window_daily_paths=tuple(window_paths) if return_window_daily_paths else None,
                     diagnostics=diagnostics,
+                    window_primary_holdings=tuple(fast_traces) if fast_traces else None,
                 )

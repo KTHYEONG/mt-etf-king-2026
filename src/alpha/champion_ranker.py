@@ -76,6 +76,7 @@ class ChampionModelArtifact:
     model_config_hash: str = ""
     panel_hash: str = ""
     lgbm_version: str = ""
+    target_column: str = "label_rank"
 
 
 class ChampionTailRanker:
@@ -104,6 +105,9 @@ class ChampionTailRanker:
         }
 
     def fit(self, train: pl.DataFrame) -> ChampionModelArtifact:
+        target_column = "label_rank"
+        if target_column not in train.columns:
+            raise ValueError("artifact-integrity failure: missing label_rank target")
         if "label_return" not in train.columns or "decision_date" not in train.columns:
             raise ValueError("artifact-integrity failure: missing label/decision_date")
         cols = list(self._features) if self._features else [c for c in train.columns if c not in ("label_return", "label_rank", "decision_date", "source_ticker", "family_key")]
@@ -112,8 +116,8 @@ class ChampionTailRanker:
             raise ValueError(f"artifact-integrity failure: missing columns {missing}")
         if len(cols) > 25:
             raise ValueError("artifact-integrity failure: feature count exceeds 25")
-        clean = train.select([*cols, "label_return", "decision_date"]).drop_nulls()
-        # Exclude every non-finite feature row before fit.
+        clean = train.select([*cols, target_column, "label_return", "decision_date"]).drop_nulls()
+        # Exclude every non-finite feature/target row before fit.
         rows = clean.to_dicts()
         kept = []
         for r in rows:
@@ -127,6 +131,11 @@ class ChampionTailRanker:
                     ok = False
                     break
             try:
+                if not math.isfinite(float(r[target_column])):
+                    ok = False
+            except (AttributeError, IndexError, TypeError, ValueError):  # pragma: no cover - schema validation
+                ok = False
+            try:
                 if not math.isfinite(float(r["label_return"])):
                     ok = False
             except (AttributeError, IndexError, TypeError, ValueError):
@@ -137,7 +146,7 @@ class ChampionTailRanker:
             raise ValueError("artifact-integrity failure: no finite training rows")
         # LambdaRank group sizes are positional; keep rows contiguous by date.
         kept.sort(key=lambda r: r["decision_date"])
-        model: object = {"mean": sum(float(r["label_return"]) for r in kept) / len(kept)}
+        model: object = {"mean": sum(float(r[target_column]) for r in kept) / len(kept)}
         try:
             import lightgbm as lgb  # type: ignore[import]
 
@@ -145,7 +154,7 @@ class ChampionTailRanker:
             for r in kept:
                 groups.setdefault(r["decision_date"], []).append(r)
             xs = [[float(r[c]) for c in cols] for r in kept]
-            ys = [float(r["label_return"]) for r in kept]
+            ys = [float(r[target_column]) for r in kept]
             grp = [len(groups[d]) for d in sorted(groups)]
             ds = lgb.Dataset(xs, label=ys, group=grp)
             params = {
@@ -179,6 +188,7 @@ class ChampionTailRanker:
             model_config_hash=feat_hash,
             panel_hash=panel_hash,
             lgbm_version=ver,
+            target_column=target_column,
         )
 
     def score(self, snapshot: pl.DataFrame, *, artifact: ChampionModelArtifact) -> dict[str, float]:
