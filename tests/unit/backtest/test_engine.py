@@ -280,3 +280,26 @@ def test_engine_trades_sourced_from_transition_result() -> None:
     assert "execution_date" in first
     assert "weight_after" in first
     assert float(first["weight_after"]) > 0.0
+
+
+def test_engine_falls_back_when_session_grid_resolution_fails() -> None:
+    from unittest.mock import patch
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 1, 9))
+    panel = pl.DataFrame(
+        [panel_row(day=d, ticker="069500", close=100.0, mom_20=0.1, trading_value=50_000_000_000_000.0) for d in sessions]
+    )
+    engine, _, filt = build_engine(panel, max_order_to_adv=1.0)
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1_000_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+    with patch("src.backtest.engine.resolve_session_grid", side_effect=RuntimeError("grid fail")):
+        result = engine.run(BASELINES["B0"], panel, config)
+    assert result.daily.height > 0
