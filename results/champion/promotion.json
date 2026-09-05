@@ -3,7 +3,67 @@
   "aggressive_status": "FAIL",
   "conservative_status": "FAIL",
   "loyo_status": "FAIL",
-  "artifact_integrity": false,
-  "elapsed_seconds": 0.0,
-  "peak_memory_mb": 0.0
+  "artifact_integrity": true,
+  "elapsed_seconds": 487.52002692222595,
+  "peak_memory_mb": 0.0,
+  "promotion_eligible": false,
+  "paired_windows": 881,
+  "effective_windows": 881,
+  "n_effective_discordant": 881,
+  "min_effective_discordant": 5,
+  "aggressive_failures": [
+    "SCENARIO_CHAMPIONSHIP_VS_INCUMBENT",
+    "SCENARIO_HOT_FIELD_VS_INCUMBENT",
+    "PRIMARY_CI_VS_INCUMBENT"
+  ],
+  "conservative_failures": [
+    "SCENARIO_CHAMPIONSHIP_VS_INCUMBENT",
+    "SCENARIO_HOT_FIELD_VS_INCUMBENT",
+    "PRIMARY_CI_VS_INCUMBENT"
+  ],
+  "loyo_failures": [
+    "P50_NOT_IMPROVED",
+    "LOYO_INSUFFICIENT",
+    "CONCENTRATION"
+  ],
+  "panel_hash": "8f64359b0cbd97b0",
+  "scores_hash": "5ed4cae00638d8a9",
+  "lineage": [
+    {
+      "fold_id": 0,
+      "train_count": 252,
+      "test_count": 563,
+      "trained_through": "2019-01-11",
+      "warmup_date": "2019-04-29"
+    },
+    {
+      "fold_id": 1,
+      "train_count": 815,
+      "test_count": 563,
+      "trained_through": "2021-05-11",
+      "warmup_date": "2021-09-14"
+    },
+    {
+      "fold_id": 2,
+      "train_count": 1378,
+      "test_count": 564,
+      "trained_through": "2023-09-27",
+      "warmup_date": "2024-01-22"
+    }
+  ],
+  "candidate_id": "P35",
+  "source_multiple": 2,
+  "selection_equivalent": true,
+  "candidate_model_name": "P27",
+  "incumbent_model_name": "P27",
+  "candidate_limits": [
+    0.95,
+    1.9,
+    0.05
+  ],
+  "incumbent_limits": [
+    0.95,
+    1.9,
+    0.05
+  ]
 }
