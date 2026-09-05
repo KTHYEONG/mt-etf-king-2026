@@ -18,3 +18,10 @@ def test_sticky_model_caches_snapshot_filtering() -> None:
     second = model.score(snapshot, context)
     assert type(first) is type(second)
     assert len(model._filtered_scores_by_snapshot) == 1
+
+
+def test_sticky_config_rejects_invalid_abs_mom_exit() -> None:
+    from src.strategies.sticky.model import StickyLeaderConfig
+
+    cfg = StickyLeaderConfig.from_yaml({"abs_mom_exit": "not-a-float"})
+    assert cfg.abs_mom_exit == 0.0

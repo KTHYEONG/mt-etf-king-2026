@@ -71,6 +71,49 @@ def test_build_close_map_preserves_ticker_float_mapping() -> None:
     assert cmap[d1]["114800"] == 51.0
 
 
+def test_build_session_cache_falls_back_when_session_grid_fails() -> None:
+    from unittest.mock import patch
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 1, 9))
+    panel = pl.DataFrame([panel_row(day=d, ticker="069500", close=30000.0) for d in sessions])
+    engine, _, filt = build_engine(panel)
+    config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1_000_000_000.0, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0.0, 0.0, 0.0))
+
+    class _Model:
+        name = "P08"
+        scores_path_independent = True
+
+        def score(self, snapshot, ctx):
+            return {"069500": 1.0}
+
+    with patch("src.backtest.session_cache.resolve_session_grid", side_effect=RuntimeError("grid fail")):
+        cache = build_session_cache(engine, _Model(), panel, config)
+    assert len(cache.dates) > 0
+
+
+def test_build_session_cache_returns_empty_when_calendar_unavailable() -> None:
+    from unittest.mock import patch
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 1, 9))
+    panel = pl.DataFrame([panel_row(day=d, ticker="069500", close=30000.0) for d in sessions])
+    engine, _, filt = build_engine(panel)
+    config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1_000_000_000.0, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0.0, 0.0, 0.0))
+
+    class _Model:
+        name = "P08"
+        scores_path_independent = True
+
+        def score(self, snapshot, ctx):
+            return {"069500": 1.0}
+
+    engine.calendar.sessions = lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("no sessions"))  # type: ignore[method-assign]
+    with patch("src.backtest.session_cache.resolve_session_grid", side_effect=RuntimeError("grid fail")):
+        cache = build_session_cache(engine, _Model(), panel, config)
+    assert cache.dates == ()
+
+
 @pytest.mark.parametrize("scenario_id", ["SCENARIO-PERF-02"])
 def test_SCENARIO_PERF_wrapper_cache(scenario_id: str) -> None:  # noqa: N802
     if scenario_id == "SCENARIO-PERF-02":
