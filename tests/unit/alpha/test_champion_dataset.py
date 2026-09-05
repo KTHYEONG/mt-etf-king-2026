@@ -109,3 +109,55 @@ def test_collect_family_candidates_source_two_labels_exact_plus_two_vehicle() ->
     assert candidates.get_column('source_ticker').to_list() == ['TWO']
     assert labeled.item(0, 'source_ticker') == 'TWO'
     assert labeled.item(0, 'label_return') == 0.21
+
+
+def test_family_tail_dataset_ranks_primary_tail_utility_before_raw_return() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.alpha.champion_dataset import ChampionDatasetConfig, build_family_tail_dataset
+
+    d0, d1, d2 = date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)
+    candidates = pl.DataFrame({'decision_date': [d0, d0], 'source_ticker': ['TWO_A', 'TWO_B'], 'family_key': ['A', 'B'], 'mom_5': [0.1, 0.2]})
+    prices = pl.DataFrame({'date': [d0, d1, d2, d0, d1, d2], 'ticker': ['TWO_A', 'TWO_A', 'TWO_A', 'TWO_B', 'TWO_B', 'TWO_B'], 'open': [100.0] * 6, 'close': [100.0, 155.0, 155.0, 100.0, 135.0, 135.0]})
+    config = ChampionDatasetConfig(feature_columns=('mom_5',), label_horizon=2, entry_cost_rate=0.0, exit_cost_rate=0.0, source_multiple=2, tail_thresholds=(0.30, 0.40, 0.50, 0.60), tail_weights=(0.10, 0.25, 0.45, 0.20))
+
+    result = build_family_tail_dataset(candidates, prices, sessions=[d0, d1, d2], config=config).sort('source_ticker')
+
+    assert result.get_column('label_tail_utility').to_list() == [0.8, 0.1]
+    assert result.get_column('label_rank').to_list() == [1.0, 0.5]
+    assert result.get_column('label_return').to_list() == [0.55, 0.35]
+
+
+def test_champion_dataset_rejects_malformed_primary_tail_objective() -> None:
+    from datetime import date
+
+    import polars as pl
+    import pytest
+
+    from src.alpha.champion_dataset import ChampionDatasetConfig, build_family_tail_dataset
+
+    d0, d1, d2 = date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)
+    candidates = pl.DataFrame({'decision_date': [d0], 'source_ticker': ['TWO'], 'family_key': ['A'], 'mom_5': [0.1]})
+    prices = pl.DataFrame({'date': [d0, d1, d2], 'ticker': ['TWO', 'TWO', 'TWO'], 'open': [100.0] * 3, 'close': [100.0, 140.0, 140.0]})
+    config = ChampionDatasetConfig(feature_columns=('mom_5',), label_horizon=2, entry_cost_rate=0.0, exit_cost_rate=0.0, source_multiple=2, tail_thresholds=(0.30, 0.40), tail_weights=(1.0,))
+
+    with pytest.raises(ValueError, match='tail'):
+        build_family_tail_dataset(candidates, prices, sessions=[d0, d1, d2], config=config)
+
+
+def test_champion_dataset_rejects_invalid_tail_objective_values() -> None:
+    from datetime import date
+    import polars as pl
+    import pytest
+    from src.alpha.champion_dataset import ChampionDatasetConfig, build_family_tail_dataset
+
+    d0, d1, d2 = date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)
+    candidates = pl.DataFrame({'decision_date': [d0], 'source_ticker': ['T'], 'family_key': ['A'], 'x': [1.0]})
+    prices = pl.DataFrame({'date': [d0, d1, d2], 'ticker': ['T'] * 3, 'open': [100.0] * 3, 'close': [100.0, 120.0, 120.0]})
+    base = {'feature_columns': ('x',), 'label_horizon': 2, 'entry_cost_rate': 0.0, 'exit_cost_rate': 0.0}
+    cases = [((0.0,), (1.0,), 'positive'), ((0.4, 0.3), (1.0, 1.0), 'ascending'), ((0.4,), (-1.0,), 'non-negative'), ((0.4,), (0.0,), 'positive total')]
+    for thresholds, weights, match in cases:
+        with pytest.raises(ValueError, match=match):
+            build_family_tail_dataset(candidates, prices, sessions=[d0, d1, d2], config=ChampionDatasetConfig(**base, tail_thresholds=thresholds, tail_weights=weights))
