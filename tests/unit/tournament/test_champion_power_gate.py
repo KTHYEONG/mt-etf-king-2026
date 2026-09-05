@@ -278,6 +278,27 @@ def test_count_effective_discordant_returns_zero_without_paired_starts() -> None
     )
 
 
+def test_count_effective_discordant_rejects_misaligned_traces() -> None:
+    from datetime import date
+    from src.tournament.champion_eval import _count_effective_discordant
+    sessions = [date(2026, 1, 5), date(2026, 1, 6)]
+    assert _count_effective_discordant(
+        paired_starts=[sessions[0]], sessions=sessions, horizon=2,
+        candidate_backtest=None, incumbent_backtest=None,
+        candidate_window_holdings=(('A',),), incumbent_window_holdings=(('B', 'B'),),
+    ) == 0
+
+
+def test_count_effective_discordant_fails_closed_for_partial_and_invalid_traces() -> None:
+    from datetime import date
+    from src.tournament.champion_eval import _count_effective_discordant
+    sessions = [date(2026, 1, 5), date(2026, 1, 6)]
+    common = {'paired_starts': [sessions[0]], 'sessions': sessions, 'horizon': 2, 'candidate_backtest': None, 'incumbent_backtest': None}
+    assert _count_effective_discordant(**common, candidate_window_holdings=(('A', 'A'),), incumbent_window_holdings=None) == 0
+    assert _count_effective_discordant(**common, candidate_window_holdings=(('A', 'A'), ('B', 'B')), incumbent_window_holdings=(('A', 'A'),)) == 0
+    assert _count_effective_discordant(**common, candidate_window_holdings=((1, 'A'),), incumbent_window_holdings=(('B', 'B'),)) == 0
+
+
 def test_discordant_window_mask_rejects_bad_inputs() -> None:
     import pytest
 
@@ -367,3 +388,22 @@ def test_resolve_promotion_status_tolerates_bad_power_counts() -> None:
         )
         == "PROMOTE"
     )
+
+
+def test_count_effective_discordant_uses_fast_window_holding_traces() -> None:
+    from datetime import date
+
+    from src.tournament.champion_eval import _count_effective_discordant
+
+    sessions = [date(2026, 1, d) for d in (5, 6, 7)]
+    count = _count_effective_discordant(paired_starts=[sessions[0], sessions[1]], sessions=sessions, horizon=2, candidate_backtest=None, incumbent_backtest=None, candidate_window_holdings=(('TWO_A', 'TWO_A'), ('TWO_B', 'TWO_B')), incumbent_window_holdings=(('TWO_A', 'TWO_A'), ('TWO_A', 'TWO_A')))
+
+    assert count == 1
+
+
+def test_resolve_promotion_status_preserves_known_gate_failure_before_power() -> None:
+    from src.tournament.champion_eval import resolve_promotion_status
+
+    status = resolve_promotion_status(aggressive_status='FAIL', conservative_status='PASS', loyo_status='PASS', artifact_integrity=True, n_effective_discordant=0, min_effective_discordant=5)
+
+    assert status == 'RESEARCH_ONLY'
