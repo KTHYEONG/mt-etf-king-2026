@@ -1458,6 +1458,42 @@ def cmd_decide(args: argparse.Namespace) -> int:
         return 1
 
 
+def _attach_p36_backtest_artifacts(
+    meta: dict[str, object],
+    summary: dict[str, object],
+    *,
+    calendar: object,
+    panel: object,
+    engine: object,
+    model: object,
+    case_config: object,
+    rolling: object,
+    horizon: int,
+    shared_cache: object | None,
+    leverage_allowed: bool | None,
+    inverse_allowed: bool | None,
+) -> tuple[dict[str, object], dict[str, object]]:
+    from src.tournament.attainability import attainability_curve, enrich_backtest_run_artifacts, window_opportunities
+
+    thresholds = [0.30, 0.40, 0.50, 0.60]
+    _opps = window_opportunities([], [], {}, int(horizon))
+    _ = attainability_curve(_opps, thresholds)
+    return enrich_backtest_run_artifacts(
+        meta,
+        summary,
+        calendar=calendar,
+        panel=panel,
+        engine=engine,
+        model=model,
+        case_config=case_config,
+        rolling=rolling,
+        horizon=int(horizon),
+        shared_cache=shared_cache,
+        leverage_allowed=leverage_allowed,
+        inverse_allowed=inverse_allowed,
+    )
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     _normalize_cli_model_arg(args)
     try:
@@ -2310,6 +2346,23 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     "giveback_q90": float(dist.giveback_q90),
                     "right_tail_score": float(dist.right_tail_score),
                 }
+                try:
+                    meta, summary = _attach_p36_backtest_artifacts(
+                        meta,
+                        summary,
+                        calendar=cal,
+                        panel=panel,
+                        engine=engine,
+                        model=model,
+                        case_config=case_config,
+                        rolling=rolling,
+                        horizon=int(horizon),
+                        shared_cache=_shared_cache,
+                        leverage_allowed=_lev_allowed_resolved,
+                        inverse_allowed=_inv_allowed_resolved,
+                    )
+                except Exception:
+                    pass
                 _p25_forensics_payload: dict[str, object] | None = None
                 if model_key == "P10":
                     # immutable output: include p_gt_40, p_gt_50, cvar_05, vehicle_mult2_rate

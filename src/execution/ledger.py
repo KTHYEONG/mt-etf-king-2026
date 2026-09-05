@@ -8,6 +8,8 @@ from datetime import date
 
 import polars as pl
 
+import math
+
 from src.backtest.costs import CostModel
 from src.backtest.execution import NextOpenExecution, is_open_fillable
 from src.backtest.liquidity import apply_intent_liquidity_constraints, cap_target_weights_by_adv, constrain_target_weights_sell_first
@@ -126,6 +128,59 @@ def _gross_exposure(weights: Mapping[str, float], multiples: Mapping[str, int]) 
     return float(total)
 
 
+def is_priceless_session(shares: Mapping[str, float], opens: Mapping[str, float]) -> bool:
+    try:
+        items = list(dict(shares).items())
+    except Exception:
+        return False
+    held = False
+    try:
+        om = dict(opens) if isinstance(opens, Mapping) else {}
+    except Exception:
+        om = {}
+    for tkr, sh in items:
+        try:
+            shf = float(sh)
+        except Exception:
+            continue
+        if not math.isfinite(shf) or abs(shf) <= 1e-12:
+            continue
+        held = True
+        try:
+            raw = om.get(str(tkr))
+            pf = float(raw) if raw is not None else float("nan")
+        except Exception:
+            continue
+        if math.isfinite(pf) and pf > 0:
+            return False
+    return bool(held)
+
+
+def carry_forward_marks(shares: Mapping[str, float], *price_maps: Mapping[str, float]) -> dict[str, float]:
+    try:
+        tickers = [str(k) for k in dict(shares).keys()]
+    except Exception:
+        return {}
+    maps: list[Mapping[str, float]] = [m for m in price_maps if isinstance(m, Mapping)]
+    out: dict[str, float] = {}
+    for tkr in tickers:
+        for mp in maps:
+            try:
+                raw = mp.get(tkr)
+            except Exception:
+                continue
+            if raw is None:
+                continue
+            try:
+                pf = float(raw)
+            except Exception:
+                continue
+            if math.isfinite(pf) and pf > 0:
+                out[tkr] = float(pf)
+                break
+    return out
+
+
 def transition_portfolio_state(
     *,
     prior_state: PortfolioLedgerState,
@@ -142,6 +197,35 @@ def transition_portfolio_state(
     execution: NextOpenExecution | None,
     panel: pl.DataFrame | None,
 ) -> PortfolioTransitionResult:
+    if is_priceless_session(prior_state.shares, opens):
+        try:
+            _eq_prev = prior_state.equity_at_prices(prev_closes) if prev_closes else float(prior_state.cash)
+        except Exception:
+            _eq_prev = float(prior_state.cash)
+        _marks = carry_forward_marks(prior_state.shares, closes, opens, prev_closes)
+        _need = [k for k, v in dict(prior_state.shares).items() if abs(float(v)) > 1e-12] if prior_state.shares else []
+        if _need and all(k in _marks for k in [str(x) for x in _need]):
+            _eq = float(prior_state.cash) + sum(float(prior_state.shares[k]) * float(_marks[str(k)]) for k in [str(x) for x in _need])
+        else:
+            _eq = float(_eq_prev)
+        _wac: dict[str, float] = {}
+        if _eq != 0:
+            for k in [str(x) for x in _need]:
+                if k in _marks:
+                    try:
+                        _wac[k] = float(float(prior_state.shares[k]) * float(_marks[k]) / float(_eq))
+                    except Exception:
+                        continue
+        _diag = SessionTransitionDiagnostics(
+            turnover_weight=0.0, transaction_cost=0.0, fill_count=0, unfilled_count=0,
+            target_gross=0.0, post_fill_gross=0.0, close_realized_gross=0.0, effective_gross=0.0,
+            gross_violation=False, cash_session=False,
+        )
+        return PortfolioTransitionResult(
+            state=PortfolioLedgerState(cash=float(prior_state.cash), shares=dict(prior_state.shares)),
+            equity_close=float(_eq), session_return=0.0, weights_after_close=dict(_wac),
+            diagnostics=_diag, fills=(), unfilled=(),
+        )
     try:
         equity_prev = prior_state.equity_at_prices(prev_closes) if prev_closes else prior_state.equity_at_prices(opens)
     except Exception:
@@ -364,19 +448,17 @@ def transition_portfolio_state(
                 continue
         cash_after = float(equity_after_cost) - float(open_value)
 
+    _marks_close = carry_forward_marks(shares_after, closes, opens, prev_closes)
     equity_close = float(cash_after)
     for tk, sh in shares_after.items():
-        cl = closes.get(tk) if isinstance(closes, Mapping) else None
-        if cl is None:
-            cl = opens.get(tk) if isinstance(opens, Mapping) else None
-        if cl is None:
+        clf = _marks_close.get(str(tk))
+        if clf is None:
             continue
         try:
-            clf = float(cl)
             shf = float(sh)
             if clf != clf or shf != shf:
                 continue
-            equity_close += shf * clf
+            equity_close += shf * float(clf)
         except Exception:
             continue
     if equity_close < 0:
@@ -390,15 +472,12 @@ def transition_portfolio_state(
     weights_after_close: dict[str, float] = {}
     if equity_close != 0:
         for tk, sh in shares_after.items():
-            cl = closes.get(tk) if isinstance(closes, Mapping) else None
-            if cl is None:
-                cl = opens.get(tk) if isinstance(opens, Mapping) else None
-            if cl is None:
+            clf = _marks_close.get(str(tk))
+            if clf is None:
                 continue
             try:
-                clf = float(cl)
                 shf = float(sh)
-                w = shf * clf / float(equity_close)
+                w = shf * float(clf) / float(equity_close)
                 if abs(w) > 1e-12:
                     weights_after_close[tk] = float(w)
             except Exception:
