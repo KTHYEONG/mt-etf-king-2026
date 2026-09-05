@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -495,10 +495,7 @@ def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> Champio
         )
     # Fold-local OOS segments: retain only wholly evaluation windows.
     eval_dates = set(scores.filter(pl.col("is_evaluation")).select(pl.col("decision_date")).to_series().to_list())
-    try:
-        sessions = list(runtime.engine.calendar.sessions(cfg.start, cfg.end))
-    except Exception:
-        sessions = sorted(set(agg_roll.starts))
+    sessions = champion_evaluation_sessions(runtime, panel, cfg, agg_roll)
     paired_starts: list[date] = []
     for s in agg_roll.starts:
         try:
@@ -589,23 +586,31 @@ def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> Champio
         and all(math.isfinite(float(v)) for v in agg_rets + con_rets + p27_agg_rets + p27_con_rets + raw_rets)
         and int(gross_viol) == 0
     )
-    promotion_eligible = bool(
-        agg_res.status == "PASS"
-        and con_res.status == "PASS"
-        and loyo_res.status == "PASS"
-        and integrity is True
+    promotion_status, n_effective_discordant, min_effective_discordant, promotion_eligible = champion_promotion_status(
+        paired_starts=paired_starts,
+        sessions=sessions,
+        horizon=horizon,
+        candidate_backtest=agg_roll.backtest,
+        incumbent_backtest=p27_agg_roll.backtest,
+        aggressive_status=str(agg_res.status),
+        conservative_status=str(con_res.status),
+        loyo_status=str(loyo_status),
+        artifact_integrity=bool(integrity),
     )
     panel_hash = hashlib.sha256(str(panel.height).encode()).hexdigest()[:16]
     scores_hash = hashlib.sha256(str(scores.height).encode()).hexdigest()[:16]
     logger.info(
         f"[EVAL] champion aggressive={agg_res.status} conservative={con_res.status} loyo={loyo_res.status} "
-        f"paired={len(paired_starts)} integrity={integrity} eligible={promotion_eligible}"
+        f"paired={len(paired_starts)} discordant={n_effective_discordant} integrity={integrity} "
+        f"status={promotion_status} eligible={promotion_eligible}"
     )
     # write candidate_id='P35', source_multiple=2, selection_equivalent=True, and both equal exposure tuples into promotion.json; preserve status='RESEARCH_ONLY'
     extra: dict[str, Any] = {
         "promotion_eligible": promotion_eligible,
         "paired_windows": len(paired_starts),
         "effective_windows": len(paired_starts),
+        "n_effective_discordant": int(n_effective_discordant),
+        "min_effective_discordant": int(min_effective_discordant),
         "aggressive_failures": list(agg_res.failures),
         "conservative_failures": list(con_res.failures),
         "loyo_failures": list(loyo_res.failures),
@@ -626,7 +631,7 @@ def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> Champio
             }
         )
     return ChampionEvaluation(
-        status="RESEARCH_ONLY",
+        status=str(promotion_status),
         aggressive_status=agg_res.status if agg_res.status in ("PASS", "FAIL") else "INSUFFICIENT_EVIDENCE",
         conservative_status=con_res.status if con_res.status in ("PASS", "FAIL") else "INSUFFICIENT_EVIDENCE",
         loyo_status=loyo_status,
@@ -637,19 +642,198 @@ def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> Champio
     )
 
 
+def _primary_holdings_from_backtest(backtest: object | None, sessions: Sequence[date]) -> list[str | None]:
+    by_date: dict[date, str | None] = {}
+    if backtest is not None:
+        trades = getattr(backtest, "trades", None)
+        if trades is not None and getattr(trades, "height", 0) > 0:
+            dd_col = "decision_date" if "decision_date" in trades.columns else ("date" if "date" in trades.columns else None)
+            w_col = "weight_after" if "weight_after" in trades.columns else ("weight" if "weight" in trades.columns else None)
+            t_col = "ticker" if "ticker" in trades.columns else None
+            if dd_col and w_col and t_col:
+                try:
+                    for d in trades[dd_col].unique().to_list():
+                        if not isinstance(d, date):
+                            continue
+                        sub = trades.filter(pl.col(dd_col) == d)
+                        best_ticker: str | None = None
+                        best_w = -1.0
+                        for row in sub.iter_rows(named=True):
+                            try:
+                                wf = float(row.get(w_col, 0.0))
+                            except Exception:
+                                continue
+                            if wf > best_w:
+                                best_w = wf
+                                raw_t = row.get(t_col)
+                                best_ticker = str(raw_t) if raw_t is not None else None
+                        by_date[d] = best_ticker if best_w > 1e-9 else None
+                except Exception:
+                    by_date = {}
+    out: list[str | None] = []
+    last: str | None = None
+    for s in sessions:
+        if s in by_date:
+            last = by_date[s]
+        out.append(last)
+    return out
+
+
+def _count_effective_discordant(
+    *,
+    paired_starts: Sequence[date],
+    sessions: Sequence[date],
+    horizon: int,
+    candidate_backtest: object | None,
+    incumbent_backtest: object | None,
+) -> int:
+    if not paired_starts or not sessions:
+        return 0
+    cand = _primary_holdings_from_backtest(candidate_backtest, sessions)
+    inc = _primary_holdings_from_backtest(incumbent_backtest, sessions)
+    try:
+        mask = discordant_window_mask(cand, inc, int(horizon))
+    except Exception:
+        return 0
+    paired = set(paired_starts)
+    count = 0
+    for i, s in enumerate(sessions):
+        if s not in paired:
+            continue
+        if i < len(mask) and bool(mask[i]):
+            count += 1
+    return int(count)
+
+
+def champion_evaluation_sessions(runtime: ChampionResearchRuntime, panel: pl.DataFrame, cfg: object, agg_roll: object) -> list[date]:
+    try:
+        from src.backtest.session_grid import resolve_session_grid
+
+        return list(resolve_session_grid(runtime.engine.calendar.sessions(cfg.start, cfg.end), panel).sessions)  # type: ignore[union-attr]
+    except Exception:
+        try:
+            return list(runtime.engine.calendar.sessions(cfg.start, cfg.end))  # type: ignore[union-attr]
+        except Exception:
+            return sorted(set(getattr(agg_roll, "starts", ()) or ()))
+
+
+def champion_promotion_status(
+    *,
+    paired_starts: Sequence[date],
+    sessions: Sequence[date],
+    horizon: int,
+    candidate_backtest: object | None,
+    incumbent_backtest: object | None,
+    aggressive_status: str,
+    conservative_status: str,
+    loyo_status: str,
+    artifact_integrity: bool,
+) -> tuple[str, int, int, bool]:
+    n_effective_discordant = _count_effective_discordant(
+        paired_starts=paired_starts,
+        sessions=sessions,
+        horizon=horizon,
+        candidate_backtest=candidate_backtest,
+        incumbent_backtest=incumbent_backtest,
+    )
+    try:
+        from src.tournament.attainability import load_attainability_config
+
+        _, _, min_effective_discordant = load_attainability_config()
+    except Exception:
+        min_effective_discordant = 5
+    promotion_status = resolve_promotion_status(
+        aggressive_status=aggressive_status,
+        conservative_status=conservative_status,
+        loyo_status=loyo_status,
+        artifact_integrity=artifact_integrity,
+        n_effective_discordant=int(n_effective_discordant),
+        min_effective_discordant=int(min_effective_discordant),
+    )
+    return (
+        str(promotion_status),
+        int(n_effective_discordant),
+        int(min_effective_discordant),
+        bool(promotion_status == "PROMOTE"),
+    )
+
+
+def discordant_window_mask(
+    candidate_holdings: Sequence[str | None], incumbent_holdings: Sequence[str | None], horizon: int
+) -> tuple[bool, ...]:
+    try:
+        cand = list(candidate_holdings)
+        inc = list(incumbent_holdings)
+    except Exception:
+        raise ValueError("holdings must be sequences")
+    if len(cand) != len(inc):
+        raise ValueError(f"mismatched holdings lengths: {len(cand)} != {len(inc)}")
+    try:
+        h = int(horizon)
+    except Exception:
+        raise ValueError("horizon must be int")
+    if h <= 0:
+        raise ValueError("horizon must be positive")
+    n = len(cand)
+    n_win = n - h + 1
+    if n_win <= 0:
+        return ()
+    out: list[bool] = []
+    for i in range(n_win):
+        disc = False
+        for j in range(i, i + h):
+            try:
+                if cand[j] != inc[j]:
+                    disc = True
+                    break
+            except Exception:
+                continue
+        out.append(bool(disc))
+    return tuple(out)
+
+
+def resolve_promotion_status(
+    *,
+    aggressive_status: str,
+    conservative_status: str,
+    loyo_status: str,
+    artifact_integrity: bool,
+    n_effective_discordant: int,
+    min_effective_discordant: int,
+) -> str:
+    try:
+        n = int(n_effective_discordant)
+    except Exception:
+        n = 0
+    try:
+        m = int(min_effective_discordant)
+    except Exception:
+        m = 0
+    if n < m:
+        return "INSUFFICIENT_POWER"
+    if (
+        aggressive_status == "PASS"
+        and conservative_status == "PASS"
+        and loyo_status == "PASS"
+        and artifact_integrity is True
+    ):
+        return "PROMOTE"
+    return "RESEARCH_ONLY"
+
+
 def is_promotable(
     *,
     aggressive_status: str,
     conservative_status: str,
     loyo_status: str,
     artifact_integrity: bool,
+    n_effective_discordant: int = 10**9,
+    min_effective_discordant: int = 0,
 ) -> bool:
     """Promotion requires dual-scenario PASS, LOYO PASS, and artifact integrity."""
     return bool(
-        aggressive_status == "PASS"
-        and conservative_status == "PASS"
-        and loyo_status == "PASS"
-        and artifact_integrity is True
+        resolve_promotion_status(aggressive_status=aggressive_status, conservative_status=conservative_status, loyo_status=loyo_status, artifact_integrity=artifact_integrity, n_effective_discordant=n_effective_discordant, min_effective_discordant=min_effective_discordant)
+        == "PROMOTE"
     )
 
 

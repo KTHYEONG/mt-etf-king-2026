@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_EXCLUDE_NAME_TOKENS: Final[tuple[str, ...]] = ("국채", "채권", "달러", "엔선물", "골드", "금선물", "gold", "커버드콜", "스티프너", "플래트너")
 
-
 def name_excluded(name: str, tokens: Sequence[str]) -> bool:
     try:
         text = name.casefold() if isinstance(name, str) else ""
@@ -93,6 +92,7 @@ class StickyLeaderConfig:
     lock_level: float = 0.0
     same_leader_hold: bool = False
     abs_mom_cash: bool = False
+    abs_mom_exit: float = 0.0
     exclude_name_tokens: tuple[str, ...] = ()
     score_aux_col: str | None = None
     score_aux_weight: float = 0.0
@@ -270,6 +270,8 @@ class StickyLeaderConfig:
                 abs_mom_cash = bool(raw["abs_mom_cash"])
         except Exception:
             abs_mom_cash = defaults.abs_mom_cash
+        try: abs_mom_exit = float(raw.get("abs_mom_exit", defaults.abs_mom_exit))  # type: ignore[arg-type]
+        except Exception: abs_mom_exit = defaults.abs_mom_exit
         same_leader_hold = defaults.same_leader_hold
         try:
             if "same_leader_hold" in raw:
@@ -308,6 +310,7 @@ class StickyLeaderConfig:
             exclude_synthetic=bool(exclude_synthetic),
             min_fill_ratio=float(min_fill_ratio),
             abs_mom_cash=bool(abs_mom_cash),
+            abs_mom_exit=float(abs_mom_exit),
             runner_reversal_exit=bool(runner_reversal_exit),
             runner_mom_col=str(runner_mom_col),
         )
@@ -679,7 +682,7 @@ class StickyLeaderModel:
             apply_impulse_switch,
             apply_same_leader_hold,
         )
-        impulsed = apply_impulse_switch(sticky, held, snapshot, self.config); crashed = apply_crash_cash(impulsed, held, snapshot, self.config); abs_gated = apply_abs_mom_cash(crashed, self.config); out = apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
+        impulsed = apply_impulse_switch(sticky, held, snapshot, self.config); crashed = apply_crash_cash(impulsed, held, snapshot, self.config); abs_gated = apply_abs_mom_cash(crashed, self.config, held=held); out = apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
         if _runner_exit and held is not None and _runner_cap is not None and _runner_mom is not None:
             try:
                 _pf = float(getattr(self, "_runner_peak_capital", float("nan"))); _ef = float(getattr(self, "_runner_entry_capital", float("nan")))
@@ -688,9 +691,7 @@ class StickyLeaderModel:
             except Exception: pass
         try:
             from collections.abc import Mapping as _Mapping
-
             from src.portfolio.intent import CASH_INTENT as _CASH_EMPTY
-
             if isinstance(out, _Mapping) and len(out) == 0:
                 return _CASH_EMPTY
         except Exception:

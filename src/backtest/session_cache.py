@@ -7,6 +7,8 @@ from datetime import date
 
 import polars as pl
 
+from src.backtest.session_grid import resolve_session_grid  # noqa: F401
+
 
 def build_close_map(panel: pl.DataFrame) -> dict[date, dict[str, float]]:
     out: dict[date, dict[str, float]] = {}
@@ -118,9 +120,12 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_
     close_map = build_close_map(panel)
     open_map = _build_open_map(panel)
     try:
-        sessions = engine.calendar.sessions(config.start, config.end)
+        sessions = list(resolve_session_grid(engine.calendar.sessions(config.start, config.end), panel).sessions)
     except Exception:
-        sessions = []
+        try:
+            sessions = engine.calendar.sessions(config.start, config.end)
+        except Exception:
+            sessions = []
     dates_t = tuple(sessions)
     universes: dict[date, object] = {}
     snapshots: dict[date, pl.DataFrame] = {}

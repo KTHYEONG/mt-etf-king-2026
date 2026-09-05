@@ -447,7 +447,7 @@ def apply_crash_cash(
     return dict(scores)
 
 
-def apply_abs_mom_cash(scores: Mapping[str, float] | object, config: StickyLeaderConfig) -> dict[str, float] | object:
+def apply_abs_mom_cash(scores: Mapping[str, float] | object, config: StickyLeaderConfig, *, held: str | None = None) -> dict[str, float] | object:
     if not bool(getattr(config, "abs_mom_cash", False)): return scores
     try:
         from src.portfolio.intent import PortfolioIntent as _PI
@@ -473,12 +473,10 @@ def apply_abs_mom_cash(scores: Mapping[str, float] | object, config: StickyLeade
     try:
         if len(scores) == 0:  # type: ignore[arg-type]
             from src.portfolio.intent import CASH_INTENT
-
             return CASH_INTENT
     except Exception:
         try:
             from src.portfolio.intent import CASH_INTENT
-
             return CASH_INTENT
         except Exception:
             return scores
@@ -496,14 +494,15 @@ def apply_abs_mom_cash(scores: Mapping[str, float] | object, config: StickyLeade
     if not has_finite:
         try:
             from src.portfolio.intent import CASH_INTENT
-
             return CASH_INTENT
         except Exception:
             return scores
-    if max_finite is not None and float(max_finite) <= 0.0:
+    try: _bar = 0.0 if held is None else min(float(getattr(config, "abs_mom_exit", 0.0)), 0.0)
+    except Exception: _bar = 0.0
+    if not math.isfinite(_bar): _bar = 0.0
+    if max_finite is not None and float(max_finite) <= float(_bar):
         try:
             from src.portfolio.intent import CASH_INTENT
-
             return CASH_INTENT
         except Exception:
             return scores

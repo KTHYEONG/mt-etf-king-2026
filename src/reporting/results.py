@@ -76,6 +76,9 @@ def _extract_summary_record(run_id: str, meta: Mapping[str, object], summary: Ma
     exceedance = summary.get("exceedance") or {}
     realised = summary.get("realised_exposure") or {}
     field_rel = summary.get("field_relative") or {}
+    capture = summary.get("capture") or {}
+    attainability = summary.get("attainability") or {}
+    n_attainable = summary.get("n_attainable") or {}
 
     def _f(val: object) -> float | None:
         if val is None:
@@ -90,6 +93,14 @@ def _extract_summary_record(run_id: str, meta: Mapping[str, object], summary: Ma
             return None
         try:
             return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    def _c(val: object) -> float | None:
+        if val is None:
+            return None
+        try:
+            return float(val)
         except (ValueError, TypeError):
             return None
 
@@ -123,6 +134,19 @@ def _extract_summary_record(run_id: str, meta: Mapping[str, object], summary: Ma
         "championship_gate_status": str(summary.get("championship_gate_status") or ""),
         "adoption_gate_status": str(summary.get("adoption_gate_status") or ""),
         "objective_gate_status": str(summary.get("objective_gate_status") or ""),
+        "capture_30": _c(capture.get("0.3")),
+        "capture_40": _c(capture.get("0.4")),
+        "capture_50": _c(capture.get("0.5")),
+        "capture_60": _c(capture.get("0.6")),
+        "attainable_30": _i(n_attainable.get("0.3")),
+        "attainable_40": _i(n_attainable.get("0.4")),
+        "attainable_50": _i(n_attainable.get("0.5")),
+        "attainable_60": _i(n_attainable.get("0.6")),
+        "attainability_30": _c(attainability.get("0.3")),
+        "attainability_40": _c(attainability.get("0.4")),
+        "attainability_50": _c(attainability.get("0.5")),
+        "attainability_60": _c(attainability.get("0.6")),
+        "breadth_mean": _c(summary.get("breadth_mean")),
         "created_at": str(meta.get("created_at") or datetime.now(UTC).isoformat()),
     }
 

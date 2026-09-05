@@ -15,6 +15,7 @@ from src.backtest.liquidity import cap_target_weights_by_adv
 from src.backtest.metrics import compound_returns, max_drawdown, peak_to_final_giveback, window_returns
 from src.backtest.pnl import compute_next_open_session_return
 from src.backtest.session_cache import build_session_cache
+from src.backtest.session_grid import resolve_session_grid  # noqa: F401
 from src.core.calendar import TradingCalendar
 from src.execution.ledger import (
     PortfolioLedgerState,
@@ -599,7 +600,10 @@ class TournamentSimulator:
     ) -> RollingResult:
         if not path_dependent and model_requires_path_dependent(model):
             raise PathDependentPolicyError("PortfolioPolicy requires path_dependent=True")
-        sessions = self.calendar.sessions(config.start, config.end)
+        try:
+            sessions = list(resolve_session_grid(self.calendar.sessions(config.start, config.end), panel).sessions)
+        except Exception:
+            sessions = self.calendar.sessions(config.start, config.end)
         if not sessions or horizon <= 0:
             return RollingResult(name=getattr(model, "name", "model"), horizon=horizon, starts=(), returns=(), drawdowns=(), givebacks=())
         n_windows = len(sessions) - horizon + 1 if len(sessions) >= horizon else 0
