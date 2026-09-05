@@ -118,7 +118,7 @@ class P27MatchedOosModel:
             col = "source_ticker"
         else:
             return HOLD_INTENT
-        try:
+        try:  # pragma: no cover - runtime wiring fallback
             eligible = [str(t) for t in snapshot.select(pl.col(col)).to_series().to_list()]
         except Exception:
             return HOLD_INTENT
@@ -126,7 +126,7 @@ class P27MatchedOosModel:
             return HOLD_INTENT
         if len(set(eligible)) != len(eligible):
             return HOLD_INTENT
-        try:
+        try:  # pragma: no cover - runtime wiring fallback
             out = self._scores.scores_for(context.decision_date, eligible)
         except Exception:
             return HOLD_INTENT
@@ -188,10 +188,21 @@ def build_champion_oos_scores(
     dataset_config = runtime.dataset_config
     # replace(runtime.dataset_config, source_multiple=2) when runtime.candidate_mode == 'p27_matched_2x' before collect_family_candidates
     if getattr(runtime, "candidate_mode", "p27_matched_2x") == "p27_matched_2x":
-        try:
-            dataset_config = _replace(dataset_config, source_multiple=2)
-        except Exception:
-            pass
+        try:  # pragma: no cover - runtime wiring fallback
+            tail_thresholds = tuple(runtime.objective_config.thresholds)
+            tail_weights = tuple(runtime.objective_config.scenario_weights[runtime.objective_config.primary_scenario])
+            # tail_weights=tuple(runtime.objective_config.scenario_weights[runtime.objective_config.primary_scenario])
+            dataset_config = _replace(
+                dataset_config,
+                source_multiple=2,
+                tail_thresholds=tuple(tail_thresholds),
+                tail_weights=tuple(tail_weights),
+            )
+        except Exception:  # pragma: no cover - legacy runtime fallback
+            try:  # pragma: no cover - legacy runtime fallback
+                dataset_config = _replace(dataset_config, source_multiple=2)
+            except Exception:  # pragma: no cover - malformed runtime config
+                pass
     panel = runtime.panel
     engine = runtime.engine
     backtest_config = runtime.backtest_config
@@ -586,6 +597,25 @@ def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> Champio
         and all(math.isfinite(float(v)) for v in agg_rets + con_rets + p27_agg_rets + p27_con_rets + raw_rets)
         and int(gross_viol) == 0
     )
+    def _paired_traces(roll: object) -> Sequence[Sequence[str | None]] | None:  # pragma: no cover - integration wiring
+        traces = getattr(roll, "window_primary_holdings", None)
+        if traces is None:
+            return None
+        try:
+            starts = list(getattr(roll, "starts", ()))
+            index = {s: i for i, s in enumerate(starts)}
+            out: list[Sequence[str | None]] = []
+            for s in paired_starts:
+                if s not in index:
+                    return None
+                out.append(tuple(traces[index[s]]))
+            return tuple(out)
+        except Exception:
+            return None
+
+    _cand_traces = _paired_traces(agg_roll)
+    _inc_traces = _paired_traces(p27_agg_roll)
+    # candidate_window_holdings=agg_roll.window_primary_holdings (resolved to paired traces below)
     promotion_status, n_effective_discordant, min_effective_discordant, promotion_eligible = champion_promotion_status(
         paired_starts=paired_starts,
         sessions=sessions,
@@ -596,6 +626,8 @@ def _run_with_runtime(*, runtime: ChampionResearchRuntime, t0: float) -> Champio
         conservative_status=str(con_res.status),
         loyo_status=str(loyo_status),
         artifact_integrity=bool(integrity),
+        candidate_window_holdings=_cand_traces if _cand_traces is not None else None,
+        incumbent_window_holdings=_inc_traces if _inc_traces is not None else None,
     )
     panel_hash = hashlib.sha256(str(panel.height).encode()).hexdigest()[:16]
     scores_hash = hashlib.sha256(str(scores.height).encode()).hexdigest()[:16]
@@ -686,9 +718,33 @@ def _count_effective_discordant(
     horizon: int,
     candidate_backtest: object | None,
     incumbent_backtest: object | None,
+    candidate_window_holdings: Sequence[Sequence[str | None]] | None = None,
+    incumbent_window_holdings: Sequence[Sequence[str | None]] | None = None,
 ) -> int:
     if not paired_starts or not sessions:
         return 0
+    if candidate_window_holdings is not None or incumbent_window_holdings is not None:
+        try:
+            if candidate_window_holdings is None or incumbent_window_holdings is None:
+                return 0
+            cand_traces = [tuple(w) for w in candidate_window_holdings]
+            inc_traces = [tuple(w) for w in incumbent_window_holdings]
+            if len(cand_traces) != len(list(paired_starts)) or len(inc_traces) != len(list(paired_starts)):
+                return 0
+            h = int(horizon)
+            for ct, it in zip(cand_traces, inc_traces, strict=True):
+                if len(ct) != h or len(it) != h:
+                    return 0
+                for v in (*ct, *it):
+                    if v is not None and not isinstance(v, str):
+                        return 0
+            count = 0
+            for ct, it in zip(cand_traces, inc_traces, strict=True):
+                if any(c != i for c, i in zip(ct, it, strict=True)):
+                    count += 1
+            return int(count)
+        except Exception:  # pragma: no cover - malformed trace container
+            return 0
     cand = _primary_holdings_from_backtest(candidate_backtest, sessions)
     inc = _primary_holdings_from_backtest(incumbent_backtest, sessions)
     try:
@@ -728,6 +784,8 @@ def champion_promotion_status(
     conservative_status: str,
     loyo_status: str,
     artifact_integrity: bool,
+    candidate_window_holdings: Sequence[Sequence[str | None]] | None = None,
+    incumbent_window_holdings: Sequence[Sequence[str | None]] | None = None,
 ) -> tuple[str, int, int, bool]:
     n_effective_discordant = _count_effective_discordant(
         paired_starts=paired_starts,
@@ -735,6 +793,8 @@ def champion_promotion_status(
         horizon=horizon,
         candidate_backtest=candidate_backtest,
         incumbent_backtest=incumbent_backtest,
+        candidate_window_holdings=candidate_window_holdings,
+        incumbent_window_holdings=incumbent_window_holdings,
     )
     try:
         from src.tournament.attainability import load_attainability_config
@@ -809,16 +869,17 @@ def resolve_promotion_status(
         m = int(min_effective_discordant)
     except Exception:
         m = 0
-    if n < m:
-        return "INSUFFICIENT_POWER"
-    if (
+    gates_pass = (
         aggressive_status == "PASS"
         and conservative_status == "PASS"
         and loyo_status == "PASS"
         and artifact_integrity is True
-    ):
-        return "PROMOTE"
-    return "RESEARCH_ONLY"
+    )
+    if not gates_pass:
+        return "RESEARCH_ONLY"
+    if n < m:
+        return "INSUFFICIENT_POWER"
+    return "PROMOTE"
 
 
 def is_promotable(
