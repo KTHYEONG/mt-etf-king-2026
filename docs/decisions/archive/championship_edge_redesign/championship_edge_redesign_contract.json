@@ -1,0 +1,382 @@
+{
+  "feature": "championship_edge_redesign",
+  "domain": "quant",
+  "title": "P37 executable-opportunity hurdle: valid learning, staged liquidity, and legal-risk rebaseline",
+  "target_file": "src/alpha/champion_ranker.py",
+  "context_files": [
+    "configs/gates.yaml",
+    "configs/ml.yaml",
+    "configs/portfolio.yaml",
+    "configs/strategies.yaml",
+    "configs/tournament.yaml",
+    "configs/universe.yaml",
+    "src/alpha/champion_dataset.py",
+    "src/alpha/champion_ranker.py",
+    "src/backtest/liquidity.py",
+    "src/execution/ledger.py",
+    "src/portfolio/constraints.py",
+    "src/tournament/champion_eval.py",
+    "src/tournament/simulator.py",
+    "src/universe/provider.py",
+    "src/cli/_impl.py",
+    "tests/unit/alpha/test_champion_ranker.py",
+    "tests/unit/tournament/test_champion_eval.py",
+    "tests/unit/universe/test_provider.py"
+  ],
+  "evidence": {
+    "panel": "data/normalized/etf_daily.parquet: 1,386,318 rows, 2,123 observed sessions, 1,378 tickers, 2018-01-02..2026-08-27. All probes intersected features with these observed sessions.",
+    "invalid_ml_history": "ChampionTailRanker.fit passes list-of-lists and fractional label_rank to LightGBM 4.7.0. Reproduction raises TypeError('Data list can only be of ndarray or Sequence') and, after ndarray conversion, LightGBMError('label should be int type'). Both errors are swallowed into fallback-mean. Three measured OOS folds all used fallback-mean with zero feature importance while P35 promotion.json still reported artifact_integrity=true.",
+    "risk_contract_drift": "The authoritative portfolio contract is [single=0.80, effective_gross=1.60, cash=0.05], but P27-P33 use [0.95,1.90,0.05]. Those artifacts are inadmissible as legal championship baselines.",
+    "legal_plus2_oracle": {
+      "n_windows": 2086,
+      "p30": 0.1031,
+      "p40": 0.0633,
+      "p50": 0.0412,
+      "p60": 0.0292,
+      "championship_score": 0.0505
+    },
+    "direct_staged_oracle": {
+      "method": "Diagnostic foresight ceiling only: sponsor exact +1x/+2x ETF, actual opens, trailing ADV20, 1% daily participation, 3+5 bps costs, 0.80/1.60/0.05 limits, buys limited to first floor(36*0.25)=9 sessions.",
+      "mean_breadth": 168.93,
+      "n_windows": 2086,
+      "p30": 0.1692,
+      "p40": 0.1026,
+      "p50": 0.0638,
+      "p60": 0.046,
+      "championship_score": 0.0805,
+      "relative_score_improvement": 0.594
+    },
+    "model_probe": "A valid four-threshold OOS classifier over 337,663 labels/2,006 dates produced overall P40=2.79%, P50=1.90%. Its latest fold reached P40=8.19%, P50=5.69% but ruin=8.01%. Direct selection is therefore not promotable without an OOF-calibrated incumbent hurdle."
+  },
+  "assumptions_and_invariants": [
+    "Full empirical completion means 2018-01-02..2026-08-27 over all 2,123 observed XKRX sessions; dates, folds, candidates, and the 36-session horizon may not be shortened.",
+    "Autonomous-category leverage remains UNKNOWN. Research evaluates aggressive (actual +1x/+2x) and conservative (actual +1x only) separately; live promotion is blocked until HTS manifest and leverage permission are verified.",
+    "Candidate and incumbent both use max single 0.80, max effective gross 1.60, min cash 0.05, identical actual ETF prices, costs, and participation.",
+    "Staged admission changes only scoring eligibility. Every buy and sell remains capped by configured daily ADV participation; no synthetic return multiplication or future liquidity is used.",
+    "P27 remains incumbent until valid-backend P37 passes every existing gate. Integrity repair or a higher foresight ceiling alone never promotes."
+  ],
+  "changes": [
+    {
+      "name": "TailGradeObjective",
+      "signature": "@dataclass(frozen=True)\nclass TailGradeObjective:\n    thresholds: tuple[float, ...]\n    weights: tuple[float, ...]\n    def grade(self, returns: Sequence[float]) -> np.ndarray\n    @property\n    def label_gain(self) -> tuple[float, ...]",
+      "kind": "class",
+      "target_file": "src/alpha/champion_ranker.py"
+    },
+    {
+      "name": "ChampionTrainingError",
+      "signature": "class ChampionTrainingError(RuntimeError)",
+      "kind": "class",
+      "target_file": "src/alpha/champion_ranker.py"
+    },
+    {
+      "name": "ChampionModelArtifact.backend",
+      "signature": "backend: Literal['lightgbm']",
+      "kind": "field",
+      "target_file": "src/alpha/champion_ranker.py"
+    },
+    {
+      "name": "ChampionTailRanker.fit",
+      "signature": "def fit(self, train: pl.DataFrame) -> ChampionModelArtifact",
+      "kind": "method",
+      "target_file": "src/alpha/champion_ranker.py"
+    },
+    {
+      "name": "is_valid_champion_artifact",
+      "signature": "def is_valid_champion_artifact(artifact: ChampionModelArtifact | object) -> bool",
+      "kind": "function",
+      "target_file": "src/alpha/champion_ranker.py"
+    },
+    {
+      "name": "LiquidityAdmissionMode",
+      "signature": "class LiquidityAdmissionMode(StrEnum):\n    FULL_TARGET = 'full_target'\n    STAGED_EXECUTION = 'staged_execution'",
+      "kind": "class",
+      "target_file": "src/universe/provider.py"
+    },
+    {
+      "name": "UniverseFilters.liquidity_admission",
+      "signature": "liquidity_admission: LiquidityAdmissionMode = LiquidityAdmissionMode.FULL_TARGET",
+      "kind": "field",
+      "target_file": "src/universe/provider.py"
+    },
+    {
+      "name": "UniverseFilters.min_adv_krw",
+      "signature": "min_adv_krw: float = 100_000_000.0",
+      "kind": "field",
+      "target_file": "src/universe/provider.py"
+    },
+    {
+      "name": "collect_direct_vehicle_candidates",
+      "signature": "def collect_direct_vehicle_candidates(panel: pl.DataFrame, *, sessions: Sequence[date], universe: PointInTimeUniverse, filters: UniverseFilters, master: InstrumentMaster, feature_columns: Sequence[str]) -> pl.DataFrame",
+      "kind": "function",
+      "target_file": "src/alpha/champion_dataset.py"
+    },
+    {
+      "name": "ExecutableLabelConfig",
+      "signature": "@dataclass(frozen=True)\nclass ExecutableLabelConfig:\n    horizon: int\n    fill_budget_fraction: float\n    capital: float\n    participation: float\n    max_single_weight: float\n    max_effective_gross: float\n    min_cash: float\n    costs: CostConfig",
+      "kind": "class",
+      "target_file": "src/alpha/executable_labels.py"
+    },
+    {
+      "name": "ExecutableVehicleLabel",
+      "signature": "@dataclass(frozen=True)\nclass ExecutableVehicleLabel:\n    net_return: float\n    filled_weight: float\n    fill_sessions: int\n    tail_grade: int",
+      "kind": "class",
+      "target_file": "src/alpha/executable_labels.py"
+    },
+    {
+      "name": "simulate_executable_vehicle_path",
+      "signature": "def simulate_executable_vehicle_path(opens: Sequence[float], closes: Sequence[float], adv: Sequence[float], *, leverage_multiple: int, objective: TailGradeObjective, config: ExecutableLabelConfig) -> ExecutableVehicleLabel",
+      "kind": "function",
+      "target_file": "src/alpha/executable_labels.py"
+    },
+    {
+      "name": "build_executable_vehicle_labels",
+      "signature": "def build_executable_vehicle_labels(candidates: pl.DataFrame, panel: pl.DataFrame, *, sessions: Sequence[date], objective: TailGradeObjective, config: ExecutableLabelConfig, chunk_decision_dates: int = 64) -> pl.DataFrame",
+      "kind": "function",
+      "target_file": "src/alpha/executable_labels.py"
+    },
+    {
+      "name": "calibrate_activation_threshold",
+      "signature": "def calibrate_activation_threshold(margins: Sequence[float], candidate_returns: Sequence[float], incumbent_returns: Sequence[float], *, objective: TailGradeObjective, ruin_threshold: float, max_ruin_probability: float, min_activations: int) -> float | None",
+      "kind": "function",
+      "target_file": "src/alpha/opportunity_hurdle.py"
+    },
+    {
+      "name": "ExecutableHurdleArtifact",
+      "signature": "@dataclass(frozen=True)\nclass ExecutableHurdleArtifact:\n    threshold_models: tuple[object, ...]\n    thresholds: tuple[float, ...]\n    weights: tuple[float, ...]\n    activation_threshold: float | None\n    trained_through: date\n    backend: Literal['lightgbm']\n    artifact_hash: str",
+      "kind": "class",
+      "target_file": "src/alpha/opportunity_hurdle.py"
+    },
+    {
+      "name": "fit_executable_hurdle",
+      "signature": "def fit_executable_hurdle(train: pl.DataFrame, calibration: pl.DataFrame, *, feature_columns: Sequence[str], objective: TailGradeObjective, seed: int, min_activations: int) -> ExecutableHurdleArtifact",
+      "kind": "function",
+      "target_file": "src/alpha/opportunity_hurdle.py"
+    },
+    {
+      "name": "ExecutableOpportunityModel",
+      "signature": "class ExecutableOpportunityModel:\n    def __init__(self, *, scores: OosScoreStore, incumbent: AlphaModel) -> None\n    def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float] | PortfolioIntent",
+      "kind": "class",
+      "target_file": "src/alpha/opportunity_hurdle.py"
+    },
+    {
+      "name": "OosScoreStore.decision_for",
+      "signature": "def decision_for(self, decision_date: date, eligible_tickers: Collection[str]) -> tuple[dict[str, float], bool]",
+      "kind": "method",
+      "target_file": "src/alpha/champion_ranker.py"
+    },
+    {
+      "name": "build_executable_hurdle_oos_scores",
+      "signature": "def build_executable_hurdle_oos_scores(runtime: ChampionResearchRuntime) -> tuple[pl.DataFrame, tuple[dict[str, object], ...]]",
+      "kind": "function",
+      "target_file": "src/tournament/champion_eval.py"
+    },
+    {
+      "name": "load_p27_exposure_limits",
+      "signature": "def load_p27_exposure_limits(path: Path | None = None) -> tuple[float, float, float]",
+      "kind": "function",
+      "target_file": "src/portfolio/constraints.py"
+    },
+    {
+      "name": "ml.champion_tail.candidate_mode",
+      "signature": "candidate_mode: executable_hurdle",
+      "kind": "config",
+      "target_file": "configs/ml.yaml"
+    },
+    {
+      "name": "ml.champion_tail.fill_budget_fraction",
+      "signature": "fill_budget_fraction: 0.25",
+      "kind": "config",
+      "target_file": "configs/ml.yaml"
+    },
+    {
+      "name": "ml.champion_tail.executable_feature_columns",
+      "signature": "executable_feature_columns: [mom_3, mom_5, mom_10, mom_20, mom_40, mom_60, ma_ratio_20, drawdown_20, volume_expansion, rv_20, log_adv_20, fill_sessions, leverage_multiple]",
+      "kind": "config",
+      "target_file": "configs/ml.yaml"
+    }
+  ],
+  "wiring": [
+    {
+      "caller_file": "src/alpha/champion_ranker.py",
+      "anchor": "lgb.Dataset(xs, label=ys, group=grp)",
+      "import_symbol": "TailGradeObjective",
+      "invocation_expression": "objective.grade(clean.get_column('label_return').to_numpy())"
+    },
+    {
+      "caller_file": "src/tournament/champion_eval.py",
+      "anchor": "def build_champion_oos_scores",
+      "import_symbol": "build_executable_hurdle_oos_scores",
+      "invocation_expression": "build_executable_hurdle_oos_scores(runtime)"
+    },
+    {
+      "caller_file": "src/tournament/champion_eval.py",
+      "anchor": "artifact_integrity",
+      "import_symbol": "is_valid_champion_artifact",
+      "invocation_expression": "is_valid_champion_artifact(artifact)"
+    },
+    {
+      "caller_file": "src/alpha/champion_dataset.py",
+      "anchor": "def collect_family_candidates",
+      "import_symbol": "LiquidityAdmissionMode",
+      "invocation_expression": "filters.liquidity_admission == LiquidityAdmissionMode.STAGED_EXECUTION"
+    },
+    {
+      "caller_file": "src/universe/provider.py",
+      "anchor": "required = filters.required_adv()",
+      "import_symbol": "liquidity_admission",
+      "invocation_expression": "filters.required_adv()"
+    },
+    {
+      "caller_file": "src/tournament/champion_eval.py",
+      "anchor": "labeled = build_family_tail_dataset",
+      "import_symbol": "build_executable_vehicle_labels",
+      "invocation_expression": "build_executable_vehicle_labels(candidates, panel, sessions=sessions, objective=objective, config=label_config)"
+    },
+    {
+      "caller_file": "src/tournament/champion_eval.py",
+      "anchor": "for fold in folds:",
+      "import_symbol": "fit_executable_hurdle",
+      "invocation_expression": "fit_executable_hurdle(inner_train, inner_oof, feature_columns=feature_columns, objective=objective, seed=runtime.ranker_seed, min_activations=min_attainable)"
+    },
+    {
+      "caller_file": "src/tournament/champion_eval.py",
+      "anchor": "P27MatchedOosModel",
+      "import_symbol": "ExecutableOpportunityModel",
+      "invocation_expression": "ExecutableOpportunityModel(scores=OosScoreStore(scores), incumbent=runtime.p27_factory())"
+    },
+    {
+      "caller_file": "src/cli/_impl.py",
+      "anchor": "choices=(\"p27_matched_2x\",)",
+      "import_symbol": "executable_hurdle",
+      "invocation_expression": "choices=(\"p27_matched_2x\", \"executable_hurdle\")"
+    },
+    {
+      "caller_file": "src/portfolio/constraints.py",
+      "anchor": "def load_p27_exposure_limits",
+      "import_symbol": "load_portfolio_exposure_limits",
+      "invocation_expression": "load_portfolio_exposure_limits(Path('configs/portfolio.yaml'))"
+    }
+  ],
+  "requirements": [
+    "R1 Measurement: every training/oracle/baseline/promotion run uses resolve_session_grid(calendar sessions, normalized panel). Feature-only dates, missing-price sessions, and generic business days are excluded and reported.",
+    "R2 Legal baseline: remove or clamp P26-P33 overrides so every full_strategy_own comparison is <=0.80 single, <=1.60 effective gross, >=0.05 cash. Recompute full P27; prior 0.95/1.90 artifacts remain diagnostics only.",
+    "R3 Staged admission: FULL_TARGET behavior remains unchanged for existing models. STAGED_EXECUTION admits finite trailing ADV20 >= configs/universe.yaml min_adv_krw; transition_portfolio_state still caps every order. Missing ADV means no fill, never uncapped fill.",
+    "R4 Exact vehicles: executable_hurdle scores each PIT sponsor ETF with actual +1/+2 multiple as its own ticker, without pre-score family collapse, synthetic leverage, or 1x-to-2x mapping. TOP1 allocation preserves one family held.",
+    "R5 Eligibility: exclude inverse, synthetic, LOW-confidence multiplier, bad price, non-tradable, manifest miss, and unknown issuer. Conservative rules also exclude +2. Empty eligibility returns HOLD, never a legacy universe or forced CASH.",
+    "R6 PIT parity: features/universe/ADV use close(t), intent executes open(t+1), and labels replay exactly 36 observed sessions with actual opens/closes, CostConfig, sell-first ADV caps, cash, and exposure. Vectorized labels match transition_portfolio_state <=1e-10 on fixtures and <=1e-8 on 1,000 seeded production samples.",
+    "R7 Accumulation: target_weight=min(0.80,1.60/abs(multiple),0.95). New buys occur only for floor(horizon*0.25)=9 sessions, then HOLD. Missing owned-session prices carry marks per P36, never zero-value or free-fill.",
+    "R8 Valid learning: features are contiguous np.float64 and labels np.int32 before lgb.Dataset. TailGradeObjective maps strict exceedances to grades 0..N and label_gain=[0,cumulative scenario weights]. Any import, Dataset, train, prediction, or finite-value failure raises ChampionTrainingError; no fallback exists.",
+    "R9 Artifact truth: backend='lightgbm', non-empty version and hashes, trained_through before every evaluation date, and finite predictions are mandatory. Otherwise artifact_integrity=false and status=INVALID_ARTIFACT; fallback-mean artifacts invalidate on read.",
+    "R10 Hurdle: train four fold-local binary exceedance models from gates.yaml using exactly ml.champion_tail.executable_feature_columns. Derived PIT features are log_adv_20=log1p(ADV20), fill_sessions=target_notional/(ADV20*participation), and leverage_multiple from verified instrument metadata. Direct score is weighted probability sum; activation margin is direct-top minus the incumbent-selected ticker score. Missing incumbent score disables activation.",
+    "R11 OOF calibration: each outer fold derives activation records only from inner purged walk-forward predictions using the same 36 purge + 36 embargo. Search finite observed margins; require at least min_attainable_windows activations, ruin<=5%, and championship score>=legal incumbent. Tie-break by maximum uplift, lower ruin, then highest threshold. No valid threshold delegates every outer date to incumbent.",
+    "R12 Promotion: P37 stays RESEARCH_ONLY unless aggressive and conservative scenarios pass existing G1-G5, primary CI, LOYO, concentration, execution parity, zero gross violations, valid backend, ruin<=5%, and discordant power. UNKNOWN leverage or null manifest blocks live promotion.",
+    "R13 Evidence: artifacts record backend, hashes, legal limits, admission mode, fill budget, filled-weight distribution, fold thresholds, activation rate, discordant count, attainability/capture, and rejection reason as flat structured fields.",
+    "R14 Complexity: vectorize candidate extraction by date; label at most 64 decision dates per chunk with a 36-step NumPy state loop. No per-window whole-panel scans, repeated Parquet reads, or range truncation."
+  ],
+  "design_rationale": {
+    "alternatives_considered": [
+      "More P27 momentum/hold/inverse tuning: rejected after P36's roughly 75 variants and legal +2x oracle score 0.0505.",
+      "All high-liquidity 1x themes: rejected because the one-day-full-fill ceiling moves only 0.0505 to 0.0519.",
+      "Fix only the swallowed ranker exception: necessary but insufficient; valid direct grade/rank probes remained weak.",
+      "Use the valid weighted classifier unconditionally: rejected because its latest fold ruin is 8.01%.",
+      "Relax participation/exposure: rejected as financial infeasibility, not alpha.",
+      "Promote from oracle performance: rejected because the oracle contains future information."
+    ],
+    "chosen_reason": "Exact-vehicle staged execution is the only measured opportunity-supply step change (+59% ceiling score). A valid multi-threshold learner plus OOF-calibrated incumbent hurdle targets that space only where it proves non-inferior under the ruin cap, while legal rebaselining and backend validation restore truthful evidence.",
+    "failure_modes": [
+      "Training failure silently becomes a constant/ticker-order model with integrity=true.",
+      "A low-ADV winner receives immediate 80% notional despite a 1% daily ADV limit.",
+      "Outer-test or in-sample labels leak into activation calibration.",
+      "Candidate and incumbent use different or illegal exposure budgets.",
+      "Recent tail is promoted despite >5% ruin, LOYO concentration, unknown rules, or weak discordant power."
+    ]
+  },
+  "performance_budget": {
+    "expected_data_scale": "1,386,318 rows, 2,123 sessions, 1,378 tickers; observed direct scope 337,663 labels over 2,006 dates and about 12.5M candidate-session state transitions.",
+    "memory_target_mb": 1400,
+    "storage_format": "Existing zstd Parquet via PyArrow/Polars for labels and OOS scores; no CSV or external temp path.",
+    "dtype_precision": "Float64 for prices, ADV, costs, weights, probabilities, PnL, compounding and gates; contiguous float64 features and int32 relevance grades.",
+    "chunking_strategy": "Read each Parquet once, build date/ticker indices once, process 64 decision dates per label chunk, vectorize candidates across the fixed 36-step state loop, and stream chunks to project-local Parquet.",
+    "acceleration_candidate": "NumPy vectorization first; evaluate compiled/JIT only if profiling shows the state kernel remains dominant, without reducing scope."
+  },
+  "scenarios": [
+    {
+      "scenario_id": "test_tail_grade_objective_maps_thresholds_to_integer_gain",
+      "target_test_file": "tests/unit/alpha/test_champion_ranker.py",
+      "execution_command": "uv run pytest tests/unit/alpha/test_champion_ranker.py -k test_tail_grade_objective_maps_thresholds_to_integer_gain -q",
+      "expected_behavior": "Strict exceedances become integer grades with cumulative championship gains.",
+      "test_skeleton": "def test_tail_grade_objective_maps_thresholds_to_integer_gain() -> None:\n    import numpy as np\n    from src.alpha.champion_ranker import TailGradeObjective\n\n    objective = TailGradeObjective(thresholds=(0.30, 0.40, 0.50, 0.60), weights=(0.10, 0.25, 0.45, 0.20))\n    grades = objective.grade([0.30, 0.31, 0.41, 0.51, 0.61])\n\n    assert grades.dtype == np.int32\n    assert grades.tolist() == [0, 1, 2, 3, 4]\n    assert objective.label_gain == (0.0, 0.10, 0.35, 0.80, 1.0)\n"
+    },
+    {
+      "scenario_id": "test_champion_ranker_fails_closed_when_lightgbm_training_raises",
+      "target_test_file": "tests/unit/alpha/test_champion_ranker.py",
+      "execution_command": "uv run pytest tests/unit/alpha/test_champion_ranker.py -k test_champion_ranker_fails_closed_when_lightgbm_training_raises -q",
+      "expected_behavior": "Backend failure cannot become fallback-mean or valid integrity.",
+      "test_skeleton": "def test_champion_ranker_fails_closed_when_lightgbm_training_raises() -> None:\n    from datetime import date\n    from unittest.mock import patch\n    import polars as pl\n    import pytest\n    from src.alpha.champion_ranker import ChampionTailRanker, ChampionTrainingError, TailGradeObjective\n\n    train = pl.DataFrame({'decision_date': [date(2026, 1, 2)] * 2, 'source_ticker': ['A', 'B'], 'family_key': ['A', 'B'], 'mom_5': [0.1, 0.2], 'label_return': [0.2, 0.5]})\n    objective = TailGradeObjective((0.30, 0.40, 0.50, 0.60), (0.10, 0.25, 0.45, 0.20))\n\n    with patch('lightgbm.train', side_effect=RuntimeError('backend failed')):\n        with pytest.raises(ChampionTrainingError, match='backend failed'):\n            ChampionTailRanker(('mom_5',), objective=objective, min_data_in_leaf=100).fit(train)\n"
+    },
+    {
+      "scenario_id": "test_champion_artifact_rejects_fallback_backend",
+      "target_test_file": "tests/unit/alpha/test_champion_ranker.py",
+      "execution_command": "uv run pytest tests/unit/alpha/test_champion_ranker.py -k test_champion_artifact_rejects_fallback_backend -q",
+      "expected_behavior": "Legacy constant artifacts are invalid.",
+      "test_skeleton": "def test_champion_artifact_rejects_fallback_backend() -> None:\n    from datetime import date\n    from types import SimpleNamespace\n    from src.alpha.champion_ranker import is_valid_champion_artifact\n\n    artifact = SimpleNamespace(backend='fallback-mean', lgbm_version='fallback-mean', trained_through=date(2025, 12, 31), feature_config_hash='x', model_config_hash='y', panel_hash='z', model={'mean': 0.5})\n\n    assert is_valid_champion_artifact(artifact) is False\n"
+    },
+    {
+      "scenario_id": "test_staged_liquidity_admission_preserves_daily_adv_cap",
+      "target_test_file": "tests/unit/universe/test_provider.py",
+      "execution_command": "uv run pytest tests/unit/universe/test_provider.py -k test_staged_liquidity_admission_preserves_daily_adv_cap -q",
+      "expected_behavior": "Scoring admission broadens while a 1B ADV ETF can add only 1% weight daily.",
+      "test_skeleton": "def test_staged_liquidity_admission_preserves_daily_adv_cap() -> None:\n    from src.backtest.liquidity import cap_target_weights_by_adv\n    from src.universe.provider import LiquidityAdmissionMode, UniverseFilters\n\n    filters = UniverseFilters(capital=1_000_000_000, max_position_weight=0.80, max_order_to_adv=0.01, liquidity_admission=LiquidityAdmissionMode.STAGED_EXECUTION, min_adv_krw=100_000_000.0)\n    result = cap_target_weights_by_adv({'ETF': 0.80}, {}, 1_000_000_000.0, {'ETF': 1_000_000_000.0}, filters.max_order_to_adv)\n\n    assert filters.required_adv() == 100_000_000.0\n    assert result == {'ETF': 0.01}\n"
+    },
+    {
+      "scenario_id": "test_direct_candidates_keep_exact_same_family_vehicles",
+      "target_test_file": "tests/unit/alpha/test_champion_dataset.py",
+      "execution_command": "uv run pytest tests/unit/alpha/test_champion_dataset.py -k test_direct_candidates_keep_exact_same_family_vehicles -q",
+      "expected_behavior": "Pre-score family collapse does not erase exact ETF choice.",
+      "test_skeleton": "def test_direct_candidates_keep_exact_same_family_vehicles() -> None:\n    from datetime import date\n    from types import SimpleNamespace\n    import polars as pl\n    from src.alpha.champion_dataset import collect_direct_vehicle_candidates\n\n    day = date(2026, 1, 5)\n    panel = pl.DataFrame({'date': [day, day], 'ticker': ['ONE', 'TWO'], 'mom_5': [0.1, 0.2]})\n    attrs = {ticker: SimpleNamespace(is_synthetic=False, confidence='HIGH', leverage_multiple=multiple, leverage_family_key='SAME') for ticker, multiple in [('ONE', 1), ('TWO', 2)]}\n    universe = SimpleNamespace(get=lambda _day, _filters: SimpleNamespace(tickers=('ONE', 'TWO')))\n    result = collect_direct_vehicle_candidates(panel, sessions=[day], universe=universe, filters=SimpleNamespace(), master=SimpleNamespace(attributes=attrs), feature_columns=('mom_5',))\n\n    assert result.sort('source_ticker').get_column('source_ticker').to_list() == ['ONE', 'TWO']\n    assert result.get_column('family_key').n_unique() == 1\n"
+    },
+    {
+      "scenario_id": "test_executable_label_limits_buys_to_horizon_fraction",
+      "target_test_file": "tests/unit/alpha/test_executable_labels.py",
+      "execution_command": "uv run pytest tests/unit/alpha/test_executable_labels.py -k test_executable_label_limits_buys_to_horizon_fraction -q",
+      "expected_behavior": "Only the first of four sessions buys and return reflects actually filled 10% weight.",
+      "test_skeleton": "def test_executable_label_limits_buys_to_horizon_fraction() -> None:\n    import pytest\n    from src.alpha.champion_ranker import TailGradeObjective\n    from src.alpha.executable_labels import ExecutableLabelConfig, simulate_executable_vehicle_path\n    from src.backtest.costs import CostConfig\n\n    objective = TailGradeObjective((0.30, 0.40, 0.50, 0.60), (0.10, 0.25, 0.45, 0.20))\n    config = ExecutableLabelConfig(horizon=4, fill_budget_fraction=0.25, capital=1_000.0, participation=0.10, max_single_weight=0.80, max_effective_gross=1.60, min_cash=0.05, costs=CostConfig(commission_bps=0.0, slippage_bps=0.0))\n    label = simulate_executable_vehicle_path(opens=[100.0] * 4, closes=[100.0, 100.0, 100.0, 200.0], adv=[1_000.0] * 4, leverage_multiple=1, objective=objective, config=config)\n\n    assert label.fill_sessions == 1\n    assert label.filled_weight == pytest.approx(0.10)\n    assert label.net_return == pytest.approx(0.10)\n    assert label.tail_grade == 0\n"
+    },
+    {
+      "scenario_id": "test_activation_calibration_rejects_tail_with_excess_ruin",
+      "target_test_file": "tests/unit/alpha/test_opportunity_hurdle.py",
+      "execution_command": "uv run pytest tests/unit/alpha/test_opportunity_hurdle.py -k test_activation_calibration_rejects_tail_with_excess_ruin -q",
+      "expected_behavior": "Attractive wins with ruin above 5% cannot activate.",
+      "test_skeleton": "def test_activation_calibration_rejects_tail_with_excess_ruin() -> None:\n    from src.alpha.champion_ranker import TailGradeObjective\n    from src.alpha.opportunity_hurdle import calibrate_activation_threshold\n\n    objective = TailGradeObjective((0.30, 0.40, 0.50, 0.60), (0.10, 0.25, 0.45, 0.20))\n    result = calibrate_activation_threshold([0.9, 0.8, 0.7, 0.6], [0.70, 0.65, -0.40, -0.35], [0.10] * 4, objective=objective, ruin_threshold=-0.25, max_ruin_probability=0.05, min_activations=4)\n\n    assert result is None\n"
+    },
+    {
+      "scenario_id": "test_opportunity_model_delegates_to_incumbent_when_inactive",
+      "target_test_file": "tests/unit/alpha/test_opportunity_hurdle.py",
+      "execution_command": "uv run pytest tests/unit/alpha/test_opportunity_hurdle.py -k test_opportunity_model_delegates_to_incumbent_when_inactive -q",
+      "expected_behavior": "Inactive OOS dates preserve incumbent behavior.",
+      "test_skeleton": "def test_opportunity_model_delegates_to_incumbent_when_inactive() -> None:\n    from datetime import date\n    from types import SimpleNamespace\n    import polars as pl\n    from src.alpha.base import DecisionContext\n    from src.alpha.champion_ranker import OosScoreStore\n    from src.alpha.opportunity_hurdle import ExecutableOpportunityModel\n\n    day = date(2026, 1, 5)\n    store = OosScoreStore(pl.DataFrame({'decision_date': [day], 'source_ticker': ['DIRECT'], 'score': [0.9], 'activate': [False], 'is_evaluation': [True]}))\n    incumbent = SimpleNamespace(score=lambda _snapshot, _context: {'P27': 1.0})\n    model = ExecutableOpportunityModel(scores=store, incumbent=incumbent)\n    context = DecisionContext(decision_date=day, regime=None, capital=1_000_000_000.0, held={}, rules=None)\n\n    assert model.score(pl.DataFrame({'ticker': ['DIRECT', 'P27']}), context) == {'P27': 1.0}\n"
+    },
+    {
+      "scenario_id": "test_p27_baseline_cannot_exceed_global_portfolio_contract",
+      "target_test_file": "tests/unit/portfolio/test_constraints.py",
+      "execution_command": "uv run pytest tests/unit/portfolio/test_constraints.py -k test_p27_baseline_cannot_exceed_global_portfolio_contract -q",
+      "expected_behavior": "P27 and challengers share the authoritative legal envelope.",
+      "test_skeleton": "def test_p27_baseline_cannot_exceed_global_portfolio_contract() -> None:\n    from pathlib import Path\n    from src.portfolio.constraints import load_p27_exposure_limits, load_portfolio_exposure_limits\n\n    global_limits = load_portfolio_exposure_limits(Path('configs/portfolio.yaml'))\n\n    assert global_limits == (0.80, 1.60, 0.05)\n    assert load_p27_exposure_limits() == global_limits\n"
+    }
+  ],
+  "verification_plan": [
+    "uv run python tools/agent_skills/lean_check.py --spec docs/specs/championship_edge_redesign_contract.json --pre-impl",
+    "uv run pytest tests/unit/alpha/test_champion_ranker.py tests/unit/alpha/test_champion_dataset.py tests/unit/alpha/test_executable_labels.py tests/unit/alpha/test_opportunity_hurdle.py tests/unit/universe/test_provider.py tests/unit/portfolio/test_constraints.py tests/unit/tournament/test_champion_eval.py -q",
+    "uv run ruff check src/alpha src/universe/provider.py src/portfolio/constraints.py src/tournament/champion_eval.py src/cli/_impl.py tests/unit/alpha tests/unit/universe/test_provider.py tests/unit/portfolio/test_constraints.py tests/unit/tournament/test_champion_eval.py",
+    "uv run mypy src/alpha src/universe/provider.py src/portfolio/constraints.py src/tournament/champion_eval.py",
+    "uv run mt-etf --log-level INFO backtest --model P27 --start 2018-01-02 --end 2026-08-27 --participation 0.01 --commission-bps 3 --slippage-bps 5",
+    "uv run mt-etf --log-level INFO champion-research --start 2018-01-02 --end 2026-08-27 --candidate-mode executable_hurdle"
+  ],
+  "acceptance": [
+    "No artifact has integrity=true without an actual finite LightGBM fit; fallback-mean resolves INVALID_ARTIFACT.",
+    "P27/P37 artifacts both record [0.80,1.60,0.05], zero post-fill gross violations, 2,123 observed sessions, and identical next-open costs/participation.",
+    "Exact-ledger staged opportunity improves legal +2x championship ceiling by >=0.01 absolute and P40 attainability by >=25% relative; otherwise fitting stops HYPOTHESIS_REJECTED.",
+    "Activation uses inner OOF evidence only; null calibration delegates every date and cannot promote.",
+    "Live promotion requires full-range dual-scenario G1-G5/CI/LOYO/ruin/integrity/power PASS plus verified manifest and leverage rules; otherwise P27 remains incumbent and P37 RESEARCH_ONLY."
+  ]
+}

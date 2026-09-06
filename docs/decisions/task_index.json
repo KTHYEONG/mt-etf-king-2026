@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "championship_edge_redesign",
+      "date": "2026-09-05",
+      "adr_id": "ADR_20260905_championship_edge_redesign",
+      "domain": "quant",
+      "title": "Executable championship tail hurdle",
+      "why": "기존 P27 후보는 실행 가능성·유동성·OOF tail 우위를 실제로 검증하지 못했다.",
+      "resolution": "실제 ETF별 executable 라벨, staged liquidity, LightGBM hurdle, incumbent 비교 OOF 게이트와 법적 익스포저 제한을 연결했다.",
+      "impact": "실행 가능한 tail 기회만 활성화하고 실패 시 incumbent로 fail-closed 하며 향후 재현 가능한 근거와 계약을 보존한다.",
+      "archive_path": "docs/decisions/archive/championship_edge_redesign/championship_edge_redesign_contract.json"
+    },
+    {
       "task_id": "TASK_P35_TAIL_OBJECTIVE_RECOVERY",
       "date": "2026-09-05",
       "adr_id": "ADR_20260905_P35_TAIL_OBJECTIVE_RECOVERY",

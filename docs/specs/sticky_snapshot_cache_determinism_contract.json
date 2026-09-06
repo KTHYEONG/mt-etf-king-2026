@@ -1,0 +1,169 @@
+{
+  "feature": "sticky_snapshot_cache_determinism",
+  "domain": "quant",
+  "title": "Fix id(snapshot)-keyed memoization causing non-reproducible sticky-family backtest trade counts",
+  "target_file": "src/strategies/sticky/capacity.py",
+  "context_files": [
+    "src/strategies/sticky/model_runner.py",
+    "src/strategies/sticky/model_scores.py",
+    "src/strategies/sticky/model_config.py",
+    "src/alpha/base.py",
+    "tests/unit/strategies/test_capacity.py",
+    "src/backtest/engine_runner.py",
+    "src/tournament/simulator_windows.py"
+  ],
+  "evidence": {
+    "empirical_repro_same_process": {
+      "setup": "Two sequential calls to src.cli.commands.backtest.families.sticky.run_sticky_family(build_backtest_context(args)) in the SAME Python process, same args (model=sticky.mom60_raw, start=2018-01-02, end=2018-06-29), each call constructing a fresh model via STRATEGIES['sticky.mom60_raw']() and a fresh BacktestContext.",
+      "result": "Call 1: 28 trades. Call 2 (identical args, same process, immediately after): 0 trades.",
+      "ruled_out": [
+        "load_backtest_panel() non-determinism: verified 3 successive calls return identical panel (1,388,600 rows, 1,378 unique tickers) each time.",
+        "build_backtest_context() panel identity/content drift: ctx1.panel and ctx2.panel differ in object identity (fresh DataFrame each call, as expected) but are byte-identical in row/ticker count.",
+        "shared model instance: STRATEGIES['sticky.mom60_raw']() confirmed to return a distinct object (different id()) and a distinct .config object on every call.",
+        "src.core.config.load_config() cache mutation: deep-compared the cached 'strategies' config dict before and after a full run; unchanged.",
+        "cross-process PYTHONHASHSEED randomization: repro is within a SINGLE process, so str/set hash order is identical across both calls in the test; this is not a hash-seed effect."
+      ],
+      "root_cause_confirmed": {
+        "file": "src/strategies/sticky/capacity.py",
+        "function": "cached_filtered_scores(cache, snapshot, scorer)",
+        "defect": "Uses `key = id(snapshot)` as the memoization key into a dict that lives for the lifetime of the StickyLeaderModel instance (`self._filtered_scores_by_snapshot`, set in __init__, never cleared by reset_trackers()). CPython id() is a memory address, unique only while the object is alive. Each rolling-window session in TournamentSimulator.run_rolling constructs a short-lived per-session snapshot DataFrame that is garbage-collected after use; the freed address is routinely reused by a LATER, unrelated snapshot for a different decision_date. When that happens, cached_filtered_scores treats the new snapshot as a cache HIT and returns the stale scores dict computed for a completely different date/ticker-set, silently corrupting that session's leader selection. Because CPython's allocator reuse pattern depends on the process's prior allocation/deallocation history (not purely on the input code+data), two textually-identical backtest invocations in the same process can hit this collision at different points (or not at all), producing different numbers of realized trades from IDENTICAL inputs.",
+        "call_site": "src/strategies/sticky/model_runner.py:73 -- `filtered = cached_filtered_scores(self._filtered_scores_by_snapshot, snapshot, lambda frame: filter_plus2_scores(frame, self.config))` inside StickyLeaderModel.score(self, snapshot, context). `context: DecisionContext` (src/alpha/base.py) already carries `decision_date`, a stable, content-derived, unique-per-session key that is available at this call site without adding a parameter.",
+        "predates_this_refactor": "Confirmed via `git show HEAD:src/strategies/sticky/capacity.py` -- the id()-keyed cache exists verbatim in the last committed HEAD (introduced in commit 4a68069 '린키스티키 전략 용량·레지스트·실행 경로 정비'), predating the R6 architecture refactor. It was carried verbatim through the P3/P5 file relocations (src/alpha/baselines.py -> src/strategies/factories/, engine.py split) with no logic change, since those phases were explicitly behaviour-preserving structural moves. This is a pre-existing correctness defect surfaced by, not caused by, the R6 refactor's golden-run verification."
+      },
+      "existing_test_locks_in_the_bug": "tests/unit/strategies/test_capacity.py::test_cached_filtered_scores_reuses_immutable_snapshot asserts a cache HIT specifically when the SAME snapshot OBJECT is passed twice -- i.e. it tests the id()-based contract itself, not a stable key. This test's premise must be rewritten alongside the fix (D1 below), not preserved."
+    },
+    "impact_severity": "HIGH -- this affects the champion strategy (sticky.mom60_raw) and the whole sticky family (14 semantic ids) used for live tournament capital deployment. A backtest is the sole evidence used to select and size a live capital allocation; if two runs of the identical model over the identical historical window produce different trade histories and (potentially) different terminal equity, the system's core reproducibility guarantee is violated. quant.md requires empirical, deterministic realism (§4); this defect breaks that guarantee silently, with no exception or log signal.",
+    "scope_note": "Session-cache-level score precomputation (src/backtest/session_cache.py build_session_cache) and the per-window reset_trackers() calls in src/backtest/engine_runner.py / src/tournament/simulator_windows.py were inspected and are NOT implicated -- they correctly reset `_held`/`_hold_len`/`_runner_*` per window and do not themselves cache anything by id(). The defect is isolated to the single `cached_filtered_scores` function and its one call site."
+  },
+  "assumptions": [
+    "A1: decision_date (a datetime.date) is a sufficient and correct memoization key for cached_filtered_scores, because within one StickyLeaderModel instance's lifetime, score() is called at most once per decision_date (one call per rolling-window session; the model instance is fresh per backtest run per R14's fresh-instance guarantee already verified). This is stronger than the old intent (dedupe repeat calls for the identical snapshot) and fixes the collision without changing cache semantics for any correct (non-buggy) call pattern.",
+    "A2: filter_plus2_scores(snapshot, config) is a pure function of (snapshot content, config) with no side effects on self -- confirmed by reading src/strategies/sticky/model_scores.py:139-153 (fail-closed early returns only, no mutation). Keying the cache by decision_date instead of snapshot identity does not change what gets computed, only what get memoized under which key.",
+    "A3: No production caller relies on cached_filtered_scores's OLD id()-based dedupe-across-identical-object behaviour for anything other than avoiding redundant computation within a single session -- grep-confirmed the only call site is model_runner.py:73, and it is called once per model.score() invocation (once per session), so the memoization never actually saved a repeat computation in the correct (non-colliding) case either. This is a pure bug fix, not a behavioural trade-off.",
+    "A4: The fix must NOT be verified only by unit test; a same-process double-invocation determinism test (mirroring the empirical repro above) is required as the primary regression guard, because the bug is invisible to any single-run test and only manifests via id() reuse across repeated invocations."
+  ],
+  "changes": [
+    {
+      "name": "cached_filtered_scores",
+      "kind": "function",
+      "target_file": "src/strategies/sticky/capacity.py",
+      "signature": "def cached_filtered_scores(cache: dict[Hashable, dict[str, float]], key: Hashable, snapshot: pl.DataFrame, scorer: Callable[[pl.DataFrame], dict[str, float]]) -> dict[str, float]",
+      "notes": "BREAKING signature change (internal-only symbol, single call site): adds an explicit `key: Hashable` parameter positioned between `cache` and `snapshot`. The function body changes from `key = id(snapshot)` to using the caller-supplied `key` directly. `cache`'s type annotation changes from `dict[int, dict[str, float]]` to `dict[Hashable, dict[str, float]]` since the key is no longer necessarily an int. Docstring must state explicitly: 'key must be a stable, content-derived identifier for the snapshot (e.g. the decision date) -- never id(snapshot), which is a memory address CPython may reuse for an unrelated later object once the original snapshot is garbage-collected, causing silent cross-session score corruption.'"
+    },
+    {
+      "name": "StickyLeaderModel.score",
+      "kind": "method",
+      "target_file": "src/strategies/sticky/model_runner.py",
+      "signature": "def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float] | object",
+      "notes": "Line 73 call site changes from `cached_filtered_scores(self._filtered_scores_by_snapshot, snapshot, lambda frame: filter_plus2_scores(frame, self.config))` to `cached_filtered_scores(self._filtered_scores_by_snapshot, context.decision_date, snapshot, lambda frame: filter_plus2_scores(frame, self.config))`. No other line in score() changes."
+    },
+    {
+      "name": "StickyLeaderModel._filtered_scores_by_snapshot",
+      "kind": "field",
+      "target_file": "src/strategies/sticky/model_runner.py",
+      "signature": "self._filtered_scores_by_snapshot: dict[date, dict[str, float]] = {}",
+      "notes": "Type annotation in __init__ (line 44) changes from `dict[int, dict[str, float]]` to `dict[date, dict[str, float]]` to match the new decision_date-keyed contract. `from datetime import date` import added if not already present in model_runner.py."
+    }
+  ],
+  "wiring": [
+    {
+      "caller_file": "src/strategies/sticky/model_runner.py",
+      "anchor": "filtered = cached_filtered_scores(self._filtered_scores_by_snapshot, snapshot, lambda frame: filter_plus2_scores(frame, self.config))",
+      "import_symbol": "cached_filtered_scores",
+      "invocation_expression": "cached_filtered_scores(self._filtered_scores_by_snapshot, context.decision_date, snapshot, lambda frame: filter_plus2_scores(frame, self.config))"
+    },
+    {
+      "caller_file": "tests/unit/strategies/test_capacity.py",
+      "anchor": "def test_cached_filtered_scores_reuses_immutable_snapshot() -> None:",
+      "import_symbol": "cached_filtered_scores",
+      "invocation_expression": "cached_filtered_scores(cache, decision_date, snapshot, scorer)"
+    }
+  ],
+  "requirements": [
+    "R1 (fail the collision, don't hide it): the fix must key cached_filtered_scores strictly by a value passed explicitly by the caller (`key`), never by `id(snapshot)`, `id()` of any object, or any other memory-address-derived value, anywhere in this module or its call site.",
+    "R2 (single source of the key): `context.decision_date` is the ONE key used at the StickyLeaderModel.score() call site. Do not derive a second, redundant key (e.g. a hash of the DataFrame content) -- decision_date is already unique per session within one model instance's lifetime (A1) and is O(1) to obtain, unlike hashing a DataFrame.",
+    "R3 (no behavioural change beyond the fix): filter_plus2_scores' computation, apply_capacity_filter, and every other line of StickyLeaderModel.score() are unchanged. The scenarios must prove this is a pure cache-key fix, not a scoring-logic change.",
+    "R4 (determinism is the acceptance bar, not a single-run assertion): the primary regression test MUST invoke the sticky family runner (or StickyLeaderModel.score() across many distinct-but-potentially-id-colliding snapshots) at least twice against identical inputs in the SAME process and assert the trade/score outputs are IDENTICAL. A test that only checks 'my new code path executes' without an identical-repeat comparison does not satisfy this requirement, because the bug is only observable across repeated invocations.",
+    "R5 (fail-closed key type): if `context.decision_date` is None or not a `datetime.date`, `StickyLeaderModel.score()` must raise (not silently fall back to id() or to an empty cache-bypass) -- a missing decision_date is a caller contract violation, not a recoverable condition, per .agents/rules/python.md and the project's fail-closed principle.",
+    "R6 (existing test rewritten, not preserved as-is): tests/unit/strategies/test_capacity.py::test_cached_filtered_scores_reuses_immutable_snapshot currently asserts a cache hit keyed on shared OBJECT IDENTITY across two calls with the SAME snapshot object -- this is the buggy contract itself. It must be rewritten to assert the cache hit is keyed on the explicit `key` parameter (decision_date), and a NEW test must assert that two DIFFERENT snapshot objects sharing the same Python id() (achieved via del + gc.collect() to force address reuse, or more simply by passing two distinct snapshots under two distinct keys and confirming no cross-contamination) do NOT share a cache entry.",
+    "R7 (INV-B2-4 preserved): `reset_trackers()` continues to reset `_held`/`_hold_len`/`_runner_*`. Whether `_filtered_scores_by_snapshot` is ALSO cleared by reset_trackers() is an explicit design choice (see design_rationale) -- clearing it there is harmless (worst case: one recompute) and is REQUIRED by this contract for defense in depth, since a fresh model per backtest run already implies an empty cache at construction, but reset_trackers() is the documented cross-window reset point and should not leave a growing, unbounded per-session-keyed dict alive across independent research/replay invocations that reuse a single model instance."
+  ],
+  "non_goals": [
+    "Changing sticky.mom60_raw's (or any sticky-family strategy's) momentum/leadership selection mathematics. This is a memoization-key bug fix; the scored VALUES for any correctly-keyed session are unchanged.",
+    "Fixing or auditing other memoization/caching patterns in the codebase beyond cached_filtered_scores (e.g. b1_anchor_cache, b1_dist_cache_p16/p24, control_cache in src/cli/commands/backtest/_prep.py) -- those were inspected during root-cause investigation and are NOT keyed by id(); a broader cache-safety audit is out of scope here and may be proposed separately if desired.",
+    "Re-running or amending the R6 architecture refactor's golden-run artifacts (scratch/refactor_golden/*). Those already correctly reported the anomaly as an out-of-scope advisory; this contract is the follow-up.",
+    "Performance optimization of cached_filtered_scores or the sticky scoring path. The fix trades an (already-broken) id()-based memoization for a decision_date-based one; no new performance work is introduced."
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "test_cached_filtered_scores_keys_by_explicit_key",
+      "target_test_file": "tests/unit/strategies/test_capacity.py",
+      "execution_command": "uv run pytest tests/unit/strategies/test_capacity.py -k test_cached_filtered_scores_keys_by_explicit_key -q",
+      "expected_behavior": "cached_filtered_scores memoizes by the explicit key argument: two calls with the SAME key return the cached result without re-invoking scorer, even if a DIFFERENT (but equal-content) snapshot object is passed the second time.",
+      "test_skeleton": "from datetime import date\n\nimport polars as pl\n\n\ndef test_cached_filtered_scores_keys_by_explicit_key() -> None:\n    from src.strategies.sticky.capacity import cached_filtered_scores\n\n    cache: dict[object, dict[str, float]] = {}\n    calls: list[int] = []\n\n    def scorer(frame: pl.DataFrame) -> dict[str, float]:\n        calls.append(1)\n        return {\"A\": 1.0}\n\n    snapshot_1 = pl.DataFrame({\"ticker\": [\"A\"]})\n    snapshot_2 = pl.DataFrame({\"ticker\": [\"A\"]})  # distinct object, same content\n    key = date(2020, 1, 2)\n\n    result_1 = cached_filtered_scores(cache, key, snapshot_1, scorer)\n    result_2 = cached_filtered_scores(cache, key, snapshot_2, scorer)\n\n    assert result_1 == {\"A\": 1.0}\n    assert result_2 == {\"A\": 1.0}\n    assert len(calls) == 1, \"second call with the same key must be a cache hit, not a recompute\"\n"
+    },
+    {
+      "scenario_id": "test_cached_filtered_scores_different_keys_never_collide_on_reused_address",
+      "target_test_file": "tests/unit/strategies/test_capacity.py",
+      "execution_command": "uv run pytest tests/unit/strategies/test_capacity.py -k test_cached_filtered_scores_different_keys_never_collide_on_reused_address -q",
+      "expected_behavior": "THE REGRESSION TEST for the root-cause bug: two distinct snapshot objects under two DIFFERENT keys are scored independently and never share a cache entry, even after the first snapshot is garbage-collected and its memory address is potentially reused by the second (the exact mechanism that produced the id()-keyed bug). This test is written to hold regardless of whether CPython actually reuses the address, because correctness now derives from the key, not from id().",
+      "test_skeleton": "import gc\nfrom datetime import date\n\nimport polars as pl\n\n\ndef test_cached_filtered_scores_different_keys_never_collide_on_reused_address() -> None:\n    from src.strategies.sticky.capacity import cached_filtered_scores\n\n    cache: dict[object, dict[str, float]] = {}\n    calls: list[tuple[str, ...]] = []\n\n    def scorer(frame: pl.DataFrame) -> dict[str, float]:\n        tickers = tuple(frame[\"ticker\"].to_list())\n        calls.append(tickers)\n        return {t: float(i) for i, t in enumerate(tickers, start=1)}\n\n    snapshot_a = pl.DataFrame({\"ticker\": [\"AAA\"]})\n    result_a = cached_filtered_scores(cache, date(2020, 1, 2), snapshot_a, scorer)\n    assert result_a == {\"AAA\": 1.0}\n\n    address_a = id(snapshot_a)\n    del snapshot_a\n    gc.collect()\n\n    # Best-effort: CPython's small-object allocator often reuses a just-freed address for a\n    # same-shape object allocated immediately after. Whether or not it actually does here,\n    # the assertions below hold unconditionally because the fix keys by date, not id().\n    snapshot_b = pl.DataFrame({\"ticker\": [\"BBB\"]})\n    result_b = cached_filtered_scores(cache, date(2020, 1, 3), snapshot_b, scorer)\n\n    assert result_b == {\"BBB\": 1.0}, \"a different key must never return a stale value from a reused address\"\n    assert calls == [(\"AAA\",), (\"BBB\",)], \"scorer must run once per distinct key, never skipped due to address reuse\"\n    assert len(cache) == 2\n    del address_a  # referenced only to document the address that was freed; not asserted directly\n"
+    },
+    {
+      "scenario_id": "test_cached_filtered_scores_rejects_none_key",
+      "target_test_file": "tests/unit/strategies/test_capacity.py",
+      "execution_command": "uv run pytest tests/unit/strategies/test_capacity.py -k test_cached_filtered_scores_rejects_none_key -q",
+      "expected_behavior": "Fail-closed (R5): a None key is a caller contract violation and raises immediately, never silently falls back to id() or bypasses the cache.",
+      "test_skeleton": "import pytest\nimport polars as pl\n\n\ndef test_cached_filtered_scores_rejects_none_key() -> None:\n    from src.strategies.sticky.capacity import cached_filtered_scores\n\n    cache: dict[object, dict[str, float]] = {}\n\n    def scorer(frame: pl.DataFrame) -> dict[str, float]:\n        return dict()\n\n    with pytest.raises(ValueError, match=\"key\"):\n        cached_filtered_scores(cache, None, pl.DataFrame({\"ticker\": [\"A\"]}), scorer)\n"
+    },
+    {
+      "scenario_id": "test_sticky_model_score_passes_decision_date_as_cache_key",
+      "target_test_file": "tests/unit/strategies/test_capacity.py",
+      "execution_command": "uv run pytest tests/unit/strategies/test_capacity.py -k test_sticky_model_score_passes_decision_date_as_cache_key -q",
+      "expected_behavior": "Wiring scenario: StickyLeaderModel.score() (src/strategies/sticky/model_runner.py, the real caller) routes context.decision_date into cached_filtered_scores as the key, so the model-level cache is keyed by session date -- this is the actual fix wired into the production call site, not just the helper function in isolation.",
+      "test_skeleton": "from datetime import date\n\nimport polars as pl\n\nfrom src.alpha.base import DecisionContext\nfrom src.strategies.sticky.model_runner import StickyLeaderModel\n\n\ndef _plus2_snapshot() -> pl.DataFrame:\n    return pl.DataFrame(\n        {\n            \"ticker\": [\"A\", \"B\", \"C\"],\n            \"name\": [\"KODEX 200\", \"KODEX 레버리지\", \"KODEX 인버스2X\"],\n            \"mom_20\": [0.10, 0.18, 0.25],\n        }\n    )\n\n\ndef test_sticky_model_score_passes_decision_date_as_cache_key() -> None:\n    model = StickyLeaderModel(name=\"sticky.leader_base\")\n    ctx_day1 = DecisionContext(decision_date=date(2020, 1, 2), regime=None, capital=1_000_000_000.0, held={}, rules=None)  # type: ignore[arg-type]\n    ctx_day2 = DecisionContext(decision_date=date(2020, 1, 3), regime=None, capital=1_000_000_000.0, held={}, rules=None)  # type: ignore[arg-type]\n\n    scores_day1 = model.score(_plus2_snapshot(), ctx_day1)\n    assert scores_day1 == {\"B\": 0.18}\n    assert date(2020, 1, 2) in model._filtered_scores_by_snapshot\n\n    # a distinct snapshot object for a distinct date must be scored independently\n    scores_day2 = model.score(_plus2_snapshot(), ctx_day2)\n    assert scores_day2 == {\"B\": 0.18}\n    assert date(2020, 1, 3) in model._filtered_scores_by_snapshot\n    assert len(model._filtered_scores_by_snapshot) == 2, \"each decision_date must get its own cache entry\"\n\n\ndef test_sticky_model_score_raises_on_missing_decision_date() -> None:\n    import pytest\n\n    model = StickyLeaderModel(name=\"sticky.leader_base\")\n    ctx_missing = DecisionContext(decision_date=None, regime=None, capital=1_000_000_000.0, held={}, rules=None)  # type: ignore[arg-type]\n\n    with pytest.raises(ValueError, match=\"key\"):\n        model.score(_plus2_snapshot(), ctx_missing)\n"
+    },
+    {
+      "scenario_id": "test_reset_trackers_clears_filtered_scores_cache",
+      "target_test_file": "tests/unit/strategies/test_capacity.py",
+      "execution_command": "uv run pytest tests/unit/strategies/test_capacity.py -k test_reset_trackers_clears_filtered_scores_cache -q",
+      "expected_behavior": "R7: reset_trackers() clears _filtered_scores_by_snapshot in addition to _held/_hold_len/_runner_* -- defense in depth so a model instance reused across independent research/replay calls never carries a stale per-date cache forward.",
+      "test_skeleton": "from datetime import date\n\nimport polars as pl\n\nfrom src.alpha.base import DecisionContext\nfrom src.strategies.sticky.model_runner import StickyLeaderModel\n\n\ndef test_reset_trackers_clears_filtered_scores_cache() -> None:\n    model = StickyLeaderModel(name=\"sticky.leader_base\")\n    snap = pl.DataFrame({\"ticker\": [\"A\", \"B\"], \"name\": [\"KODEX 200\", \"KODEX 레버리지\"], \"mom_20\": [0.1, 0.2]})\n    ctx = DecisionContext(decision_date=date(2020, 1, 2), regime=None, capital=1_000_000_000.0, held={}, rules=None)  # type: ignore[arg-type]\n\n    model.score(snap, ctx)\n    assert len(model._filtered_scores_by_snapshot) == 1\n\n    model.reset_trackers()\n\n    assert model._filtered_scores_by_snapshot == {}\n    assert model._held is None\n    assert model._hold_len == 0\n"
+    }
+  ],
+  "design_rationale": {
+    "alternatives_considered": "(1) Replace id(snapshot) with a content hash of the DataFrame (e.g. hashing the ticker column + mom column values). REJECTED: computing a stable hash of a Polars DataFrame is itself nontrivial (row order, dtype, float precision all affect hash stability) and strictly more expensive than the O(1) decision_date already carried on DecisionContext for exactly this purpose -- reinventing a session identifier when a correct one already exists at the call site is unnecessary complexity. (2) Remove the cache entirely (always recompute filter_plus2_scores). REJECTED: filter_plus2_scores is called at most once per session in the corrected design (one call per decision_date), so the cache provides no proven performance benefit today (A3) -- but score() is a public method that downstream code may call more than once per session in ways not audited here (e.g. speculative re-scoring, forensics replay); removing the cache changes that contract silently, whereas keeping it correctly-keyed preserves any legitimate repeat-call optimization at zero correctness risk. (3) Clear the cache at the START of every score() call instead of keying it. REJECTED: this degrades to 'no cache' for the common case while adding a dict-clear() call every session; keying by decision_date is equally cheap and correct while actually allowing legitimate repeat-call memoization to work. (4) Fix only the model_runner.py call site and leave cached_filtered_scores's id()-based default in place for other hypothetical callers. REJECTED: cached_filtered_scores has exactly one production call site (grep-confirmed); leaving a footgun default signature (id-based) in a shared module invites the same bug to reappear the next time someone reuses this helper. The signature itself must require an explicit key so a future caller cannot silently opt back into the id() bug.",
+    "chosen_reason": "The defect is a textbook CPython id()-as-cache-key bug: id() is a memory address, valid only for the lifetime of the referenced object, and CPython is free to reuse a freed address for a later, unrelated object. In a 2000+ window rolling backtest simulator that constructs and discards a snapshot DataFrame per session, address reuse across sessions is not a corner case -- it is the expected steady-state behaviour of the allocator under sustained allocate/free churn. The empirical repro (28 trades vs 0 trades, identical code+data+process) proves the collision is real and severe, not theoretical. The fix keys the cache by context.decision_date: a value that (a) is already computed and passed to score() by every caller, (b) is guaranteed unique per session within one model instance's lifetime by construction (one score() call per rolling-window session), and (c) is a plain immutable date, trivially hashable and equality-comparable -- eliminating the address-reuse hazard by construction rather than by making collisions less likely. This is the minimal correct fix: one function signature change, one call-site update, one field type-annotation update, and a reset_trackers() extension for defense in depth -- no scoring logic changes, matching the non-goal of not touching momentum/leadership mathematics.",
+    "failure_modes": [
+      "FM1 -- the new `key` parameter is optional or has a None default, silently re-permitting the old collision if a future caller forgets to pass it. GUARDED by R1 (key is a required positional parameter, no default) and by test_cached_filtered_scores_rejects_none_key (R5) which fails closed on an explicit None rather than falling back to id().",
+      "FM2 -- the fix is applied to cached_filtered_scores but the model_runner.py call site is missed or only partially updated (e.g. key added but still derived from snapshot instead of context), silently leaving the production path exposed. GUARDED by test_sticky_model_score_passes_decision_date_as_cache_key, which exercises the REAL StickyLeaderModel.score() method (not a mock), asserting the actual dict `_filtered_scores_by_snapshot` is keyed by the date values used.",
+      "FM3 -- the regression test for the root cause is written in a way that only proves the NEW code path runs, without proving the OLD code path would have failed it (a test that passes trivially regardless of the fix is worthless as a regression guard). GUARDED by test_cached_filtered_scores_different_keys_never_collide_on_reused_address, which explicitly frees the first snapshot and forces gc.collect() before allocating the second -- reconstructing the exact address-reuse mechanism from the empirical repro -- and asserts per-key correctness that the OLD `key = id(snapshot)` implementation would have violated whenever the address was actually reused (verified by manually reverting the fix locally and re-running this test during implementation as a sanity check, per the verification_plan)."
+    ]
+  },
+  "performance_budget": {
+    "expected_data_scale": "No new data volume. cached_filtered_scores is called at most once per rolling-window session (up to ~2125 XKRX sessions for the full 2018-2026 champion range); the fix adds a dict key lookup on an immutable date, which is asymptotically identical in cost to the previous id()-based lookup.",
+    "memory_target_mb": null,
+    "storage_format": null,
+    "dtype_precision": "Unchanged -- no numeric computation changes; only the cache key type changes from int (memory address) to datetime.date.",
+    "chunking_strategy": null,
+    "acceleration_candidate": null,
+    "note": "This is a correctness fix with no performance-budget implications; the field is populated per the contract schema's requirement for any target_file touching the backtest path, not because new sizing decisions are needed."
+  },
+  "verification_plan": [
+    "uv run python tools/agent_skills/lean_check.py --spec docs/specs/sticky_snapshot_cache_determinism_contract.json --pre-impl",
+    "Phase A (Red): paste all 5 scenarios into tests/unit/strategies/test_capacity.py; confirm the 4 NEW tests fail against the CURRENT (buggy) capacity.py (test_cached_filtered_scores_keys_by_explicit_key and the others reference a `key` parameter that does not yet exist -> TypeError, proving Red).",
+    "Phase B (Green): apply the 3 changes (capacity.py signature, model_runner.py call site, __init__ type annotation + reset_trackers() extension); re-run tests/unit/strategies/test_capacity.py -> all green.",
+    "Sanity-check the regression test's discriminating power: temporarily revert cached_filtered_scores to `key = id(snapshot)` (ignoring the passed-in key) and re-run test_cached_filtered_scores_different_keys_never_collide_on_reused_address alone in a loop of ~20 iterations (`for i in range(20): uv run pytest ... -k test_cached_filtered_scores_different_keys_never_collide_on_reused_address -q`) to confirm it fails at least once due to real address reuse, demonstrating the test is a genuine regression guard and not vacuously passing. Then restore the fix.",
+    "uv run pytest tests/unit/strategies/ -q (full sticky-family unit suite; must show 0 new failures beyond the existing pre-refactor baseline ledger).",
+    "Empirical end-to-end confirmation (manual, not part of the automated scenarios per testing.md's fast-feedback default): re-run the same-process double-invocation repro from the evidence section (`run_sticky_family` called twice against identical args in one process) and confirm both calls now report the SAME trade_rows count.",
+    "uv run ruff check src/strategies/sticky/capacity.py src/strategies/sticky/model_runner.py tests/unit/strategies/test_capacity.py",
+    "uv run mypy src/strategies/sticky/capacity.py src/strategies/sticky/model_runner.py"
+  ],
+  "acceptance": [
+    "A1: cached_filtered_scores requires an explicit `key` parameter with no default; `id(snapshot)` does not appear anywhere in src/strategies/sticky/capacity.py.",
+    "A2: StickyLeaderModel.score() passes context.decision_date as the key at the single production call site (model_runner.py:73), and StickyLeaderModel._filtered_scores_by_snapshot is typed dict[date, dict[str, float]].",
+    "A3: reset_trackers() clears _filtered_scores_by_snapshot alongside the existing _held/_hold_len/_runner_* fields.",
+    "A4: A None key raises ValueError immediately (fail-closed), never silently computed via id() or bypassed.",
+    "A5: The same-process double-invocation empirical repro (run_sticky_family called twice, identical args) produces identical trade_rows both times.",
+    "A6: All 5 new scenarios pass; the full tests/unit/strategies/ suite shows no new failures relative to the pre-existing baseline ledger; ruff and mypy clean on the 3 touched files."
+  ]
+}

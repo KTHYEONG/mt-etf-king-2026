@@ -276,6 +276,15 @@ overrides:
 - deployment 모드에서 `issuer_whitelist` 활성
 - taxonomy fallback 존재
 
+## 7b. Loader 계약 (`src/core/config.py`, R6-P1)
+
+- `project_root()` — `pyproject.toml` 을 찾을 때까지 `__file__` 에서 위로 탐색 (lru_cached). CWD 무관.
+- `config_path(name)` — `project_root()/configs/{name}.yaml`. `/`·`..` 포함 시 거부.
+- `load_config(name)` — lru_cached `yaml.safe_load`. 파일 부재·파싱 실패·비매핑 시 `ConfigError` (fail-closed, 기본값 반환 없음).
+- `config_value(name, *keys, default=None, required=False)` — 중첩 조회. 키 부재 시에만 `default` (required면 `ConfigError`). **값 존재 + 타입 불일치 시 항상 `ConfigError`** (silent default 금지).
+- `src/` 에서 `Path("configs/...")`·`open("configs/...")` 직접 읽기 금지 — 전부 이 로더 경유 (`test_config_single_source`).
+- 챔피언십 임계값·36-세션 horizon 은 `configs/gates.yaml`·`configs/tournament.yaml` 단일 원천 (`CHAMPIONSHIP_THRESHOLDS`, `TOURNAMENT_SESSIONS`, `ATTAINABILITY_THRESHOLDS`, `BOOTSTRAP_EXPECTED_BLOCK`).
+
 ---
 
 ## 8. 원칙

@@ -117,8 +117,14 @@ src/
 │   └── metrics.py            # compound_returns, window_returns
 │
 ├── tournament/
-│   ├── simulator.py          # TournamentSimulator (rolling-36D)
-│   ├── distribution.py       # ReturnDistribution, bootstrap
+│   ├── simulator.py          # facade: TournamentSimulator (rolling-36D)
+│   ├── simulator_windows.py  # window simulation primitives
+│   ├── simulator_rolling.py  # rolling orchestration
+│   ├── distribution/         # package: core, bootstrap, exceedance, overlays
+│   ├── objective/            # package: core, adoption, reports
+│   ├── objective_core.py     # gate constants + core gate logic (single source)
+│   ├── champion/             # package: runtime, oos_scores, walkforward, promotion
+│   ├── champion_eval.py      # facade over champion/
 │   ├── replay.py             # TournamentReplay (2025)
 │   ├── policy.py             # AggressionPolicy
 │   ├── exposure.py           # ExposureSelector (배수 선택)
@@ -222,38 +228,47 @@ BacktestEngine / TournamentSimulator / DailyDecision
 | 목적 | **이번 대회 전략 검증** | 아이디어 구조적 존재 여부 |
 | survivorship bias | 의도적 허용 | 없음 |
 
-## 8. Refactor R2-R5 Module Map (Updated)
+## 8. Refactor R6 Module Map (P5-P7)
 
 ```
 src/
+├── core/
+│   └── config.py             # project_root/config_path/load_config/config_value (fail-closed, CWD-independent)
 ├── strategies/
 │   ├── ids.py                # semantic StrategyId constants
-│   ├── registry.py           # LEGACY_ALIASES, resolve_strategy_id, STRATEGIES
-│   ├── baselines/
-│   │   ├── core.py           # BuyAndHoldBaseline, B0-B5, M07 shims
-│   │   └── portfolio.py      # P08-P19 portfolio factories
+│   ├── registry.py           # resolve_strategy_id (semantic only), STRATEGIES
+│   ├── factories/            # pure-alpha factories (baselines, alpha, sticky, convex)
 │   └── sticky/
-│       ├── config.py         # load_overlay_mode, read_sticky_yaml_block (semantic-first)
-│       ├── model.py          # StickyLeaderModel, StickyLeaderConfig
-│       ├── overlays.py       # impulse/crash/abs-mom/same-leader overlays
-│       └── factories.py      # P20-P28b factories, FACTORY_REGISTRY
+│       ├── config.py         # load_overlay_mode (strategy_id), overlay_param sources
+│       ├── model.py          # facade over model_config/model_scores/model_runner
+│       ├── split_fill_model.py # SplitFillStickyModel (ARCH-1: factories need not import portfolio)
+│       └── overlays.py       # overlay_param (single loader via load_config)
+├── portfolio/
+│   ├── builders_momentum.py  # portfolio-backed factories (moved from strategies/factories)
+│   ├── builders_leadership.py
+│   ├── builders_convexity.py
+│   └── policy.py             # facade over policy_types/policy_core/policy_tail
+├── backtest/
+│   └── engine.py             # facade over engine_config/engine_session/engine_runner
+├── execution/
+│   └── ledger.py             # facade over ledger_state/ledger_transition
+├── reporting/
+│   └── tail_forensics.py     # facade over tail_miss/tail_windows/tail_attribution
 ├── cli/
-│   ├── dispatch.py           # family_of, normalize_cli_model_arg, STICKY_*_HANDLERS
-│   ├── constants.py          # CHAMPION_STRATEGY semantic
-│   ├── main.py               # build_parser + SUBCOMMANDS
+│   ├── parser.py             # build_parser, SUBCOMMANDS (semantic --model values)
+│   ├── context.py            # BacktestContext
+│   ├── main.py               # entry wiring
 │   └── commands/
-│       ├── backtest.py       # cmd_backtest (normalize semantic)
-│       ├── decide.py         # cmd_decide
-│       ├── config.py         # config-check, calendar
-│       ├── data.py           # ingest, normalize
-│       ├── universe.py       # universe
-│       ├── features.py       # features
-│       ├── replay.py         # replay
-│       └── storage.py        # storage-migrate
+│       ├── backtest/         # cmd_backtest via FAMILY_RUNNERS + families/
+│       └── decide/           # cmd_decide orchestration/scoring/render
 └── tournament/
-    ├── distribution_core.py  # ReturnDistribution, evaluate_adoption_gates
-    ├── overlay_returns.py    # locked_window etc, execution_faithful
-    ├── objective_core.py     # ObjectiveGateConfig, evaluate_objective_gates
-    ├── championship.py       # evaluate_championship_adoption, field_relative_report
-    └── adoption_reports.py   # p15/p16/p24/p25 reports
+    ├── distribution/         # ReturnDistribution; core/bootstrap/exceedance/overlays
+    ├── objective/            # core/adoption/reports (constants stay in objective_core.py)
+    ├── champion/             # runtime/oos_scores/walkforward/promotion
+    ├── champion_eval.py      # facade over champion/
+    ├── distribution_core.py  # facade over distribution/
+    ├── overlay_returns.py    # facade over distribution/
+    ├── objective_impl.py     # facade over objective/
+    ├── objective_core.py     # gate constants + core gate logic (single source)
+    └── championship.py       # direct re-exports (no delegating wrappers)
 ```
