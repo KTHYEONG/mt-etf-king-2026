@@ -35,7 +35,6 @@ class ReplayDay:
         if self.rationales is None:
             object.__setattr__(self, "rationales", {})
         # wiring anchor: reference build_rationale inside class context
-        _ = build_rationale
 
 
 @dataclass(frozen=True)
@@ -101,7 +100,9 @@ class TournamentReplay:
                 exec_date = self.calendar.next_session(decision_date)
             except Exception:
                 exec_date = None
-            # need to ensure exec_date beyond end yields None? For last session, next_session would be beyond end but still a valid calendar date (outside range). Spec says final entry has execution_date None.
+            # need to ensure exec_date beyond end yields None? For last session,
+            # next_session would be beyond end but still a valid calendar date
+            # (outside range). Spec says final entry has execution_date None.
             # So treat if idx == n-1 => None regardless of calendar.
             if idx == n - 1:
                 exec_date = None
@@ -144,7 +145,9 @@ class TournamentReplay:
             # Scoring via model
             # Need DecisionContext - reuse similar construction as engine
             try:
-                rules = TournamentRules.from_yaml(__import__("pathlib").Path("configs/tournament.yaml"))
+                from src.core.config import config_path
+
+                rules = TournamentRules.from_yaml(config_path("tournament"))
             except Exception:
                 comm_val2 = config.costs.commission_bps if config.costs.commission_bps is not None else 0.0
                 slip_val2 = config.costs.slippage_bps if config.costs.slippage_bps is not None else 0.0
@@ -254,7 +257,6 @@ class TournamentReplay:
                         inv2 = None
                     try:
                         alloc = policy_model.allocate(scores, regime=regime_label, leverage_allowed=lev2, inverse_allowed=inv2)
-                        _ = "leverage_allowed"
                     except TypeError:
                         alloc = policy_model.allocate(scores)
                     w = dict(alloc.weights) if hasattr(alloc, "weights") else {}

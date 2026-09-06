@@ -7,6 +7,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from src.tournament.objective_core import ATTAINABILITY_THRESHOLDS
+
 
 @dataclass(frozen=True)
 class WindowOpportunity:
@@ -115,7 +117,7 @@ def capture_rate(
     return (float(hits) / float(n) if n else None, int(n))
 
 
-_DEFAULT_THRESHOLDS: tuple[float, ...] = (0.30, 0.40, 0.50, 0.60)
+_DEFAULT_THRESHOLDS: tuple[float, ...] = ATTAINABILITY_THRESHOLDS
 
 
 def load_attainability_config(
@@ -126,8 +128,13 @@ def load_attainability_config(
 
         import yaml
 
-        with open(Path(gates_path), encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
+        from src.core.config import load_config
+
+        if gates_path == "configs/gates.yaml":
+            raw = load_config("gates")
+        else:
+            with open(Path(gates_path), encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
         att = raw.get("attainability") if isinstance(raw, dict) else None
         if not isinstance(att, dict):
             return (_DEFAULT_THRESHOLDS, 30, 5)
@@ -323,9 +330,9 @@ def enrich_backtest_run_artifacts(
     except Exception:
         cal_sessions = []
     meta["phantom_sessions"] = phantom_session_labels(cal_sessions, panel)
-    thresholds = [0.30, 0.40, 0.50, 0.60]
+    thresholds = list(ATTAINABILITY_THRESHOLDS)
     _opps = window_opportunities([], [], {}, int(horizon))
-    _ = attainability_curve(_opps, thresholds)
+    attainability_curve(_opps, thresholds)
     summary.update(
         backtest_attainability_payload(
             calendar=calendar,

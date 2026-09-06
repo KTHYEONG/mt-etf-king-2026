@@ -5,6 +5,7 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
+from src.core.config import config_path
 from src.strategies.ids import STICKY_MOM60_RAW
 
 
@@ -41,12 +42,12 @@ def _resolve_semantic_key(strategy_key: str) -> str:
         return strategy_key.strip().lower()
 
 
-def load_overlay_mode(*, strategy_key: str = "sticky.mom60_raw", default: str = "identity") -> str:
-    _ = read_sticky_yaml_block(strategy_key)
+def load_overlay_mode(*, strategy_id: str = "sticky.mom60_raw", default: str = "identity") -> str:
+    read_sticky_yaml_block(strategy_id)
     # sticky.mom60_raw is identity overlay per invariant
-    if strategy_key == STICKY_MOM60_RAW:
+    if strategy_id == STICKY_MOM60_RAW:
         # check yaml semantic key first, legacy fallback
-        raw = _read_yaml_raw(Path("configs/strategies.yaml"))
+        raw = _read_yaml_raw(config_path("strategies"))
         port = raw.get("portfolio") if isinstance(raw, dict) else None
         if isinstance(port, dict):
             # semantic: portfolio.sticky.mom60_raw overlay_mode
@@ -75,11 +76,11 @@ def load_overlay_mode(*, strategy_key: str = "sticky.mom60_raw", default: str = 
     # for other stickies, delegate to generic but default identity
     # Try to read overlay_mode for given strategy_key
     try:
-        raw = _read_yaml_raw(Path("configs/strategies.yaml"))
+        raw = _read_yaml_raw(config_path("strategies"))
         port = raw.get("portfolio") if isinstance(raw, dict) else None
         if isinstance(port, dict):
             # try semantic path portfolio.sticky.<descriptor>
-            canonical = _resolve_semantic_key(strategy_key)
+            canonical = _resolve_semantic_key(strategy_id)
             # canonical is like sticky.mom60_raw -> split
             if canonical.startswith("sticky."):
                 _, desc = canonical.split(".", 1)
@@ -112,7 +113,7 @@ def load_overlay_mode(*, strategy_key: str = "sticky.mom60_raw", default: str = 
     return str(default)
 
 
-def load_sticky_exposure_limits(strategy_key: str, path: Path | None = None) -> tuple[float, float, float]:
+def load_sticky_exposure_limits(strategy_id: str, path: Path | None = None) -> tuple[float, float, float]:
     # For sticky strategies, use p27/p26 limits (0.95,1.90,0.05) as per test
     # Attempt to read semantic key then legacy
     try:
@@ -122,7 +123,7 @@ def load_sticky_exposure_limits(strategy_key: str, path: Path | None = None) -> 
         # Try semantic-specific path if exists, else legacy
         # Per spec, renamed loaders replace load_p27_*/load_p26_* but we just delegate
         # Check if strategy_key resolves to sticky.mom60_concentrated -> p26 else p27
-        canon = _resolve_semantic_key(strategy_key)
+        canon = _resolve_semantic_key(strategy_id)
         if canon == "sticky.mom60_concentrated":
             return load_p26_exposure_limits(path)
         return load_p27_exposure_limits(path)
@@ -132,16 +133,16 @@ def load_sticky_exposure_limits(strategy_key: str, path: Path | None = None) -> 
 
 def load_p27_overlay_mode(*, default: str = "identity") -> str:
     warnings.warn("load_p27_overlay_mode is deprecated, use load_overlay_mode", DeprecationWarning, stacklevel=2)
-    return load_overlay_mode(strategy_key=STICKY_MOM60_RAW, default=default)
-def read_sticky_yaml_block(strategy_key: str, path: Path | None = None) -> dict[str, object]:
-    p = Path(path) if path is not None else Path("configs/strategies.yaml")
+    return load_overlay_mode(strategy_id=STICKY_MOM60_RAW, default=default)
+def read_sticky_yaml_block(strategy_id: str, path: Path | None = None) -> dict[str, object]:
+    p = Path(path) if path is not None else config_path("strategies")
     raw = _read_yaml_raw(p)
     port = raw.get("portfolio") if isinstance(raw, dict) else None
     if not isinstance(port, dict):
         return {}
     try:
         from src.strategies.registry import resolve_strategy_id
-        canonical = resolve_strategy_id(strategy_key)
+        canonical = resolve_strategy_id(strategy_id)
     except Exception:
         return {}
     # canonical like sticky.mom60_raw

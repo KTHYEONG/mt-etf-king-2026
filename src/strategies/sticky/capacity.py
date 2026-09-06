@@ -3,15 +3,26 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Hashable, Mapping
 
 import polars as pl
 
 
 def cached_filtered_scores(
-    cache: dict[int, dict[str, float]], snapshot: pl.DataFrame, scorer: Callable[[pl.DataFrame], dict[str, float]]
+    cache: dict[Hashable, dict[str, float]],
+    key: Hashable,
+    snapshot: pl.DataFrame,
+    scorer: Callable[[pl.DataFrame], dict[str, float]],
 ) -> dict[str, float]:
-    key = id(snapshot)
+    """Return memoized scorer(snapshot), keyed by caller-supplied key.
+
+    key must be a stable, content-derived identifier for the snapshot (e.g. the decision date)
+    -- never id(snapshot), which is a memory address CPython may reuse for an unrelated later
+    object once the original snapshot is garbage-collected, causing silent cross-session score
+    corruption.
+    """
+    if key is None:
+        raise ValueError("cached_filtered_scores key must not be None")
     if key not in cache:
         cache[key] = scorer(snapshot)
     return dict(cache[key])

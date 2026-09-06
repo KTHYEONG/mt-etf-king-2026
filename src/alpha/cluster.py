@@ -43,7 +43,6 @@ def select_representative_from_rows(
     index: SnapshotIndex,
     lookback: int = 20,
 ) -> str | None:
-    _ = lookback
     if not members:
         return None
     eligible: list[str] = []
@@ -111,7 +110,6 @@ class ClusterResolver:
         self._max_per_theme = max_per_theme
 
     def resolve_indexed(self, index: SnapshotIndex, decision_date: date) -> list[ClusterChoice]:
-        _ = decision_date
         if not index:
             return []
         groups: dict[str, list[str]] = {}

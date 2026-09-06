@@ -22,5 +22,10 @@ STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset(
         "sticky.equity_mom60_vol",
         "sticky.fillable_mom60",
         "convex.lottery_impulse",
+        "sticky.mom60_runner_reversal",
     }
 )
+CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset(
+    {"portfolio.convexity_hold", "portfolio.convexity_rebalance", "portfolio.convexity_variant"}
+)
+LOTTERY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset({"portfolio.lottery_exposure", "portfolio.lottery_rebalance"})

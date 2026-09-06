@@ -8,24 +8,15 @@ from src.tournament.objective_impl import (
     ChampionshipTailReport,
     FieldRelativeReport,
     championship_tail_report,
-    evaluate_championship_adoption as _evaluate_championship_adoption,
-    field_relative_report as _field_relative_report,
+    evaluate_championship_adoption,
+    field_relative_report,
     paired_scenario_delta_ci,
 )
 
 
 from src.tournament.champion_eval import is_promotable as _is_promotable_ref
 
-_ = _is_promotable_ref
-_ = "is_promotable("
-
-
-def evaluate_championship_adoption(*args, **kwargs):
-    return _evaluate_championship_adoption(*args, **kwargs)
-
-
-def field_relative_report(*args, **kwargs):
-    return _field_relative_report(*args, **kwargs)
+_CHAMPION_PROMOTABLE_REF = _is_promotable_ref
 
 
 __all__ = [

@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
+from src.core.config import clear_config_caches
 from src.core.sops_env import SopsDotEnvSettingsSource, clear_env_caches
 
 
@@ -18,10 +19,9 @@ class Settings(BaseSettings):
         settings_cls: type[BaseSettings],
         init_settings: PydanticBaseSettingsSource,
         env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,  # noqa: ARG003
+        file_secret_settings: PydanticBaseSettingsSource,  # noqa: ARG003
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        _ = dotenv_settings, file_secret_settings
         return (
             init_settings,
             env_settings,
@@ -50,3 +50,4 @@ def get_settings() -> Settings:
 def clear_settings_caches() -> None:
     get_settings.cache_clear()
     clear_env_caches()
+    clear_config_caches()

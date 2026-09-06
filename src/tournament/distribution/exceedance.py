@@ -1,0 +1,393 @@
+# mypy: ignore-errors
+# ruff: noqa
+from __future__ import annotations
+
+import math
+import random
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import date
+
+from src.tournament.distribution.core import ReturnDistribution
+def vehicle_activity_rate(session_multiples: Sequence[int], risk_on_mask: Sequence[bool]) -> float:
+    if not session_multiples or not risk_on_mask:
+        return 0.0
+    n = min(len(session_multiples), len(risk_on_mask))
+    risk_count = 0
+    active = 0
+    for i in range(n):
+        if bool(risk_on_mask[i]):
+            risk_count += 1
+            try:
+                if int(session_multiples[i]) == 2:
+                    active += 1
+            except Exception:
+                continue
+    if risk_count == 0:
+        return 0.0
+    return float(active) / float(risk_count)
+
+
+def evaluate_tail_gates(
+    p_gt_40: float,
+    b1_p_gt_40: float,
+    p_gt_50: float,
+    b1_p_gt_50: float,
+    cvar: float,
+    b1_cvar: float,
+    activity_rate: float,
+) -> tuple[str, list[str]]:
+    fails: list[str] = []
+    if not (float(p_gt_40) >= float(b1_p_gt_40) + 0.02 - 1e-12):
+        fails.append("p_gt_40")
+    if not (float(p_gt_50) >= float(b1_p_gt_50) + 0.01 - 1e-12):
+        fails.append("p_gt_50")
+    if not (float(cvar) >= float(b1_cvar) - 0.05 - 1e-12):
+        fails.append("cvar_05")
+    if not (float(activity_rate) >= 0.25 - 1e-12):
+        fails.append("vehicle_activity")
+    if not fails:
+        return ("PASS", [])
+    return ("FAIL", fails)
+
+
+def evaluate_adoption_gates(
+    p_gt_30: float,
+    b1_p_gt_30: float,
+    p_gt_40: float,
+    b1_p_gt_40: float,
+    cvar: float,
+    b1_cvar: float,
+    vehicle_rate: float,
+    *,
+    min_vehicle_rate: float = 0.25,
+) -> tuple[str, list[str]]:
+    fails: list[str] = []
+    if not (float(p_gt_30) >= float(b1_p_gt_30) - 1e-12):
+        fails.append("p_gt_30")
+    if not (float(p_gt_40) >= float(b1_p_gt_40) + 0.02 - 1e-12):
+        fails.append("p_gt_40")
+    if not (float(cvar) >= float(b1_cvar) - 0.05 - 1e-12):
+        fails.append("cvar_05")
+    if not (float(vehicle_rate) >= float(min_vehicle_rate) - 1e-12):
+        fails.append("vehicle_activity")
+    if not fails:
+        return ("PASS", [])
+    return ("FAIL", fails)
+
+
+_RISK_ON_LABELS = frozenset({"RISK_ON", "STRONG_RISK_ON"})
+
+
+def _regime_label(regime_snap: object | None) -> str | None:
+    if regime_snap is None:
+        return None
+    st = getattr(regime_snap, "state", regime_snap)
+    val = getattr(st, "value", st)
+    return str(val)
+
+
+def score_seed_for_vehicle_probe(master: object | None) -> dict[str, float]:
+    if master is None:
+        return {"069500": 1.0, "122630": 0.1}
+    attrs = getattr(master, "attributes", None)
+    if not isinstance(attrs, Mapping):
+        return {"069500": 1.0, "122630": 0.1}
+    by_family: dict[str, list[tuple[str, int]]] = {}
+    for ticker, attr in attrs.items():
+        fk = str(getattr(attr, "leverage_family_key", ticker))
+        try:
+            mult = int(getattr(attr, "leverage_multiple", 1))
+        except Exception:
+            mult = 1
+        by_family.setdefault(fk, []).append((str(ticker), mult))
+    for members in by_family.values():
+        plus1 = sorted(t for t, m in members if m == 1)
+        lev2 = sorted(t for t, m in members if m == 2)
+        if plus1 and lev2:
+            # spread required so confidence_vehicle_gate sees high conf (INV-12-4 probe)
+            return {plus1[0]: 1.0, lev2[0]: 0.1}
+    tickers = sorted(str(t) for t in attrs)
+    if len(tickers) >= 2:
+        return {tickers[0]: 1.0, tickers[1]: 0.1}
+    if tickers:
+        return {tickers[0]: 1.0}
+    return {"069500": 1.0, "122630": 0.1}
+
+
+def b1_gate_anchors_from_distribution(dist: ReturnDistribution) -> tuple[float, float, float]:
+    from src.tournament.objective_core import CHAMPIONSHIP_THRESHOLDS
+
+    exc = dist.exceedance if isinstance(dist.exceedance, Mapping) else {}
+    p30 = float(exc.get(CHAMPIONSHIP_THRESHOLDS[0], 0.0))
+    p40 = float(exc.get(CHAMPIONSHIP_THRESHOLDS[1], 0.0))
+    if p30 == 0.0 or p40 == 0.0:
+        for k, v in exc.items():
+            try:
+                fk = float(k)
+                if p30 == 0.0 and abs(fk - CHAMPIONSHIP_THRESHOLDS[0]) < 1e-9:
+                    p30 = float(v)
+                if p40 == 0.0 and abs(fk - CHAMPIONSHIP_THRESHOLDS[1]) < 1e-9:
+                    p40 = float(v)
+            except Exception:
+                continue
+    return (float(p30), float(p40), float(dist.cvar_05))
+
+
+def measure_vehicle_activity_from_allocate(
+    model: object,
+    sessions: Sequence[date],
+    regimes: Mapping[date, object] | None,
+    leverage_allowed: bool | None,
+    score_seed: Mapping[str, float] | None = None,
+) -> float:
+    allocate = getattr(model, "allocate", None)
+    if not callable(allocate):
+        return 0.0
+    seed = dict(score_seed) if score_seed else score_seed_for_vehicle_probe(getattr(model, "master", None))
+    master = getattr(model, "master", None)
+    attrs = getattr(master, "attributes", None) if master is not None else None
+    multiples: list[int] = []
+    risks: list[bool] = []
+    for sess in sessions:
+        regime_snap = regimes.get(sess) if regimes is not None else None
+        regime_label = _regime_label(regime_snap)
+        risk_on = regime_label in _RISK_ON_LABELS if regime_label is not None else False
+        risks.append(risk_on)
+        mult = 1
+        try:
+            dec = allocate(seed, regime=regime_label, leverage_allowed=leverage_allowed)
+            weights = getattr(dec, "weights", {}) or {}
+            for dst in weights:
+                if attrs is not None and hasattr(attrs, "get"):
+                    attr = attrs.get(dst)
+                    if attr is not None:
+                        mult = int(getattr(attr, "leverage_multiple", 1))
+                        break
+                mult = 1
+        except Exception:
+            mult = 1
+        multiples.append(mult)
+    return vehicle_activity_rate(multiples, risks)
+
+
+def measure_vehicle_activity_from_session_cache(
+    model: object,
+    cache: object,
+    regimes: Mapping[date, object] | None,
+    leverage_allowed: bool | None,
+    *,
+    rescore_each_session: bool = True,
+) -> float:
+    allocate = getattr(model, "allocate", None)
+    if not callable(allocate):
+        return 0.0
+    dates = getattr(cache, "dates", ())
+    scores_map = getattr(cache, "scores", {})
+    snapshots = getattr(cache, "snapshots", {})
+    rules = getattr(cache, "rules", None)
+    master = getattr(model, "master", None)
+    attrs = getattr(master, "attributes", None) if master is not None else None
+    multiples: list[int] = []
+    risks: list[bool] = []
+    for sess in dates:
+        regime_snap = regimes.get(sess) if regimes is not None else None
+        regime_label = _regime_label(regime_snap)
+        risk_on = regime_label in _RISK_ON_LABELS if regime_label is not None else False
+        risks.append(risk_on)
+        if rescore_each_session:
+            snap = snapshots.get(sess)
+            score_fn = getattr(model, "score", None)
+            if snap is not None and callable(score_fn):
+                try:
+                    from src.alpha.base import DecisionContext
+
+                    ctx = DecisionContext(
+                        decision_date=sess,
+                        regime=regime_snap,  # type: ignore[arg-type]
+                        capital=1_000_000_000.0,
+                        held={},
+                        rules=rules,  # type: ignore[arg-type]
+                    )
+                    score_fn(snap, ctx)
+                except Exception:
+                    pass
+        scores = scores_map.get(sess, {})
+        theme_states = None
+        try:
+            fn = getattr(model, "theme_states_by_representative", None)
+            if callable(fn):
+                theme_states = fn()
+        except Exception:
+            theme_states = None
+        mult = 1
+        try:
+            dec = allocate(
+                scores,
+                regime=regime_label,
+                leverage_allowed=leverage_allowed,
+                theme_states=theme_states,
+            )
+            weights = getattr(dec, "weights", {}) or {}
+            for dst, w in weights.items():
+                if float(w) <= 1e-9:
+                    continue
+                if attrs is not None and hasattr(attrs, "get"):
+                    attr = attrs.get(dst)
+                    if attr is not None:
+                        mult = int(getattr(attr, "leverage_multiple", 1))
+                        break
+        except Exception:
+            mult = 1
+        multiples.append(mult)
+    return vehicle_activity_rate(multiples, risks)
+
+
+def measure_vehicle_activity_from_top1_scores(
+    model: object,
+    cache: object,
+    regimes: Mapping[date, object] | None,
+    leverage_allowed: bool | None,
+) -> float:
+    try:
+        import polars as pl
+
+        dates = getattr(cache, "dates", ())
+        snapshots = getattr(cache, "snapshots", {})
+        score_fn = getattr(model, "score", None)
+        if not callable(score_fn):
+            return 0.0
+        multiples: list[int] = []
+        risks: list[bool] = []
+        for sess in dates:
+            regime_snap = regimes.get(sess) if regimes is not None else None
+            regime_label = _regime_label(regime_snap)
+            risk_on = regime_label in _RISK_ON_LABELS if regime_label is not None else False
+            risks.append(risk_on)
+            snap = snapshots.get(sess) if isinstance(snapshots, Mapping) else None
+            mult = 1
+            try:
+                if snap is None:
+                    mult = 1
+                else:
+                    from src.alpha.base import DecisionContext
+
+                    # build minimal context for scoring
+                    try:
+                        rules = getattr(cache, "rules", None)
+                    except Exception:
+                        rules = None
+                    try:
+                        ctx = DecisionContext(
+                            decision_date=sess,
+                            regime=regime_snap,  # type: ignore[arg-type]
+                            capital=1_000_000_000.0,
+                            held={},
+                            rules=rules,  # type: ignore[arg-type]
+                        )
+                    except Exception:
+                        ctx = None  # type: ignore[assignment]
+                    scores = {}
+                    try:
+                        if ctx is not None:
+                            scores = score_fn(snap, ctx) or {}
+                        else:
+                            scores = score_fn(snap, {})  # type: ignore[arg-type]
+                    except Exception:
+                        scores = {}
+                    if not scores:
+                        mult = 1
+                    else:
+                        # top ticker by (-score, ticker)
+                        sorted_items = sorted(scores.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))
+                        top_ticker = str(sorted_items[0][0])
+                        # find name for top ticker from snapshot
+                        name = ""
+                        try:
+                            if hasattr(snap, "filter"):
+                                # polars DataFrame
+                                filt = snap.filter(pl.col("ticker") == top_ticker) if "ticker" in snap.columns else None  # type: ignore[attr-defined]
+                                if filt is not None and filt.height > 0 and "name" in filt.columns:
+                                    name = str(filt.select(pl.col("name")).to_series().to_list()[0] or "")
+                        except Exception:
+                            name = ""
+                        if not name:
+                            # fallback iterate
+                            try:
+                                for row in snap.iter_rows(named=True):  # type: ignore[attr-defined]
+                                    if str(row.get("ticker")) == top_ticker:
+                                        nv = row.get("name")
+                                        if nv is not None:
+                                            name = str(nv)
+                                        break
+                            except Exception:
+                                name = ""
+                        if name:
+                            try:
+                                from src.universe.instruments import resolve_leverage as _res
+
+                                lev, _conf = _res(name)
+                                mult = int(lev)
+                            except Exception:
+                                mult = 1
+                        else:
+                            mult = 1
+            except Exception:
+                mult = 1
+            multiples.append(mult)
+        return vehicle_activity_rate(multiples, risks)
+    except Exception:
+        return 0.0
+
+
+def resolve_adoption_vehicle_rate(
+    model: object,
+    engine: object,
+    panel: object,
+    config: object,
+    regimes: Mapping[date, object] | None,
+    leverage_allowed: bool | None,
+    inverse_allowed: bool | None = None,
+) -> float:
+    allocate = getattr(model, "allocate", None)
+    if not callable(allocate):
+        # score-only path: build session cache and measure via TOP1
+        try:
+            from src.backtest.session_cache import build_session_cache
+
+            cache = build_session_cache(
+                engine,
+                model,
+                panel,  # type: ignore[arg-type]
+                config,
+                leverage_allowed=leverage_allowed,
+                inverse_allowed=inverse_allowed,
+            )
+        except Exception:
+            return 0.0
+        return measure_vehicle_activity_from_top1_scores(model, cache, regimes, leverage_allowed)
+    reset = getattr(model, "reset_trackers", None)
+    if callable(reset):
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            reset()
+    try:
+        from src.backtest.session_cache import build_session_cache
+
+        cache = build_session_cache(
+            engine,
+            model,
+            panel,  # type: ignore[arg-type]
+            config,
+            leverage_allowed=leverage_allowed,
+            inverse_allowed=inverse_allowed,
+        )
+    except Exception:
+        return 0.0
+    return measure_vehicle_activity_from_session_cache(
+        model,
+        cache,
+        regimes,
+        leverage_allowed,
+    )

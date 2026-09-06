@@ -8,6 +8,7 @@ import math
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
+from typing import Literal
 
 import polars as pl
 
@@ -66,6 +67,52 @@ class PurgedDateWalkForward:
         return tuple(folds)
 
 
+@dataclass(frozen=True)
+class TailGradeObjective:
+    thresholds: tuple[float, ...]
+    weights: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        thr = tuple(float(v) for v in self.thresholds)
+        wts = tuple(float(v) for v in self.weights)
+        if len(thr) == 0 or len(thr) != len(wts):
+            raise ValueError("thresholds/weights must be non-empty and equal length")
+        for v in thr:
+            if not math.isfinite(v) or v <= 0:
+                raise ValueError("thresholds must be positive finite")
+        for i in range(1, len(thr)):
+            if not thr[i] > thr[i - 1]:
+                raise ValueError("thresholds must be strictly ascending")
+        for v in wts:
+            if not math.isfinite(v) or v < 0:
+                raise ValueError("weights must be finite non-negative")
+        if sum(wts) <= 0:
+            raise ValueError("weights must have positive total")
+
+    def grade(self, returns: Sequence[float]) -> object:
+        import numpy as np
+
+        arr = np.asarray(list(returns), dtype=np.float64)
+        thr = np.asarray([float(v) for v in self.thresholds], dtype=np.float64)
+        grades = np.zeros(arr.shape, dtype=np.int32)
+        for t in thr:
+            grades += (arr > float(t)).astype(np.int32)
+        return np.ascontiguousarray(grades, dtype=np.int32)
+
+    @property
+    def label_gain(self) -> tuple[float, ...]:
+        cum: list[float] = [0.0]
+        total = 0.0
+        for w in self.weights:
+            total += float(w)
+            cum.append(round(total, 12))
+        return tuple(cum)
+
+
+class ChampionTrainingError(RuntimeError):
+    pass
+
+
 @dataclass
 class ChampionModelArtifact:
     artifact_id: str
@@ -77,6 +124,7 @@ class ChampionModelArtifact:
     panel_hash: str = ""
     lgbm_version: str = ""
     target_column: str = "label_rank"
+    backend: Literal["lightgbm"] = "lightgbm"
 
 
 class ChampionTailRanker:
@@ -90,6 +138,7 @@ class ChampionTailRanker:
         num_leaves: int = 8,
         max_depth: int = 4,
         min_data_in_leaf: int = 100,
+        objective: TailGradeObjective | None = None,
     ) -> None:
         cols = tuple(feature_columns or ())
         if len(cols) > 25:
@@ -98,6 +147,7 @@ class ChampionTailRanker:
             raise ValueError("model capacity exceeds shallow limits")
         self._features = cols
         self._seed = int(seed)
+        self._objective = objective
         self._params = {
             "num_leaves": int(num_leaves),
             "max_depth": int(max_depth),
@@ -106,17 +156,33 @@ class ChampionTailRanker:
 
     def fit(self, train: pl.DataFrame) -> ChampionModelArtifact:
         target_column = "label_rank"
-        if target_column not in train.columns:
-            raise ValueError("artifact-integrity failure: missing label_rank target")
-        if "label_return" not in train.columns or "decision_date" not in train.columns:
-            raise ValueError("artifact-integrity failure: missing label/decision_date")
+        has_objective = self._objective is not None
+        if has_objective:
+            if "label_return" not in train.columns or "decision_date" not in train.columns:
+                raise ChampionTrainingError("artifact-integrity failure: missing label/decision_date")
+        else:
+            if target_column not in train.columns:
+                raise ValueError("artifact-integrity failure: missing label_rank target")
+            if "label_return" not in train.columns or "decision_date" not in train.columns:
+                raise ValueError("artifact-integrity failure: missing label/decision_date")
         cols = list(self._features) if self._features else [c for c in train.columns if c not in ("label_return", "label_rank", "decision_date", "source_ticker", "family_key")]
         missing = [c for c in cols if c not in train.columns]
         if missing:
+            if has_objective:
+                raise ChampionTrainingError(f"artifact-integrity failure: missing columns {missing}")
             raise ValueError(f"artifact-integrity failure: missing columns {missing}")
         if len(cols) > 25:
+            if has_objective:
+                raise ChampionTrainingError("artifact-integrity failure: feature count exceeds 25")
             raise ValueError("artifact-integrity failure: feature count exceeds 25")
-        clean = train.select([*cols, target_column, "label_return", "decision_date"]).drop_nulls()
+        select_cols = [*cols, "label_return", "decision_date"] + ([] if has_objective else [target_column])
+        if has_objective:
+            try:
+                clean = train.select(select_cols).drop_nulls()
+            except Exception as exc:
+                raise ChampionTrainingError(f"artifact-integrity failure: column select failed: {exc}") from exc
+        else:
+            clean = train.select(select_cols).drop_nulls()
         # Exclude every non-finite feature/target row before fit.
         rows = clean.to_dicts()
         kept = []
@@ -130,11 +196,12 @@ class ChampionTailRanker:
                 except Exception:
                     ok = False
                     break
-            try:
-                if not math.isfinite(float(r[target_column])):
+            if not has_objective:
+                try:
+                    if not math.isfinite(float(r[target_column])):
+                        ok = False
+                except (AttributeError, IndexError, TypeError, ValueError):  # pragma: no cover - schema validation
                     ok = False
-            except (AttributeError, IndexError, TypeError, ValueError):  # pragma: no cover - schema validation
-                ok = False
             try:
                 if not math.isfinite(float(r["label_return"])):
                     ok = False
@@ -143,22 +210,20 @@ class ChampionTailRanker:
             if ok:
                 kept.append(r)
         if not kept:
+            if has_objective:
+                raise ChampionTrainingError("artifact-integrity failure: no finite training rows")
             raise ValueError("artifact-integrity failure: no finite training rows")
         # LambdaRank group sizes are positional; keep rows contiguous by date.
         kept.sort(key=lambda r: r["decision_date"])
-        model: object = {"mean": sum(float(r[target_column]) for r in kept) / len(kept)}
         try:
             import lightgbm as lgb  # type: ignore[import]
+            import numpy as np
 
             groups: dict[date, list[dict[str, object]]] = {}
             for r in kept:
                 groups.setdefault(r["decision_date"], []).append(r)
-            xs = [[float(r[c]) for c in cols] for r in kept]
-            ys = [float(r[target_column]) for r in kept]
-            grp = [len(groups[d]) for d in sorted(groups)]
-            ds = lgb.Dataset(xs, label=ys, group=grp)
-            params = {
-                "objective": "lambdarank",
+            xs = np.ascontiguousarray([[float(r[c]) for c in cols] for r in kept], dtype=np.float64)
+            params: dict[str, object] = {
                 "verbosity": -1,
                 "seed": self._seed,
                 "deterministic": True,
@@ -172,10 +237,35 @@ class ChampionTailRanker:
                 "bagging_fraction": 1.0,
                 "bagging_freq": 0,
             }
+            if self._objective is not None:
+                objective = self._objective
+                ys = np.ascontiguousarray(objective.grade(clean.get_column('label_return').to_numpy()), dtype=np.int32)
+                params["objective"] = "lambdarank"
+                params["label_gain"] = [float(v) for v in objective.label_gain]
+            else:
+                ys = np.ascontiguousarray([float(r[target_column]) for r in kept], dtype=np.float64)
+                params["objective"] = "regression"
+            if xs.shape[0] != ys.shape[0] or xs.shape[0] == 0:
+                raise ChampionTrainingError("artifact-integrity failure: empty feature/label matrix")
+            grp = [len(groups[d]) for d in sorted(groups)]
+            ds = lgb.Dataset(xs, label=ys, group=grp) if self._objective is not None else lgb.Dataset(xs, label=ys)
             model = lgb.train(params, ds, num_boost_round=50)
+            try:
+                probe = model.predict(xs[: min(1, xs.shape[0])])
+                import math as _math
+
+                for v in list(probe):
+                    if not _math.isfinite(float(v)):
+                        raise ChampionTrainingError("artifact-integrity failure: non-finite prediction")
+            except ChampionTrainingError:
+                raise
+            except Exception as exc:
+                raise ChampionTrainingError(f"artifact-integrity failure: prediction failed: {exc}") from exc
             ver = str(getattr(lgb, "__version__", "unknown"))
-        except Exception:
-            ver = "fallback-mean"
+        except ChampionTrainingError:
+            raise
+        except Exception as exc:
+            raise ChampionTrainingError(f"artifact-integrity failure: backend failed: {exc}") from exc
         feat_hash = hashlib.sha256(",".join(cols).encode()).hexdigest()[:16]
         panel_hash = hashlib.sha256(str(len(kept)).encode()).hexdigest()[:16]
         through = max(r["decision_date"] for r in kept)
@@ -189,6 +279,7 @@ class ChampionTailRanker:
             panel_hash=panel_hash,
             lgbm_version=ver,
             target_column=target_column,
+            backend="lightgbm",
         )
 
     def score(self, snapshot: pl.DataFrame, *, artifact: ChampionModelArtifact) -> dict[str, float]:
@@ -240,7 +331,7 @@ class OosScoreStore:
             raise ValueError(f"OOS score missing for {decision_date}: empty store")
         day = frame.filter(pl.col("decision_date") == decision_date)
         if "is_evaluation" in frame.columns:
-            day = day.filter(pl.col("is_evaluation") is True if False else pl.col("is_evaluation") == True)  # noqa: E712
+            day = day.filter(pl.col("is_evaluation") == True)  # noqa: E712
         if day.height == 0:
             raise ValueError(f"OOS score missing for {decision_date}: unscored date")
         allowed = set(eligible_tickers)
@@ -257,11 +348,59 @@ class OosScoreStore:
             raise ValueError(f"OOS score missing for {decision_date}: no eligible tickers scored")
         return out
 
+    def decision_for(self, decision_date: date, eligible_tickers: Collection[str]) -> tuple[dict[str, float], bool]:
+        scores = self.scores_for(decision_date, eligible_tickers)
+        frame = self.scores
+        day = frame.filter(pl.col("decision_date") == decision_date)
+        if "is_evaluation" in frame.columns:
+            day = day.filter(pl.col("is_evaluation") == True)  # noqa: E712
+        allowed = set(eligible_tickers)
+        activate = False
+        if "activate" in day.columns:
+            for row in day.iter_rows(named=True):
+                if str(row.get("source_ticker")) not in allowed:
+                    continue
+                if bool(row.get("activate")):
+                    activate = True
+                    break
+        return scores, bool(activate)
+
+
+def is_valid_champion_artifact(artifact: ChampionModelArtifact | object) -> bool:
+    try:
+        backend = getattr(artifact, "backend", None)
+        if backend != "lightgbm":
+            return False
+        hurdle_models = getattr(artifact, "threshold_models", None)
+        if hurdle_models is not None:
+            return bool(hurdle_models) and bool(getattr(artifact, "artifact_hash", "")) and getattr(artifact, "trained_through", None) is not None
+        ver = str(getattr(artifact, "lgbm_version", "") or "")
+        if not ver or ver == "fallback-mean":
+            return False
+        for attr in ("feature_config_hash", "model_config_hash", "panel_hash"):
+            val = str(getattr(artifact, attr, "") or "")
+            if not val:
+                return False
+        through = getattr(artifact, "trained_through", None)
+        if through is None:
+            return False
+        model = getattr(artifact, "model", None)
+        if model is None:
+            return False
+        if isinstance(model, dict) and "mean" in model:
+            return False
+        return hasattr(model, "predict")
+    except Exception:
+        return False
+
 
 __all__ = [
     "ChampionModelArtifact",
     "ChampionTailRanker",
+    "ChampionTrainingError",
     "DateFold",
     "OosScoreStore",
     "PurgedDateWalkForward",
+    "TailGradeObjective",
+    "is_valid_champion_artifact",
 ]

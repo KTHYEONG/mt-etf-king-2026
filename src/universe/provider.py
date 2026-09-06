@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
-from pathlib import Path
 
 import polars as pl
 import yaml
@@ -34,6 +33,11 @@ class UniverseMode(StrEnum):
     DEPLOYMENT = "deployment"
 
 
+class LiquidityAdmissionMode(StrEnum):
+    FULL_TARGET = "full_target"
+    STAGED_EXECUTION = "staged_execution"
+
+
 @dataclass(frozen=True)
 class UniverseFilters:
     mode: UniverseMode = UniverseMode.DEPLOYMENT
@@ -47,8 +51,21 @@ class UniverseFilters:
     issuer_whitelist: tuple[str, ...] | None = None
     manifest: frozenset[str] | None = None
     score_max_order_to_adv: float | None = None
+    liquidity_admission: LiquidityAdmissionMode = LiquidityAdmissionMode.FULL_TARGET
+    min_adv_krw: float = 100_000_000.0
 
     def required_adv(self) -> float:
+        try:
+            admission = self.liquidity_admission
+        except Exception:
+            admission = LiquidityAdmissionMode.FULL_TARGET
+        if admission == LiquidityAdmissionMode.STAGED_EXECUTION:
+            try:
+                floor = float(self.min_adv_krw)
+                if math.isfinite(floor) and floor > 0:
+                    return float(floor)
+            except Exception:  # noqa: S110
+                pass
         try:
             val = self.score_max_order_to_adv
             if val is not None:
@@ -113,7 +130,9 @@ class UniverseFilters:
         final_manifest = manifest
         if final_manifest is None:
             try:
-                mp = Path("configs/universe_manifest.yaml")
+                from src.core.config import config_path
+
+                mp = config_path("universe_manifest")
                 if mp.exists():
                     with open(mp, encoding="utf-8") as f:
                         data = yaml.safe_load(f) or {}
@@ -169,6 +188,17 @@ class UniverseFilters:
                 score_max_order_to_adv = float(fv)
             except Exception:
                 score_max_order_to_adv = None
+        liquidity_admission = kwargs.pop("liquidity_admission", LiquidityAdmissionMode.FULL_TARGET)
+        try:
+            if isinstance(liquidity_admission, LiquidityAdmissionMode):
+                pass
+            elif isinstance(liquidity_admission, str):
+                liquidity_admission = LiquidityAdmissionMode(str(liquidity_admission).lower())
+            else:
+                liquidity_admission = LiquidityAdmissionMode.FULL_TARGET
+        except Exception:
+            liquidity_admission = LiquidityAdmissionMode.FULL_TARGET
+        min_adv_krw = float(kwargs.pop("min_adv_krw", 100_000_000.0))  # type: ignore[arg-type]
 
         # any remaining kwargs ignored
         return cls(
@@ -183,6 +213,8 @@ class UniverseFilters:
             issuer_whitelist=issuer_whitelist,
             manifest=final_manifest,
             score_max_order_to_adv=score_max_order_to_adv,
+            liquidity_admission=liquidity_admission,
+            min_adv_krw=min_adv_krw,
         )
 
 
@@ -363,7 +395,6 @@ class PointInTimeUniverse:
     def get(self, day: date, filters: UniverseFilters) -> UniverseSnapshot:
         # Use only panel rows with date <= day
         panel_le = self._panel.filter(pl.col("date") <= day) if self._panel.height > 0 else self._panel
-        _ = panel_le  # ensure filtered panel is used
         # Existence: tickers with row on that exact date
         # Get tickers present on exact day
         if self._panel.height > 0:

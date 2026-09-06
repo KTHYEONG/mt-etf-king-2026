@@ -90,8 +90,6 @@ def frames_from_sink(
         )
 
     # wiring anchor: reference vehicle_ticker and route_reason
-    _ = "vehicle_ticker"
-    _ = "route_reason"
     if sink.candidates:
         cand_dicts: list[dict[str, object]] = []
         for cand in sink.candidates:
@@ -122,7 +120,6 @@ def frames_from_sink(
                     d[k] = v
             cand_dicts.append(d)
         # ensure route_reason string present for wiring
-        _ = "route_reason"
         candidates = pl.DataFrame(cand_dicts)
         with contextlib.suppress(Exception):
             candidates = candidates.with_columns(pl.col("decision_date").cast(pl.Date))
