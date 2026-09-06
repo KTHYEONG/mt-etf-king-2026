@@ -25,7 +25,7 @@ class AlphaModel(Protocol):
 
 ## 2. Baseline 전략 (B0~B5)
 
-모든 신규 아이디어는 동일 프로토콜로 baseline 대비 검증합니다. **코드(`src/alpha/baselines.py`)가 진실**입니다.
+모든 신규 아이디어는 동일 프로토콜로 baseline 대비 검증합니다. **전략 팩토리(`src/strategies/factories/` + `src/portfolio/builders_*.py`)가 진실**입니다.
 
 | ID | 코드 | sizing |
 | --- | --- | --- |
