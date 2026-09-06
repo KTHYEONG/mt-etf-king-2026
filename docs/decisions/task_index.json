@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_STICKY_CACHE_DETERMINISM",
+      "date": "2026-09-06",
+      "adr_id": "ADR_20260906_STICKY_CACHE_DETERMINISM",
+      "domain": "quant",
+      "title": "sticky family id(snapshot) 캐시 키 비결정성 버그 수정",
+      "why": "동일 코드·동일 데이터·동일 프로세스에서도 CPython id() 메모리 주소 재사용으로 sticky.mom60_raw 등 전략이 세션마다 다른 trade 개수를 산출(실측 28건 vs 0건), 백테스트 재현성 위반",
+      "resolution": "cached_filtered_scores가 id(snapshot) 대신 context.decision_date를 캐시 키로 사용하도록 수정, None 키 fail-closed, reset_trackers()가 캐시도 초기화; stale int-id 시딩 방식의 결정론적 회귀테스트로 교체(gc 타이밍 의존 제거)",
+      "impact": "sticky 14종 전략 재현성 복원, 회귀테스트가 되돌린 버그 코드에서 100% 결정론적으로 실패함을 검증, 프로덕션 로직 변경 없음",
+      "archive_path": "docs/decisions/archive/TASK_STICKY_CACHE_DETERMINISM/sticky_snapshot_cache_determinism_contract.json"
+    },
+    {
       "task_id": "TASK_R6_ARCHITECTURE_REFACTOR",
       "date": "2026-09-06",
       "adr_id": "ADR_20260906_R6_ARCHITECTURE_REFACTOR",
