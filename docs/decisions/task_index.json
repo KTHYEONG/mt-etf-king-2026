@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_R6_ARCHITECTURE_REFACTOR",
+      "date": "2026-09-06",
+      "adr_id": "ADR_20260906_R6_ARCHITECTURE_REFACTOR",
+      "domain": "architecture",
+      "title": "R6 — 시맨틱 ID 통일·CLI 해체·설정 단일화·검증도구 정합성",
+      "why": "6607줄 CLI 모놀리스·이중 전략ID(P코드/semantic)·8중복 config 파싱·975개 죽은 wiring anchor로 AI 편집·확장·유지보수 비용 급증",
+      "resolution": "P0~P7: lean_check AST 기반화, src/core/config.py 단일 소스, P코드 완전 제거, strategies/factories 팩토리 분리, CLI 6607줄→32개 응집 모듈, tournament champion/distribution/objective 패키지 분리, 파라미터 명명 통일, 죽은 anchor 전량 제거",
+      "impact": "src.cli mypy strict 통과, 전 모듈 400statement 이하, R14 골든런(sticky.mom60_raw 전구간) exceedance bitwise 동일 확인, 회귀 0건(사전 결함 5건만 잔존)",
+      "archive_path": "docs/decisions/archive/TASK_R6_ARCHITECTURE_REFACTOR/refactor_architecture_contract.json"
+    },
+    {
       "task_id": "championship_edge_redesign",
       "date": "2026-09-05",
       "adr_id": "ADR_20260905_championship_edge_redesign",
