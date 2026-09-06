@@ -1,4 +1,4 @@
-"""Cost × participation stress harness."""
+"""Cost x participation stress harness."""
 from __future__ import annotations
 
 from src.backtest.costs import CostConfig

@@ -28,7 +28,7 @@ from tests.unit.backtest.conftest import build_engine, panel_row
 
 def _policy_with_score() -> PortfolioPolicy:
     policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig())
-    policy.name = "P08"  # type: ignore[attr-defined]
+    policy.name = "portfolio.momentum_policy"  # type: ignore[attr-defined]
     policy.scores_path_independent = True  # type: ignore[attr-defined]
 
     def _score(snapshot, ctx):

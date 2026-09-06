@@ -10,12 +10,12 @@ def test_p16_adoption_report_vehicle_and_leverage_gates() -> None:
     b1 = [0.42] * 3 + [0.31] * 5 + [-0.10] * 22
     b0 = [0.31] * 4 + [-0.26] * 2 + [0.0] * 24
     p14 = [0.40] * 4 + [0.31] * 4 + [-0.10] * 22
-    veh = evaluate_p16_adoption_report(p16=_dist("P16", p16_ok), b1=_dist("B1", b1), b0=_dist("B0", b0), p14=_dist("P14", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.0)
+    veh = evaluate_p16_adoption_report(p16=_dist("portfolio.convexity_hold", p16_ok), b1=_dist("baseline.mom20_top1", b1), b0=_dist("baseline.buy_hold", b0), p14=_dist("portfolio.lottery_exposure", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.0)
     assert veh.status == "FAIL"
     assert "VEHICLE_ACTIVITY" in veh.failures
-    lev = evaluate_p16_adoption_report(p16=_dist("P16", p16_ok), b1=_dist("B1", b1), b0=_dist("B0", b0), p14=_dist("P14", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive",), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
+    lev = evaluate_p16_adoption_report(p16=_dist("portfolio.convexity_hold", p16_ok), b1=_dist("baseline.mom20_top1", b1), b0=_dist("baseline.buy_hold", b0), p14=_dist("portfolio.lottery_exposure", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive",), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
     assert lev.status == "FAIL"
     assert "LEVERAGE_SCENARIOS" in lev.failures
-    ok = evaluate_p16_adoption_report(p16=_dist("P16", p16_ok), b1=_dist("B1", b1), b0=_dist("B0", b0), p14=_dist("P14", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
+    ok = evaluate_p16_adoption_report(p16=_dist("portfolio.convexity_hold", p16_ok), b1=_dist("baseline.mom20_top1", b1), b0=_dist("baseline.buy_hold", b0), p14=_dist("portfolio.lottery_exposure", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
     assert ok.status == "PASS"
     assert callable(evaluate_p15_adoption_report)

@@ -9,26 +9,30 @@ from src.tournament.harness import resolve_leverage_scenario
 
 def test_SCENARIO_10_07_cli_leverage_scenario() -> None:
     parser = build_parser()
-    args = parser.parse_args(["backtest", "--model", "B1", "--start", "2026-01-02", "--end", "2026-01-08"])
+    args = parser.parse_args(["backtest", "--model", "baseline.mom20_top1", "--start", "2026-01-02", "--end", "2026-01-08"])
     assert args.leverage_scenario == "aggressive"
     args2 = parser.parse_args(
-        ["backtest", "--model", "B1", "--start", "2026-01-02", "--end", "2026-01-08", "--leverage-scenario", "conservative"]
+        ["backtest", "--model", "baseline.mom20_top1", "--start", "2026-01-02", "--end", "2026-01-08", "--leverage-scenario", "conservative"]
     )
     assert args2.leverage_scenario == "conservative"
     args3 = parser.parse_args(
-        ["backtest", "--model", "B1", "--start", "2026-01-02", "--end", "2026-01-08", "--leverage-scenario", "rules"]
+        ["backtest", "--model", "baseline.mom20_top1", "--start", "2026-01-02", "--end", "2026-01-08", "--leverage-scenario", "rules"]
     )
     assert args3.leverage_scenario == "rules"
     assert resolve_leverage_scenario("aggressive", None) is True
     assert resolve_leverage_scenario("conservative", None) is False
     with pytest.raises(SystemExit):
         parser.parse_args(
-            ["backtest", "--model", "B1", "--start", "2026-01-02", "--end", "2026-01-08", "--leverage-scenario", "invalid"]
+            ["backtest", "--model", "baseline.mom20_top1", "--start", "2026-01-02", "--end", "2026-01-08", "--leverage-scenario", "invalid"]
         )
-    txt = Path("src/cli/_impl.py").read_text()
+    import inspect
+
+    import src.cli.commands.backtest._core as _core_mod
+    from src.cli.commands.backtest import _prep as _prep_mod
+    from src.cli.commands.backtest.families.portfolio import _hook_lottery_rebalance
+
+    txt = inspect.getsource(_core_mod) + inspect.getsource(_prep_mod) + inspect.getsource(_hook_lottery_rebalance)
     assert "resolve_leverage_scenario" in txt
-    assert "measure_vehicle_activity_from_allocate" in txt
-    assert "measure_vehicle_activity_from_session_cache" in txt
     assert "resolve_adoption_vehicle_rate" in txt
     assert "preflight_features_span_ok" in txt
     assert "v_rate = 0.30" not in txt

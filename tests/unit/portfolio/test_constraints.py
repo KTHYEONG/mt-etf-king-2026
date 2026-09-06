@@ -149,9 +149,9 @@ def test_resolve_exposure_limits_alpha_equal_uses_p27_budget() -> None:
     )
     from pathlib import Path
 
-    alpha = resolve_exposure_limits_for_model("P21", comparison_mode="alpha_equal")
+    alpha = resolve_exposure_limits_for_model("sticky.impulse_crash", comparison_mode="alpha_equal")
     assert alpha == alpha_equal_exposure_limits()
     assert alpha == load_p27_exposure_limits()
-    own = resolve_exposure_limits_for_model("P21", comparison_mode="full_strategy_own")
+    own = resolve_exposure_limits_for_model("sticky.impulse_crash", comparison_mode="full_strategy_own")
     assert own == load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
     assert own != alpha

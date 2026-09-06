@@ -1,13 +1,15 @@
 def test_p26_registered_disables_crash_cash() -> None:
-    from src.alpha.baselines import BASELINES
-    from src.alpha.sticky import StickyLeaderModel, load_p26_arm, load_p26_lock_remaining
+    from src.strategies.registry import STRATEGIES as BASELINES
+    from src.alpha.sticky import StickyLeaderModel
+    from src.strategies.ids import STICKY_MOM60_CONCENTRATED
+    from src.strategies.sticky.overlays import overlay_param
 
-    assert "P26" in BASELINES
-    p26 = BASELINES["P26"]()
-    p25 = BASELINES["P25"]()
+    assert "sticky.mom60_concentrated" in BASELINES
+    p26 = BASELINES["sticky.mom60_concentrated"]()
+    p25 = BASELINES["sticky.house_money"]()
     assert isinstance(p26, StickyLeaderModel)
-    assert p26.name == "P26"
-    assert p25.name == "P25"
+    assert p26.name == "sticky.mom60_concentrated"
+    assert p25.name == "sticky.house_money"
     cfg = p26.config
     assert str(cfg.mom_col) == "mom_60"
     assert float(cfg.cash_drawdown) == 0.0
@@ -19,8 +21,8 @@ def test_p26_registered_disables_crash_cash() -> None:
     assert cfg.collapse_family is False
     assert float(p25.config.cash_drawdown) == -0.12
     assert float(p25.config.min_gap) == 0.08
-    assert load_p26_arm() == 0.50
-    assert load_p26_lock_remaining() == 5
+    assert overlay_param(STICKY_MOM60_CONCENTRATED, "arm", default=0.50) == 0.50
+    assert overlay_param(STICKY_MOM60_CONCENTRATED, "lock_remaining", default=5) == 5
     assert not hasattr(p26, "allocate") or not callable(getattr(p26, "allocate", None))
 
 
@@ -30,7 +32,7 @@ def test_p26_score_ranks_mom60_and_keeps_crashed_leader() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.sizing import SizingScheme, weights_from_scores
     from src.universe.tournament import TournamentRules
 
@@ -70,11 +72,11 @@ def test_p26_score_ranks_mom60_and_keeps_crashed_leader() -> None:
         held={"SLOW": 1.0},
         rules=rules,
     )
-    p26 = BASELINES["P26"]()
+    p26 = BASELINES["sticky.mom60_concentrated"]()
     scores = p26.score(snap, ctx)
     assert scores, "crash-cash must stay disabled so scores remain non-empty"
     w = weights_from_scores(scores, SizingScheme.TOP1, k=1)
     assert set(w.keys()) <= {"SLOW", "FAST"}
-    p25 = BASELINES["P25"]()
+    p25 = BASELINES["sticky.house_money"]()
     empty = p25.score(snap, ctx)
     assert empty == {}

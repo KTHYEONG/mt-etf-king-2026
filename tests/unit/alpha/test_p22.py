@@ -1,11 +1,11 @@
 def test_p22_registered_min_gap_zero() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.sticky import StickyLeaderModel
 
-    assert "P22" in BASELINES
-    p22 = BASELINES["P22"]()
+    assert "sticky.family_peak_lock" in BASELINES
+    p22 = BASELINES["sticky.family_peak_lock"]()
     assert isinstance(p22, StickyLeaderModel)
-    assert getattr(p22, "name", "") == "P22"
+    assert getattr(p22, "name", "") == "sticky.family_peak_lock"
     cfg = getattr(p22, "config")
     assert float(cfg.min_gap) == 0.0
     assert int(cfg.min_hold) == 0
@@ -14,8 +14,8 @@ def test_p22_registered_min_gap_zero() -> None:
     assert float(cfg.cash_drawdown) == 0.0
     assert float(cfg.lock_level) == 0.50
     assert cfg.only_plus_2 is True
-    p20 = BASELINES["P20"]()
-    p21 = BASELINES["P21"]()
+    p20 = BASELINES["sticky.leader_base"]()
+    p21 = BASELINES["sticky.impulse_crash"]()
     assert float(getattr(p20, "config").min_gap) == 0.08
     assert int(getattr(p20, "config").min_hold) == 3
     assert float(getattr(p21, "config").impulse_gap) == 0.04
@@ -70,7 +70,7 @@ def test_p22_score_collapses_then_top1() -> None:
     import polars as pl
     from datetime import date
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.sizing import SizingScheme, weights_from_scores
     from src.universe.tournament import TournamentRules
 
@@ -105,7 +105,7 @@ def test_p22_score_collapses_then_top1() -> None:
         stress_grid=(0.01, 0.02, 0.05),
     )
     ctx = DecisionContext(decision_date=date(2025, 9, 22), regime=None, capital=1_000_000_000.0, held={"122630": 1.0}, rules=rules)
-    p22 = BASELINES["P22"]()
+    p22 = BASELINES["sticky.family_peak_lock"]()
     scores = p22.score(snap, ctx)
     assert "123320" not in scores
     w = weights_from_scores(scores, SizingScheme.TOP1, k=1)

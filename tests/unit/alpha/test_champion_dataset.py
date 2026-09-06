@@ -161,3 +161,61 @@ def test_champion_dataset_rejects_invalid_tail_objective_values() -> None:
     for thresholds, weights, match in cases:
         with pytest.raises(ValueError, match=match):
             build_family_tail_dataset(candidates, prices, sessions=[d0, d1, d2], config=ChampionDatasetConfig(**base, tail_thresholds=thresholds, tail_weights=weights))
+
+
+def test_direct_candidates_keep_exact_same_family_vehicles() -> None:
+    from datetime import date
+    from types import SimpleNamespace
+    import polars as pl
+    from src.alpha.champion_dataset import collect_direct_vehicle_candidates
+
+    day = date(2026, 1, 5)
+    panel = pl.DataFrame({'date': [day, day], 'ticker': ['ONE', 'TWO'], 'mom_5': [0.1, 0.2]})
+    attrs = {ticker: SimpleNamespace(is_synthetic=False, confidence='HIGH', leverage_multiple=multiple, leverage_family_key='SAME') for ticker, multiple in [('ONE', 1), ('TWO', 2)]}
+    universe = SimpleNamespace(get=lambda _day, _filters: SimpleNamespace(tickers=('ONE', 'TWO')))
+    result = collect_direct_vehicle_candidates(panel, sessions=[day], universe=universe, filters=SimpleNamespace(), master=SimpleNamespace(attributes=attrs), feature_columns=('mom_5',))
+
+    assert result.sort('source_ticker').get_column('source_ticker').to_list() == ['ONE', 'TWO']
+    assert result.get_column('family_key').n_unique() == 1
+
+
+def test_direct_candidates_skip_unknown_synthetic_and_empty() -> None:
+    from datetime import date
+    from types import SimpleNamespace
+    import polars as pl
+    from src.alpha.champion_dataset import ChampionDatasetConfig, collect_direct_vehicle_candidates, collect_family_candidates
+
+    day = date(2026, 1, 5)
+    panel = pl.DataFrame({'date': [day], 'ticker': ['ONE'], 'mom_5': [0.1]})
+    attrs = {'ONE': SimpleNamespace(is_synthetic=False, confidence='HIGH', leverage_multiple=1, leverage_family_key='F1'), 'SYN': SimpleNamespace(is_synthetic=True, confidence='HIGH', leverage_multiple=1, leverage_family_key='F2')}
+    universe = SimpleNamespace(get=lambda _day, _filters: SimpleNamespace(tickers=('ONE', 'GHOST', 'SYN')))
+    result = collect_direct_vehicle_candidates(panel, sessions=[day], universe=universe, filters=SimpleNamespace(), master=SimpleNamespace(attributes=attrs), feature_columns=('mom_5',))
+
+    assert result.get_column('source_ticker').to_list() == ['ONE']
+    empty = collect_direct_vehicle_candidates(panel, sessions=[], universe=universe, filters=SimpleNamespace(), master=SimpleNamespace(attributes=attrs), feature_columns=('mom_5',))
+    assert empty.height == 0
+    # Filters without staged metadata still produce family candidates without error.
+    fam = collect_family_candidates(panel, sessions=[day], universe=universe, filters=SimpleNamespace(), master=SimpleNamespace(attributes=attrs), config=ChampionDatasetConfig(feature_columns=('mom_5',), label_horizon=2, entry_cost_rate=0.0, exit_cost_rate=0.0))
+    assert fam.get_column('source_ticker').to_list() == ['ONE']
+
+
+def test_direct_candidates_fail_closed_on_backend_errors() -> None:
+    from datetime import date
+    from types import SimpleNamespace
+    import polars as pl
+    from src.alpha.champion_dataset import collect_direct_vehicle_candidates
+
+    day = date(2026, 1, 5)
+    panel = pl.DataFrame({'date': [day], 'ticker': ['ONE'], 'mom_5': [0.1]})
+
+    def _boom(_day, _filters):
+        raise RuntimeError('universe offline')
+
+    assert collect_direct_vehicle_candidates(panel, sessions=[day], universe=SimpleNamespace(get=_boom), filters=SimpleNamespace(), master=SimpleNamespace(attributes={}), feature_columns=('mom_5',)).height == 0
+
+    class _Exploding(dict):
+        def get(self, _key, _default=None):
+            raise RuntimeError('master offline')
+
+    steady = SimpleNamespace(get=lambda _day, _filters: SimpleNamespace(tickers=('ONE',)))
+    assert collect_direct_vehicle_candidates(panel, sessions=[day], universe=steady, filters=SimpleNamespace(), master=SimpleNamespace(attributes=_Exploding()), feature_columns=('mom_5',)).height == 0

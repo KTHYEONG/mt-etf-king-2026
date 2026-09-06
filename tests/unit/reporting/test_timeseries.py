@@ -69,7 +69,7 @@ def test_write_backtest_result_includes_parquet_artifacts(tmp_path) -> None:
     dest = write_backtest_result(
         paths,
         run_id=run_id,
-        meta={"model": "B1"},
+        meta={"model": "baseline.mom20_top1"},
         summary={"n_windows": 1},
         daily=daily,
         trades=trades,

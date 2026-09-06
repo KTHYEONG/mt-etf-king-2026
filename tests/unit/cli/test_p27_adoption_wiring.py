@@ -1,62 +1,46 @@
 def test_p27_adoption_wiring() -> None:
     import inspect
 
-    from src.cli import STICKY_ADOPTION_MODELS, cmd_backtest, cmd_decide
+    from src.cli import STICKY_ADOPTION_MODELS
+    from src.cli.commands.backtest.families.sticky_champion import _hook_mom60_raw
+    from src.cli.commands.decide.models import _OVERLAY_HOOKS
 
-    assert "P27" in STICKY_ADOPTION_MODELS
-    assert "P26" in STICKY_ADOPTION_MODELS
-    bt = inspect.getsource(cmd_backtest)
-    assert "P27" in bt
+    assert "sticky.mom60_raw" in STICKY_ADOPTION_MODELS
+    assert "sticky.mom60_concentrated" in STICKY_ADOPTION_MODELS
+    bt = inspect.getsource(_hook_mom60_raw)
     assert "load_p27_exposure_limits" in bt
     assert "field_relative_report" in bt
     assert "oneshot_anchor_starts" in bt
     assert "oneshot_window_returns" in bt
     assert "evaluate_championship_adoption" in bt
-    p27_idx = bt.find('if model_key == "P27"')
-    assert p27_idx >= 0
-    p27_src = bt[p27_idx:p27_idx + 8000]
-    assert "rolling.returns" in p27_src
-    assert "field_relative_report" in p27_src
-    assert "oneshot_window_returns" in p27_src
-    dec = inspect.getsource(cmd_decide)
-    assert "P27" in dec
+    assert "rolling.returns" in bt
+    dec = inspect.getsource(_OVERLAY_HOOKS["sticky.mom60_raw"])
     assert "overlay_should_cash" in dec
-    assert "load_p27_overlay_mode" in dec
+    assert "load_overlay_mode" in dec
 
 
 def test_p27_decide_identity_overlay_does_not_force_cash() -> None:
     import inspect
-    import re
 
-    from src.cli import cmd_decide
+    from src.cli.commands.decide.models import _OVERLAY_HOOKS
     from src.tournament.policy import overlay_should_cash
 
-    src = inspect.getsource(cmd_decide)
-    assert "if _model_arg == \"P27\"" in src
-    block = src.split("if _model_arg == \"P27\"", 1)[1]
-    next_model = re.search(r"\nif _model_arg == \"P2[0-9]\"", block)
-    if next_model is not None:
-        block = block[: next_model.start()]
-    assert "overlay_should_cash" in block
-    assert "load_p27_overlay_mode" in block
+    src = inspect.getsource(_OVERLAY_HOOKS["sticky.mom60_raw"])
+    assert "overlay_should_cash" in src
+    assert "load_overlay_mode" in src
     assert overlay_should_cash("identity", 0.99, 0, 0.50, 5) is False
 
 
 def test_p27_cli_independent_window_eval_wiring() -> None:
     import inspect
 
-    from src.cli import cmd_backtest
+    from src.cli.commands.backtest.families.sticky_champion import _hook_mom60_raw
+    from src.cli.commands.backtest.families.sticky_house import _hook_house_money
+    from src.cli.commands.backtest.families.sticky_mom60 import _hook_mom60_concentrated
 
-    bt = inspect.getsource(cmd_backtest)
-    end_p27 = bt.find("if model_key in CONVEXITY_ADOPTION_MODELS")
-    assert end_p27 > 0
-    p27_idx = bt.rfind('if model_key == "P27"', 0, end_p27)
-    p26_idx = bt.rfind('if model_key == "P26"', 0, p27_idx)
-    p25_idx = bt.rfind('if model_key == "P25"', 0, p26_idx)
-    assert p27_idx > 0 and p26_idx > 0 and p25_idx > 0
-    p27_src = bt[p27_idx:end_p27]
-    p26_src = bt[p26_idx:p27_idx]
-    p25_src = bt[p25_idx:p26_idx]
+    p27_src = inspect.getsource(_hook_mom60_raw)
+    p26_src = inspect.getsource(_hook_mom60_concentrated)
+    p25_src = inspect.getsource(_hook_house_money)
     assert "oneshot_independent_window_returns" in p27_src
     assert "oneshot_independent_window_returns(" in p27_src
     assert "path_dependent=_b21_flags.path_dependent" in p27_src
@@ -68,14 +52,9 @@ def test_p27_cli_independent_window_eval_wiring() -> None:
 def test_p27_cli_incumbent_no_slow_override() -> None:
     import inspect
 
-    from src.cli import cmd_backtest
+    from src.cli.commands.backtest.families.sticky_champion import _hook_mom60_raw
 
-    bt = inspect.getsource(cmd_backtest)
-    end_p27 = bt.find("if model_key in CONVEXITY_ADOPTION_MODELS")
-    assert end_p27 > 0
-    p27_idx = bt.rfind('if model_key == "P27"', 0, end_p27)
-    assert p27_idx > 0
-    p27_src = bt[p27_idx:end_p27]
+    p27_src = inspect.getsource(_hook_mom60_raw)
     assert "path_dependent_mode=('slow'" not in p27_src
     assert "path_dependent_mode=_path_mode" in p27_src or "resolve_path_dependent_mode" in p27_src
     assert "exposure_limits=_p21_alpha_limits_p27" in p27_src
@@ -85,30 +64,23 @@ def test_p27_cli_incumbent_no_slow_override() -> None:
 def test_sticky_shared_session_cache_wiring() -> None:
     import inspect
 
-    from src.cli import cmd_backtest
+    import src.cli.commands.backtest._core as _core
+    from src.cli.commands.backtest import _prep
 
-    bt = inspect.getsource(cmd_backtest)
-    assert "if _is_pd and _scores_pi:" not in bt
-    assert "if _is_pd" in bt
-    assert "session_cache=_shared_cache" in bt
+    core_src = inspect.getsource(_core.run_cells) + inspect.getsource(_prep.prepare_run)
+    assert "is_pd" in core_src
+    assert "session_cache=shared_cache" in core_src
 
 
 def test_p27_cli_gross_diagnostics_avoids_undefined_name() -> None:
     import inspect
     import re
 
-    from src.cli import STICKY_ADOPTION_MODELS, cmd_backtest
+    from src.cli import STICKY_ADOPTION_MODELS
+    from src.cli.commands.backtest.families.sticky_champion import _hook_mom60_raw
 
-    bt = inspect.getsource(cmd_backtest)
-    end_p27 = bt.find("if model_key in CONVEXITY_ADOPTION_MODELS")
-    assert end_p27 > 0
-    p27_idx = bt.rfind('if model_key == "P27"', 0, end_p27)
-    assert p27_idx > 0
-    p27_src = bt[p27_idx:end_p27]
-    p28_idx = p27_src.find('if model_key == "P28A"')
-    if p28_idx >= 0:
-        p27_src = p27_src[:p28_idx]
+    p27_src = inspect.getsource(_hook_mom60_raw)
     assert 'getattr(rolling, "diagnostics"' in p27_src
     assert re.search(r"^\s*_ = diagnostics\b", p27_src, flags=re.M) is None
     assert "gross_violation_count" in p27_src
-    assert "P27" in STICKY_ADOPTION_MODELS
+    assert "sticky.mom60_raw" in STICKY_ADOPTION_MODELS

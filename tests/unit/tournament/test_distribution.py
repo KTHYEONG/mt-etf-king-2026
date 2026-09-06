@@ -59,7 +59,7 @@ def test_SCENARIO_06_07_distribution_summary() -> None:  # noqa: N802
     assert abs(rts - expected) < 1e-12
 
     dist = ReturnDistribution.summarise(
-        name="B1",
+        name="baseline.mom20_top1",
         returns=returns,
         horizon=36,
         thresholds=[0.10, 0.30, 0.50],

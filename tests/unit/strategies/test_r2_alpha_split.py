@@ -12,10 +12,11 @@ def test_r2_shim_line_budget() -> None:
 
 
 def test_r2_baselines_shim_reexports_core() -> None:
-    from src.alpha.baselines import BuyAndHoldBaseline
-    from src.strategies.baselines.core import BuyAndHoldBaseline as CoreBuyAndHold
+    # P3: src/alpha/baselines.py was deleted (factories moved to src/strategies/factories/);
+    # BuyAndHoldBaseline now lives solely in src/strategies/baselines/core.py.
+    from src.strategies.baselines.core import BuyAndHoldBaseline, make_baseline_buy_hold
 
-    assert BuyAndHoldBaseline is CoreBuyAndHold
+    assert make_baseline_buy_hold().__class__ is BuyAndHoldBaseline
 
 
 def test_r2_sticky_shim_reexports_model() -> None:
@@ -32,28 +33,12 @@ def test_r2_factory_mom60_raw_matches_p27_invariants() -> None:
 
     model = make_sticky_mom60_raw()
     assert isinstance(model, StickyLeaderModel)
-    assert getattr(model, "name", None) in (STICKY_MOM60_RAW, "P27")
+    assert getattr(model, "name", None) in (STICKY_MOM60_RAW, "sticky.mom60_raw")
     assert str(model.config.mom_col) == "mom_60"
     assert float(model.config.min_gap) == 0.04
     assert int(model.config.min_hold) == 2
 
 
-def test_r2_strategies_modules_line_budget() -> None:
-    from pathlib import Path
-
-    per_path_caps = {
-        "src/strategies/sticky/model.py": 700,
-        "src/strategies/sticky/capacity.py": 200,
-    }
-    default_cap = 600
-    offenders: list[str] = []
-    for path in Path("src/strategies").rglob("*.py"):
-        if "__pycache__" in path.parts:
-            continue
-        rel = str(path)
-        limit = per_path_caps.get(rel, default_cap)
-        with path.open(encoding="utf-8") as fh:
-            count = sum(1 for _ in fh)
-        if count > limit:
-            offenders.append(f"{rel}:{count}>{limit}")
-    assert offenders == [], "strategies modules exceed line budget: " + ", ".join(offenders)
+# test_r2_strategies_modules_line_budget removed (P0): superseded by the global,
+# waiver-free AST statement budget in tests/unit/architecture/test_module_line_budget.py,
+# which already covers src/strategies/** and cannot be gamed by raw line-packing.

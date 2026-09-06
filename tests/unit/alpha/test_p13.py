@@ -5,7 +5,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-from src.alpha.baselines import BASELINES
+from src.strategies.registry import STRATEGIES as BASELINES
 from src.alpha.base import DecisionContext
 from src.alpha.intensity import FamilyIntensityModel, family_intensity_scores
 from src.portfolio.selection import family_canonical_scores
@@ -34,14 +34,14 @@ def _make_attr(ticker: str, family_key: str, leverage: int, *, is_synthetic: boo
 
 
 def test_m13_p13_baselines_registry() -> None:
-    assert "M13" in BASELINES
-    assert "P13" in BASELINES
-    m13 = BASELINES["M13"]()
-    assert getattr(m13, "name", None) == "M13"
+    assert "alpha.family_intensity" in BASELINES
+    assert "portfolio.leadership_confidence" in BASELINES
+    m13 = BASELINES["alpha.family_intensity"]()
+    assert getattr(m13, "name", None) == "alpha.family_intensity"
     assert hasattr(m13, "score")
     # M13 should not require allocate
-    p13 = BASELINES["P13"]()
-    assert getattr(p13, "name", None) == "P13"
+    p13 = BASELINES["portfolio.leadership_confidence"]()
+    assert getattr(p13, "name", None) == "portfolio.leadership_confidence"
     assert getattr(p13, "scores_path_independent", None) is True
     assert hasattr(p13, "score")
     assert hasattr(p13, "allocate")
@@ -92,11 +92,11 @@ def test_p13_score_does_not_use_leadership_filter() -> None:
     attrs = {
         "A1": _make_attr("A1", "FAM_A", 1),
         "A2": _make_attr("A2", "FAM_A", 2),
-        "B1": _make_attr("B1", "FAM_B", 1),
-        "B2": _make_attr("B2", "FAM_B", 2),
+        "baseline.mom20_top1": _make_attr("baseline.mom20_top1", "FAM_B", 1),
+        "baseline.mom20_equal3": _make_attr("baseline.mom20_equal3", "FAM_B", 2),
     }
     master = InstrumentMaster(attributes=attrs, panel_start=date(2024, 1, 2))
-    snap = pl.DataFrame({"ticker": ["A1", "A2", "B1", "B2"], "mom_20": [0.05, 0.12, 0.08, 0.09]})
+    snap = pl.DataFrame({"ticker": ["A1", "A2", "baseline.mom20_top1", "baseline.mom20_equal3"], "mom_20": [0.05, 0.12, 0.08, 0.09]})
     ctx = DecisionContext(
         decision_date=date(2024, 6, 1),
         regime=None,
@@ -109,7 +109,7 @@ def test_p13_score_does_not_use_leadership_filter() -> None:
     filtered = family_canonical_scores(raw, master)
     # Both families should survive; length==2 (both canonical +1)
     assert len(filtered) == 2
-    assert set(filtered.keys()) == {"A1", "B1"}
+    assert set(filtered.keys()) == {"A1", "baseline.mom20_top1"}
     # Contrast: must not drop names via filter_scores_by_theme_state
     from src.alpha.leadership import filter_scores_by_theme_state
 

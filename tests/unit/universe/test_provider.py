@@ -393,3 +393,37 @@ def test_scenario_04_18_low_confidence_excluded_at_eligibility() -> None:
     snap = universe.get(day, filt)
     assert snap.tickers == ()
     assert snap.dropped["eligibility"] == 1
+
+
+def test_staged_liquidity_admission_preserves_daily_adv_cap() -> None:
+    from src.backtest.liquidity import cap_target_weights_by_adv
+    from src.universe.provider import LiquidityAdmissionMode, UniverseFilters
+
+    filters = UniverseFilters(capital=1_000_000_000, max_position_weight=0.80, max_order_to_adv=0.01, liquidity_admission=LiquidityAdmissionMode.STAGED_EXECUTION, min_adv_krw=100_000_000.0)
+    result = cap_target_weights_by_adv({'ETF': 0.80}, {}, 1_000_000_000.0, {'ETF': 1_000_000_000.0}, filters.max_order_to_adv)
+
+    assert filters.required_adv() == 100_000_000.0
+    assert result == {'ETF': 0.01}
+
+
+def test_liquidity_admission_full_target_and_for_mode_parsing() -> None:
+    from types import SimpleNamespace
+    from src.universe.provider import LiquidityAdmissionMode, UniverseFilters, UniverseMode
+
+    full = UniverseFilters(capital=1_000_000_000, max_position_weight=1.0, max_order_to_adv=0.01)
+    assert full.liquidity_admission == LiquidityAdmissionMode.FULL_TARGET
+    assert full.min_adv_krw == 100_000_000.0
+    assert full.required_adv() == 1e11
+    # Filters without the admission attribute fall back to full-target behavior.
+    legacy = SimpleNamespace(capital=1_000_000_000, max_position_weight=1.0, max_order_to_adv=0.01, score_max_order_to_adv=None)
+    assert UniverseFilters.required_adv(legacy) == 1e11
+    # Unparseable staged floor falls back to full-target sizing, never uncapped.
+    bad_floor = UniverseFilters(liquidity_admission=LiquidityAdmissionMode.STAGED_EXECUTION, min_adv_krw='xx', capital=1_000_000_000, max_position_weight=1.0, max_order_to_adv=0.01)  # type: ignore[arg-type]
+    assert bad_floor.required_adv() == 1e11
+    staged = UniverseFilters.for_mode(UniverseMode.DEPLOYMENT, {}, (), liquidity_admission='staged_execution', min_adv_krw=5.0)
+    assert staged.liquidity_admission == LiquidityAdmissionMode.STAGED_EXECUTION
+    assert staged.required_adv() == 5.0
+    fallback = UniverseFilters.for_mode(UniverseMode.DEPLOYMENT, {}, (), liquidity_admission=123)
+    assert fallback.liquidity_admission == LiquidityAdmissionMode.FULL_TARGET
+    rejected = UniverseFilters.for_mode(UniverseMode.DEPLOYMENT, {}, (), liquidity_admission='unknown-mode')
+    assert rejected.liquidity_admission == LiquidityAdmissionMode.FULL_TARGET

@@ -154,7 +154,7 @@ def test_measure_vehicle_activity_from_session_cache() -> None:
 
 def test_b1_gate_anchors_from_distribution() -> None:
     dist = ReturnDistribution(
-        name="B1",
+        name="baseline.mom20_top1",
         horizon=36,
         returns=(0.1, 0.2),
         n_windows=2,

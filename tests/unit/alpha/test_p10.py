@@ -4,7 +4,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-from src.alpha.baselines import BASELINES
+from src.strategies.registry import STRATEGIES as BASELINES
 from src.alpha.base import DecisionContext
 from src.portfolio.policy import PortfolioPolicy
 from src.portfolio.selection import family_canonical_scores
@@ -16,8 +16,8 @@ from src.universe.taxonomy import Taxonomy
 
 def test_SCENARIO_11_04_scores_path_independent() -> None:  # noqa: N802
     """SCENARIO-11-04"""
-    p08 = BASELINES["P08"]()
-    p10 = BASELINES["P10"]()
+    p08 = BASELINES["portfolio.momentum_policy"]()
+    p10 = BASELINES["portfolio.momentum_vehicle"]()
     assert getattr(p08, "scores_path_independent", False) is True
     assert getattr(p10, "scores_path_independent", False) is True
     assert model_requires_path_dependent(p08) is True
@@ -25,8 +25,8 @@ def test_SCENARIO_11_04_scores_path_independent() -> None:  # noqa: N802
 
 
 def test_SCENARIO_10_05_p10_score_and_allocate() -> None:
-    assert "P10" in BASELINES
-    model = BASELINES["P10"]()
+    assert "portfolio.momentum_vehicle" in BASELINES
+    model = BASELINES["portfolio.momentum_vehicle"]()
     assert hasattr(model, "score")
     assert hasattr(model, "allocate")
     panel = pl.DataFrame([
@@ -69,9 +69,9 @@ def test_SCENARIO_10_05_p10_score_and_allocate() -> None:
         "date": [date(2026, 1, 2), date(2026, 1, 2)],
     })
     ctx = DecisionContext(decision_date=date(2026, 1, 2), regime=None, capital=1e9, held={}, rules=None)
-    from src.alpha.baselines import TopKMomentum
+    from src.strategies.factories._shared import TopKMomentum
 
-    b1 = TopKMomentum(horizon=20, name="P10")
+    b1 = TopKMomentum(horizon=20, name="portfolio.momentum_vehicle")
     raw = b1.score(snap, ctx)
     filtered = family_canonical_scores(raw, master2)
     assert "A2" not in filtered

@@ -6,7 +6,7 @@ from datetime import date
 
 import polars as pl
 
-from src.alpha.baselines import BASELINES
+from src.strategies.registry import STRATEGIES as BASELINES
 from src.backtest.costs import CostConfig
 from src.backtest.engine import BacktestConfig, BacktestEngine
 from src.backtest.metrics import compound_returns
@@ -59,7 +59,7 @@ def test_SCENARIO_06_11_tournament_replay_2025() -> None:  # noqa: N802
         filters=filt,
         costs=CostConfig(0.0, 0.0, 0.0),
     )
-    report = TournamentReplay(engine, cal).run(BASELINES["B1"](), panel, config)
+    report = TournamentReplay(engine, cal).run(BASELINES["baseline.mom20_top1"](), panel, config)
     assert report.sessions == 35
     assert len(report.days) == 35
     assert report.days[-1].execution_date is None
@@ -87,12 +87,12 @@ def test_SCENARIO_07P_06_replay_regime() -> None:  # noqa: N802
     config = BacktestConfig(start=start, end=end, capital=1e9, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0, 0, 0))
     regimes = {sessions[0]: RegimeSnapshot(as_of=sessions[0], state=RegimeState.RISK_OFF, score=0.5, components={})}
     engine_reg = BacktestEngine(cal2, engine.universe, engine.features, engine.execution, regimes=regimes)
-    report = TournamentReplay(engine_reg, cal2).run(BASELINES["B1"](), panel, config)
+    report = TournamentReplay(engine_reg, cal2).run(BASELINES["baseline.mom20_top1"](), panel, config)
     assert report.days[0].regime == "RISK_OFF"
     assert report.sessions == len(report.days)
     # fallback when regimes None
     engine_none = BacktestEngine(cal2, engine.universe, engine.features, engine.execution)
-    report2 = TournamentReplay(engine_none, cal2).run(BASELINES["B1"](), panel, config)
+    report2 = TournamentReplay(engine_none, cal2).run(BASELINES["baseline.mom20_top1"](), panel, config)
     assert report2.days[0].regime
     assert report2.sessions == len(report2.days)
 
@@ -110,7 +110,7 @@ def test_SCENARIO_B2_08_replay_rationales() -> None:  # noqa: N802
     panel = pl.DataFrame(rows)
     engine, cal2, filt = build_engine(panel)
     config = BacktestConfig(start=start, end=end, capital=1_000_000_000.0, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0.0, 0.0, 0.0))
-    report = TournamentReplay(engine, cal2).run(BASELINES["B1"](), panel, config)
+    report = TournamentReplay(engine, cal2).run(BASELINES["baseline.mom20_top1"](), panel, config)
     assert report.sessions == 35
     assert len(report.days) == 35
     for day in report.days:

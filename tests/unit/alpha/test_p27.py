@@ -1,14 +1,14 @@
 def test_p27_registered_matches_p26_alpha() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.sticky import StickyLeaderModel, load_p27_overlay_mode
     from src.portfolio.constraints import load_p26_exposure_limits, load_p27_exposure_limits
 
-    assert "P27" in BASELINES
-    p26 = BASELINES["P26"]()
-    p27 = BASELINES["P27"]()
+    assert "sticky.mom60_raw" in BASELINES
+    p26 = BASELINES["sticky.mom60_concentrated"]()
+    p27 = BASELINES["sticky.mom60_raw"]()
     assert isinstance(p27, StickyLeaderModel)
-    assert p27.name == "P27"
-    assert p26.name == "P26"
+    assert p27.name == "sticky.mom60_raw"
+    assert p26.name == "sticky.mom60_concentrated"
     c26 = p26.config
     c27 = p27.config
     assert str(c27.mom_col) == "mom_60"
@@ -31,13 +31,13 @@ def test_p27_registered_matches_p26_alpha() -> None:
 
 
 def test_sticky_leader_declares_path_dependent_and_reset_trackers() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.sticky import StickyLeaderModel
     from src.tournament.simulator import model_requires_path_dependent
 
-    p27 = BASELINES["P27"]()
-    p21 = BASELINES["P21"]()
-    p26 = BASELINES["P26"]()
+    p27 = BASELINES["sticky.mom60_raw"]()
+    p21 = BASELINES["sticky.impulse_crash"]()
+    p26 = BASELINES["sticky.mom60_concentrated"]()
     assert isinstance(p27, StickyLeaderModel)
     for model in (p27, p21, p26):
         assert model.path_dependent is True
@@ -51,12 +51,12 @@ def test_sticky_leader_declares_path_dependent_and_reset_trackers() -> None:
 
 
 def test_p27_factory_same_leader_hold_disabled() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.sticky import StickyLeaderModel
 
-    p27 = BASELINES["P27"]()
+    p27 = BASELINES["sticky.mom60_raw"]()
     assert isinstance(p27, StickyLeaderModel)
-    assert p27.name == "P27"
+    assert p27.name == "sticky.mom60_raw"
     assert bool(getattr(p27.config, "same_leader_hold", False)) is False
     assert str(p27.config.mom_col) == "mom_60"
     assert float(p27.config.min_gap) == 0.04
@@ -69,7 +69,7 @@ def test_p27_score_emits_mapping_when_sticky_stays() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.intent import PortfolioIntent
     from src.portfolio.sizing import SizingScheme, weights_from_scores
     from src.universe.tournament import TournamentRules
@@ -110,7 +110,7 @@ def test_p27_score_emits_mapping_when_sticky_stays() -> None:
         held={"FAST": 0.95},
         rules=rules,
     )
-    p27 = BASELINES["P27"]()
+    p27 = BASELINES["sticky.mom60_raw"]()
     scores = p27.score(snap, ctx)
     assert not isinstance(scores, PortfolioIntent)
     assert isinstance(scores, dict)
@@ -125,7 +125,7 @@ def test_p27_cashes_when_all_mom_nonpos() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.intent import CASH_INTENT, PortfolioIntent
     from src.universe.tournament import TournamentRules
 
@@ -159,7 +159,7 @@ def test_p27_cashes_when_all_mom_nonpos() -> None:
         stress_grid=(0.01, 0.02, 0.05),
     )
     ctx = DecisionContext(decision_date=date(2026, 1, 2), regime=None, capital=1.0e9, held={}, rules=rules)
-    out = BASELINES["P27"]().score(snap, ctx)
+    out = BASELINES["sticky.mom60_raw"]().score(snap, ctx)
     assert isinstance(out, PortfolioIntent)
     assert out.kind == CASH_INTENT.kind
 
@@ -170,7 +170,7 @@ def test_p21_keeps_scores_when_all_mom_nonpos() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.intent import PortfolioIntent
     from src.universe.tournament import TournamentRules
 
@@ -205,7 +205,7 @@ def test_p21_keeps_scores_when_all_mom_nonpos() -> None:
         stress_grid=(0.01, 0.02, 0.05),
     )
     ctx = DecisionContext(decision_date=date(2026, 1, 2), regime=None, capital=1.0e9, held={}, rules=rules)
-    p21 = BASELINES["P21"]()
+    p21 = BASELINES["sticky.impulse_crash"]()
     assert bool(getattr(p21.config, "abs_mom_cash", False)) is False
     out = p21.score(snap, ctx)
     assert not isinstance(out, PortfolioIntent)
@@ -219,7 +219,7 @@ def test_sticky_empty_plus2_returns_cash_intent() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.intent import CASH_INTENT, PortfolioIntent
     from src.universe.tournament import TournamentRules
 
@@ -254,7 +254,7 @@ def test_sticky_empty_plus2_returns_cash_intent() -> None:
         stress_grid=(0.01, 0.02, 0.05),
     )
     ctx = DecisionContext(decision_date=date(2026, 1, 2), regime=None, capital=1.0e9, held={"CASH1": 0.95}, rules=rules)
-    for key in ("P21", "P27"):
+    for key in ("sticky.impulse_crash", "sticky.mom60_raw"):
         out = BASELINES[key]().score(snap, ctx)
         assert isinstance(out, PortfolioIntent), key
         assert out.kind == CASH_INTENT.kind, key
@@ -283,12 +283,12 @@ def test_from_yaml_parses_abs_mom_cash() -> None:
 
 
 def test_p27_factory_fillability_and_abs_mom() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.sticky import StickyLeaderModel
 
-    p27 = BASELINES["P27"]()
+    p27 = BASELINES["sticky.mom60_raw"]()
     assert isinstance(p27, StickyLeaderModel)
-    assert p27.name == "P27"
+    assert p27.name == "sticky.mom60_raw"
     assert str(p27.config.mom_col) == "mom_60"
     assert float(p27.config.min_gap) == 0.04
     assert int(p27.config.min_hold) == 2

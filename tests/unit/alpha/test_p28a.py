@@ -58,16 +58,16 @@ def test_apply_same_leader_hold_empty_scores_stays_empty() -> None:
 
 
 def test_p28a_factory_matches_p27_except_hold_flag() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.sticky import StickyLeaderModel
     from src.portfolio.constraints import load_p27_exposure_limits, resolve_exposure_limits_for_model
 
-    assert "P28A" in BASELINES
-    p27 = BASELINES["P27"]()
-    p28 = BASELINES["P28A"]()
+    assert "sticky.mom60_hold" in BASELINES
+    p27 = BASELINES["sticky.mom60_raw"]()
+    p28 = BASELINES["sticky.mom60_hold"]()
     assert isinstance(p28, StickyLeaderModel)
-    assert p28.name == "P28A"
-    assert p27.name == "P27"
+    assert p28.name == "sticky.mom60_hold"
+    assert p27.name == "sticky.mom60_raw"
     c27 = p27.config
     c28 = p28.config
     assert bool(c27.same_leader_hold) is False
@@ -80,7 +80,7 @@ def test_p28a_factory_matches_p27_except_hold_flag() -> None:
     assert c28.only_plus_2 is True and c27.only_plus_2 is True
     assert c28.no_inverse is True and c27.no_inverse is True
     assert c28.collapse_family is False and c27.collapse_family is False
-    assert resolve_exposure_limits_for_model("P28A", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
+    assert resolve_exposure_limits_for_model("sticky.mom60_hold", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
     assert load_p27_exposure_limits() == (0.95, 1.90, 0.05)
     assert not hasattr(p28, "allocate") or not callable(getattr(p28, "allocate", None))
 
@@ -91,7 +91,7 @@ def test_p28a_score_emits_hold_intent_when_sticky_stays() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.intent import HOLD_INTENT, PortfolioIntent
     from src.universe.tournament import TournamentRules
 
@@ -131,7 +131,7 @@ def test_p28a_score_emits_hold_intent_when_sticky_stays() -> None:
         held={"FAST": 0.95},
         rules=rules,
     )
-    p28 = BASELINES["P28A"]()
+    p28 = BASELINES["sticky.mom60_hold"]()
     out = p28.score(snap, ctx)
     assert isinstance(out, PortfolioIntent)
     assert out.kind == HOLD_INTENT.kind
@@ -143,7 +143,7 @@ def test_p28a_score_emits_scores_when_sticky_switches() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.intent import PortfolioIntent
     from src.portfolio.sizing import SizingScheme, weights_from_scores
     from src.universe.tournament import TournamentRules
@@ -184,7 +184,7 @@ def test_p28a_score_emits_scores_when_sticky_switches() -> None:
         held={"SLOW": 0.95},
         rules=rules,
     )
-    p28 = BASELINES["P28A"]()
+    p28 = BASELINES["sticky.mom60_hold"]()
     p28.restore_state("SLOW", 10)
     out = p28.score(snap, ctx)
     assert not isinstance(out, PortfolioIntent)
@@ -210,7 +210,7 @@ def test_p28a_exposure_limits_reuse_p27() -> None:
     )
 
     p27 = load_p27_exposure_limits()
-    p28 = resolve_exposure_limits_for_model("P28A", comparison_mode="full_strategy_own")
-    eq = resolve_exposure_limits_for_model("P28A", comparison_mode="alpha_equal")
+    p28 = resolve_exposure_limits_for_model("sticky.mom60_hold", comparison_mode="full_strategy_own")
+    eq = resolve_exposure_limits_for_model("sticky.mom60_hold", comparison_mode="alpha_equal")
     assert p28 == p27 == (0.95, 1.90, 0.05)
     assert eq == alpha_equal_exposure_limits()

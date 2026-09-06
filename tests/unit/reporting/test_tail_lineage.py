@@ -107,7 +107,7 @@ def test_realised_exposure_metrics_ignore_zero_weights() -> None:
 def test_window_artifact_aligns_rolling_outcomes() -> None:
     dates = [date(2026, 1, 2), date(2026, 1, 3), date(2026, 1, 5), date(2026, 1, 6)]
     horizon = 2
-    rolling = RollingResult(name="P15", horizon=horizon, starts=(dates[0], dates[1], dates[2]), returns=(0.35, -0.30, 0.45), drawdowns=(0.1, 0.2, 0.05), givebacks=(0.02, 0.03, 0.01))
+    rolling = RollingResult(name="portfolio.tail_concentration", horizon=horizon, starts=(dates[0], dates[1], dates[2]), returns=(0.35, -0.30, 0.45), drawdowns=(0.1, 0.2, 0.05), givebacks=(0.02, 0.03, 0.01))
     df = build_window_timeseries(rolling, dates, ruin_threshold=-0.25)
     assert df.height == 3
     # One row per RollingResult.start ; terminal_return matches tuple

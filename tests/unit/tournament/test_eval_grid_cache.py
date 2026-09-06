@@ -26,7 +26,7 @@ def test_control_rolling_cache_runs_factory_once_per_key() -> None:
     calls = {"n": 0}
     def factory() -> ReturnDistribution:
         calls["n"] += 1
-        return ReturnDistribution.summarise(name="B0", returns=[0.1, 0.2], horizon=2, thresholds=[0.30], tail_weights={0.9: 1.0})
+        return ReturnDistribution.summarise(name="baseline.buy_hold", returns=[0.1, 0.2], horizon=2, thresholds=[0.30], tail_weights={0.9: 1.0})
     a = cache.get_or_run("k1", factory)
     b = cache.get_or_run("k1", factory)
     assert a is b

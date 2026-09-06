@@ -6,7 +6,8 @@ from datetime import date
 
 import polars as pl
 
-from src.alpha.baselines import BASELINES, BuyAndHoldBaseline  # noqa: F401
+from src.strategies.baselines.core import BuyAndHoldBaseline  # noqa: F401
+from src.strategies.registry import STRATEGIES as BASELINES
 from src.backtest.costs import CostConfig, CostModel
 from src.backtest.engine import BacktestConfig, BacktestEngine
 from src.core.calendar import TradingCalendar
@@ -35,7 +36,7 @@ def test_cost_applied_on_execution_date_not_signal_date() -> None:
         filters=strict_filt,
         costs=costs,
     )
-    result = engine.run(BuyAndHoldBaseline(ticker="069500", name="B0"), panel, config)
+    result = engine.run(BuyAndHoldBaseline(ticker="069500", name="baseline.buy_hold"), panel, config)
     daily = result.daily.sort("date")
     first_day_equity = float(daily.filter(pl.col("date") == sessions[0]).select("equity").item())
     second_day_equity = float(daily.filter(pl.col("date") == sessions[1]).select("equity").item())
@@ -74,7 +75,7 @@ def test_engine_applies_participation_cap_before_fill() -> None:
         filters=strict_filt,
         costs=CostConfig(0.0, 0.0, 0.0),
     )
-    result = engine.run(BuyAndHoldBaseline(ticker="069500", name="B0"), panel, config)
+    result = engine.run(BuyAndHoldBaseline(ticker="069500", name="baseline.buy_hold"), panel, config)
     assert result.trades.height >= 1
     first_weight = float(result.trades.sort("execution_date").select("weight").item(0, 0))
     assert first_weight <= 0.01 + 1e-9
@@ -99,9 +100,9 @@ def test_SCENARIO_07P_02_regime_gating() -> None:  # noqa: N802
     # four-arg construction still works
     _engine4 = BacktestEngine(cal2, engine.universe, engine.features, engine.execution)
     assert _engine4.regimes is None
-    res_b5 = engine_gated.run(BASELINES["B5"](), panel, config)
+    res_b5 = engine_gated.run(BASELINES["baseline.regime_gated_theme"](), panel, config)
     assert res_b5.trades.height == 0
-    res_b4 = engine.run(BASELINES["B4"](), panel, config)
+    res_b4 = engine.run(BASELINES["baseline.theme_momentum"](), panel, config)
     assert res_b4.trades.height >= 1
 
 
@@ -188,7 +189,7 @@ def test_engine_run_uses_cli_leverage_override() -> None:
     )
     regimes = {d: RegimeSnapshot(as_of=d, state=RegimeState.RISK_ON, score=0.9, components={}) for d in sessions}
     policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig(), master=master2, state_enabled=False)
-    policy.name = "P11"  # type: ignore[attr-defined]
+    policy.name = "portfolio.momentum_confidence"  # type: ignore[attr-defined]
 
     def _score(snapshot, ctx):  # type: ignore[no-untyped-def]
         out: dict[str, float] = {}
@@ -300,6 +301,6 @@ def test_engine_falls_back_when_session_grid_resolution_fails() -> None:
         filters=filt,
         costs=CostConfig(0.0, 0.0, 0.0),
     )
-    with patch("src.backtest.engine.resolve_session_grid", side_effect=RuntimeError("grid fail")):
-        result = engine.run(BASELINES["B0"], panel, config)
+    with patch("src.backtest.engine_runner.resolve_session_grid", side_effect=RuntimeError("grid fail")):
+        result = engine.run(BASELINES["baseline.buy_hold"], panel, config)
     assert result.daily.height > 0

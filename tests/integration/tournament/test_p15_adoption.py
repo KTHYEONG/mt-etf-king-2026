@@ -36,10 +36,10 @@ def _passing_returns() -> tuple[list[float], list[float], list[float], list[floa
 def test_p15_full_period_adoption_report() -> None:
     config = _base_config()
     p15_returns, b1_returns, b0_returns, p14_returns = _passing_returns()
-    p15 = _dist("P15", p15_returns)
-    b1 = _dist("B1", b1_returns)
-    b0 = _dist("B0", b0_returns)
-    p14 = _dist("P14", p14_returns)
+    p15 = _dist("portfolio.tail_concentration", p15_returns)
+    b1 = _dist("baseline.mom20_top1", b1_returns)
+    b0 = _dist("baseline.buy_hold", b0_returns)
+    p14 = _dist("portfolio.lottery_exposure", p14_returns)
 
     pass_report = evaluate_p15_adoption_report(
         p15=p15,
@@ -60,7 +60,7 @@ def test_p15_full_period_adoption_report() -> None:
     assert pass_report.objective.status == "PASS"
 
     fail_report = evaluate_p15_adoption_report(
-        p15=_dist("P15", [0.45] * 5 + [-0.30] * 25),
+        p15=_dist("portfolio.tail_concentration", [0.45] * 5 + [-0.30] * 25),
         b1=b1,
         b0=b0,
         p14=p14,
@@ -74,7 +74,7 @@ def test_p15_full_period_adoption_report() -> None:
     assert "G2A_RUIN" in fail_report.failures
 
     insufficient_report = evaluate_p15_adoption_report(
-        p15=_dist("P15", [0.1], horizon=10),
+        p15=_dist("portfolio.tail_concentration", [0.1], horizon=10),
         b1=b1,
         b0=b0,
         p14=p14,

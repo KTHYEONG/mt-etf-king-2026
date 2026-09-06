@@ -6,7 +6,7 @@ def test_resolve_adoption_vehicle_rate_top1_without_allocate() -> None:
     from src.tournament.distribution import measure_vehicle_activity_from_top1_scores
 
     class _M:
-        name = "P20"
+        name = "sticky.leader_base"
 
         def score(self, snapshot: pl.DataFrame, context: object) -> dict[str, float]:
             return {"LEV": 0.2}

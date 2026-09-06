@@ -24,14 +24,14 @@ def _master_two_families():
     panel = pl.DataFrame([
         {"date": date(2026,1,2), "ticker": "A1", "name": "KODEX 200", "underlying_index_name": "KOSPI 200"},
         {"date": date(2026,1,2), "ticker": "A2", "name": "KODEX 레버리지", "underlying_index_name": "KOSPI 200"},
-        {"date": date(2026,1,2), "ticker": "B1", "name": "KODEX 코스닥", "underlying_index_name": "KOSDAQ 150"},
-        {"date": date(2026,1,2), "ticker": "B2", "name": "KODEX 코스닥 레버리지", "underlying_index_name": "KOSDAQ 150"},
+        {"date": date(2026,1,2), "ticker": "baseline.mom20_top1", "name": "KODEX 코스닥", "underlying_index_name": "KOSDAQ 150"},
+        {"date": date(2026,1,2), "ticker": "baseline.mom20_equal3", "name": "KODEX 코스닥 레버리지", "underlying_index_name": "KOSDAQ 150"},
     ])
     tax = Taxonomy(rules=[])
     master = InstrumentMaster.build(panel, tax, {})
     # build custom families
     attrs = {}
-    for t, fam, lev in [("A1","FAMA",1), ("A2","FAMA",2), ("B1","FAMB",1), ("B2","FAMB",2)]:
+    for t, fam, lev in [("A1","FAMA",1), ("A2","FAMA",2), ("baseline.mom20_top1","FAMB",1), ("baseline.mom20_equal3","FAMB",2)]:
         base_attr = master.attributes[t]
         attrs[t] = InstrumentAttributes(ticker=t, name=base_attr.name, issuer=base_attr.issuer, leverage_multiple=lev, leverage_family_key=fam, is_synthetic=False, is_hedged=False, is_active=True, index_key=fam, theme="Theme", first_seen=base_attr.first_seen, last_seen=base_attr.last_seen, left_censored=False, confidence=base_attr.confidence)
     return InstrumentMaster(attributes=attrs, panel_start=master.panel_start)
@@ -45,14 +45,14 @@ def test_SCENARIO_10_01_canonical_plus1_preferred() -> None:
 
 def test_SCENARIO_10_02_two_families_plus1() -> None:
     master = _master_two_families()
-    scores = {"A1": 0.5, "A2": 0.9, "B1": 0.4, "B2": 0.8}
+    scores = {"A1": 0.5, "A2": 0.9, "baseline.mom20_top1": 0.4, "baseline.mom20_equal3": 0.8}
     out = family_canonical_scores(scores, master)
     assert len(out) == 2
-    assert set(out.keys()) == {"A1","B1"}
+    assert set(out.keys()) == {"A1","baseline.mom20_top1"}
     for k in out:
         assert master.attributes[k].leverage_multiple == 1
     # order preserved: A1 higher than B1
-    assert out["A1"] > out["B1"]
+    assert out["A1"] > out["baseline.mom20_top1"]
 
 def test_SCENARIO_10_03_only_leveraged() -> None:
     master = _master_same_family("L1","L2",2, -2 if False else 2)

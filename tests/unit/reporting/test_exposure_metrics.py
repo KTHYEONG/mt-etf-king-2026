@@ -111,9 +111,9 @@ def test_artifact_max_gross_for_model_p27_family_is_1_90() -> None:
     from src.reporting.exposure_metrics import artifact_max_gross_for_model
 
     for key in (
-        "P27",
-        "P30",
-        "P31",
+        "sticky.mom60_raw",
+        "sticky.fillable_mom60",
+        "convex.lottery_impulse",
         "sticky.mom60_raw",
         "sticky.fillable_mom60",
         "convex.lottery_impulse",
