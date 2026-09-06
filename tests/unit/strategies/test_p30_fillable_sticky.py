@@ -61,7 +61,7 @@ def test_p30_score_prefers_fillable_equity_over_illiquid_synth() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.universe.tournament import TournamentRules
 
     snap = pl.DataFrame(
@@ -99,8 +99,8 @@ def test_p30_score_prefers_fillable_equity_over_illiquid_synth() -> None:
         held={},
         rules=rules,
     )
-    p27 = BASELINES["P27"]()
-    p30 = BASELINES["P30"]()
+    p27 = BASELINES["sticky.mom60_raw"]()
+    p30 = BASELINES["sticky.fillable_mom60"]()
     s27 = p27.score(snap, ctx)
     s30 = p30.score(snap, ctx)
     assert isinstance(s27, dict) and isinstance(s30, dict)
@@ -113,17 +113,17 @@ def test_p30_score_prefers_fillable_equity_over_illiquid_synth() -> None:
 
 
 def test_p30_factory_and_exposure_wiring() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.constraints import load_p27_exposure_limits, resolve_exposure_limits_for_model
     from src.strategies.ids import STICKY_FILLABLE_MOM60
     from src.strategies.sticky.model import DEFAULT_EXCLUDE_NAME_TOKENS
     from src.strategies.registry import resolve_strategy_id
     from src.strategies.sticky.factories import FACTORY_REGISTRY
 
-    assert resolve_strategy_id("P30") == STICKY_FILLABLE_MOM60
-    assert "P30" in BASELINES
-    model = BASELINES["P30"]()
-    assert model.name == "P30"
+    assert resolve_strategy_id("sticky.fillable_mom60") == STICKY_FILLABLE_MOM60
+    assert "sticky.fillable_mom60" in BASELINES
+    model = BASELINES["sticky.fillable_mom60"]()
+    assert model.name == "sticky.fillable_mom60"
     assert bool(getattr(model.config, "exclude_synthetic", False)) is True
     assert abs(float(getattr(model.config, "min_fill_ratio", 0.0)) - 0.25) < 1e-12
     assert str(model.config.mom_col) == "mom_60"
@@ -132,8 +132,8 @@ def test_p30_factory_and_exposure_wiring() -> None:
     assert float(model.config.impulse_gap) == 0.0
     assert tuple(model.config.exclude_name_tokens) == DEFAULT_EXCLUDE_NAME_TOKENS
     assert STICKY_FILLABLE_MOM60 in FACTORY_REGISTRY
-    assert resolve_exposure_limits_for_model("P30", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
-    p27 = BASELINES["P27"]()
+    assert resolve_exposure_limits_for_model("sticky.fillable_mom60", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
+    p27 = BASELINES["sticky.mom60_raw"]()
     assert bool(getattr(p27.config, "exclude_synthetic", False)) is True
     assert abs(float(getattr(p27.config, "min_fill_ratio", 0.0) or 0.0) - 0.25) < 1e-12
     assert tuple(p27.config.exclude_name_tokens) == ()
@@ -145,7 +145,7 @@ def test_p27_unchanged_allows_synth_and_zero_min_fill() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.intent import CASH_INTENT, PortfolioIntent
     from src.universe.tournament import TournamentRules
 
@@ -178,7 +178,7 @@ def test_p27_unchanged_allows_synth_and_zero_min_fill() -> None:
         stress_grid=(0.01, 0.02, 0.05),
     )
     ctx = DecisionContext(decision_date=date(2025, 9, 22), regime=None, capital=1.0e9, held={}, rules=rules)
-    out = BASELINES["P27"]().score(snap, ctx)
+    out = BASELINES["sticky.mom60_raw"]().score(snap, ctx)
     assert isinstance(out, PortfolioIntent)
     assert out.kind == CASH_INTENT.kind
 
@@ -238,7 +238,7 @@ def test_fillable_sticky_session_cache_widens_score_snapshots() -> None:
 
     import polars as pl
 
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.base import DecisionContext
     from src.backtest.costs import CostConfig
     from src.backtest.engine import BacktestConfig
@@ -286,10 +286,10 @@ def test_fillable_sticky_session_cache_widens_score_snapshots() -> None:
         max_order_to_adv=0.01,
         stress_grid=(0.01, 0.02, 0.05),
     )
-    p27 = BASELINES["P27"]()
-    p30 = BASELINES["P30"]()
+    p27 = BASELINES["sticky.mom60_raw"]()
+    p30 = BASELINES["sticky.fillable_mom60"]()
     cache_p30 = build_session_cache(engine, p30, panel, config)
-    assert cache_p30.model_name == "P30"
+    assert cache_p30.model_name == "sticky.fillable_mom60"
     score_day = cache_p30.dates[0]
     snap_p30 = cache_p30.snapshots[score_day]
     assert snap_p30.height >= 3

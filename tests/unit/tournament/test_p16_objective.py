@@ -11,23 +11,23 @@ def test_evaluate_p16_adoption_report_pass_and_fail() -> None:
     b1 = [0.42] * 3 + [0.31] * 5 + [-0.10] * 22
     b0 = [0.31] * 4 + [-0.26] * 2 + [0.0] * 24
     p14 = [0.40] * 4 + [0.31] * 4 + [-0.10] * 22
-    passed = evaluate_p16_adoption_report(p16=_dist("P16", p16_ok), b1=_dist("B1", b1), b0=_dist("B0", b0), p14=_dist("P14", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
+    passed = evaluate_p16_adoption_report(p16=_dist("portfolio.convexity_hold", p16_ok), b1=_dist("baseline.mom20_top1", b1), b0=_dist("baseline.buy_hold", b0), p14=_dist("portfolio.lottery_exposure", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
     assert passed.status == "PASS"
     assert passed.failures == ()
     p16_low40 = [0.32] * 8 + [0.10] * 22
-    failed = evaluate_p16_adoption_report(p16=_dist("P16", p16_low40), b1=_dist("B1", b1), b0=_dist("B0", b0), p14=_dist("P14", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
+    failed = evaluate_p16_adoption_report(p16=_dist("portfolio.convexity_hold", p16_low40), b1=_dist("baseline.mom20_top1", b1), b0=_dist("baseline.buy_hold", b0), p14=_dist("portfolio.lottery_exposure", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
     assert failed.status == "FAIL"
     assert "P40_VS_B1" in failed.failures or "P50_VS_B1" in failed.failures
-    cap = evaluate_p16_adoption_report(p16=_dist("P16", p16_ok), b1=_dist("B1", b1), b0=_dist("B0", b0), p14=_dist("P14", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=1, vehicle_mult2_rate=0.9)
+    cap = evaluate_p16_adoption_report(p16=_dist("portfolio.convexity_hold", p16_ok), b1=_dist("baseline.mom20_top1", b1), b0=_dist("baseline.buy_hold", b0), p14=_dist("portfolio.lottery_exposure", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=1, vehicle_mult2_rate=0.9)
     assert cap.status == "FAIL"
     assert "CAPACITY_ON_CONVEXITY" in cap.failures
-    ruin = evaluate_p16_adoption_report(p16=_dist("P16", [0.45] * 5 + [-0.30] * 25), b1=_dist("B1", b1), b0=_dist("B0", b0), p14=_dist("P14", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
+    ruin = evaluate_p16_adoption_report(p16=_dist("portfolio.convexity_hold", [0.45] * 5 + [-0.30] * 25), b1=_dist("baseline.mom20_top1", b1), b0=_dist("baseline.buy_hold", b0), p14=_dist("portfolio.lottery_exposure", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
     assert ruin.status == "FAIL"
     assert "G2A_RUIN" in ruin.failures
-    missing = evaluate_p16_adoption_report(p16=_dist("P16", p16_ok), b1=_dist("B1", b1), b0=_dist("B0", b0), p14=_dist("P14", p14), config=config, artifacts_complete=False, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
+    missing = evaluate_p16_adoption_report(p16=_dist("portfolio.convexity_hold", p16_ok), b1=_dist("baseline.mom20_top1", b1), b0=_dist("baseline.buy_hold", b0), p14=_dist("portfolio.lottery_exposure", p14), config=config, artifacts_complete=False, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
     assert missing.status != "PASS"
     assert "MISSING_ARTIFACT" in missing.failures
-    tiny = evaluate_p16_adoption_report(p16=_dist("P16", [0.1], horizon=10), b1=_dist("B1", b1), b0=_dist("B0", b0), p14=_dist("P14", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
+    tiny = evaluate_p16_adoption_report(p16=_dist("portfolio.convexity_hold", [0.1], horizon=10), b1=_dist("baseline.mom20_top1", b1), b0=_dist("baseline.buy_hold", b0), p14=_dist("portfolio.lottery_exposure", p14), config=config, artifacts_complete=True, leverage_scenarios=("aggressive", "conservative"), skip_capacity_violations=0, vehicle_mult2_rate=0.9)
     assert tiny.status == "INSUFFICIENT_EVIDENCE"
 
 
@@ -47,10 +47,10 @@ def test_p16_objective_keeps_empty_p14_fail_closed() -> None:
         )
 
     report = evaluate_p16_adoption_report(
-        p16=dist("P16", [0.55] * 10 + [0.0] * 20),
-        b1=dist("B1", [0.40] * 8 + [0.0] * 22),
-        b0=dist("B0", [0.31] * 4 + [0.0] * 26),
-        p14=dist("P14", []),
+        p16=dist("portfolio.convexity_hold", [0.55] * 10 + [0.0] * 20),
+        b1=dist("baseline.mom20_top1", [0.40] * 8 + [0.0] * 22),
+        b0=dist("baseline.buy_hold", [0.31] * 4 + [0.0] * 26),
+        p14=dist("portfolio.lottery_exposure", []),
         config=ObjectiveGateConfig.from_yaml(Path("configs/gates.yaml")),
         artifacts_complete=True,
         leverage_scenarios=("aggressive", "conservative"),

@@ -18,6 +18,7 @@ def test_cli_build_parser_subcommands_unchanged() -> None:
         "replay",
         "decide",
         "storage-migrate",
+        "champion-research",
     }
     assert expected == choices
 
@@ -27,10 +28,10 @@ def test_cli_backtest_resolves_semantic_model_flag() -> None:
 
     from src.cli.commands.backtest import cmd_backtest
     from src.strategies.ids import STICKY_MOM60_RAW
-    from src.strategies.registry import branch_model_key, resolve_strategy_id
+    from src.strategies.registry import resolve_strategy_id
 
-    assert resolve_strategy_id("P27") == STICKY_MOM60_RAW
-    assert branch_model_key(STICKY_MOM60_RAW) == "P27"
+    assert resolve_strategy_id(STICKY_MOM60_RAW) == STICKY_MOM60_RAW
+    assert resolve_strategy_id("STICKY.MOM60_RAW") == STICKY_MOM60_RAW
     args = argparse.Namespace(
         model=STICKY_MOM60_RAW,
         start="2018-01-02",
@@ -46,7 +47,7 @@ def test_cli_backtest_resolves_semantic_model_flag() -> None:
     )
     result = cmd_backtest(args)
     assert result in (0, 1)
-    assert args.model == "P27"
+    assert args.model == STICKY_MOM60_RAW
 
 
 def test_championship_constants_use_semantic_ids() -> None:
@@ -57,3 +58,33 @@ def test_championship_constants_use_semantic_ids() -> None:
     assert ANCHOR_STRATEGY == STICKY_IMPULSE_CRASH
     assert "." in CHAMPION_STRATEGY
     assert not CHAMPION_STRATEGY.startswith("P")
+
+
+def test_build_parser_subcommand_surface_unchanged() -> None:
+    from src.cli.parser import SUBCOMMANDS, build_parser
+
+    parser = build_parser()
+    expected = {
+        "config-check",
+        "calendar",
+        "ingest",
+        "normalize",
+        "universe",
+        "features",
+        "backtest",
+        "forensics",
+        "loyo",
+        "replay",
+        "decide",
+        "storage-migrate",
+        "champion-research",
+    }
+    subparsers = [a for a in parser._actions if hasattr(a, "choices") and isinstance(getattr(a, "choices", None), dict)]
+    assert subparsers, "no subparser action found"
+    assert set(subparsers[0].choices) == expected
+    assert set(SUBCOMMANDS) == expected
+
+    args = parser.parse_args(["backtest", "--model", "sticky.mom60_raw", "--start", "2018-01-02", "--end", "2026-08-27"])
+    assert args.model == "sticky.mom60_raw"
+    assert args.leverage_scenario == "aggressive"
+    assert args.eval_mode == "adoption"

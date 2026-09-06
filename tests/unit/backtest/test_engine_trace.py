@@ -104,11 +104,11 @@ def test_engine_lazy_when_sink_disabled(monkeypatch) -> None:
     def raising(*a, **kw):
         raise AssertionError("should not be called when disabled")
 
-    monkeypatch.setattr("src.backtest.engine.explain_selection_drops", raising)
+    monkeypatch.setattr("src.backtest.engine_session.explain_selection_drops", raising)
     # disabled should not raise
     engine.run(BuyAndHoldBaseline(), df, config, trace=None)
     # restore and test enabled may call
-    monkeypatch.setattr("src.backtest.engine.explain_selection_drops", orig)
+    monkeypatch.setattr("src.backtest.engine_session.explain_selection_drops", orig)
     sink = InMemoryTraceSink()
     engine.run(BuyAndHoldBaseline(), df, config, trace=sink)
 

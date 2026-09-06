@@ -1,11 +1,11 @@
 def test_p20_registered_in_baselines() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.sticky import StickyLeaderModel
 
-    assert "P20" in BASELINES
-    model = BASELINES["P20"]()
+    assert "sticky.leader_base" in BASELINES
+    model = BASELINES["sticky.leader_base"]()
     assert isinstance(model, StickyLeaderModel)
-    assert getattr(model, "name", "") == "P20"
+    assert getattr(model, "name", "") == "sticky.leader_base"
     cfg = getattr(model, "config")
     assert cfg.only_plus_2 is True
     assert cfg.no_inverse is True

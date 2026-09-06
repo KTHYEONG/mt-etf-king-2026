@@ -1,12 +1,12 @@
 def test_p23_registered_p21_sticky_with_allocate() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.sticky import StickyLeaderModel
-    from src.portfolio.split_fill import SplitFillStickyModel
+    from src.strategies.sticky.split_fill_model import SplitFillStickyModel
 
-    assert "P23" in BASELINES
-    p23 = BASELINES["P23"]()
+    assert "sticky.split_fill_lock" in BASELINES
+    p23 = BASELINES["sticky.split_fill_lock"]()
     assert isinstance(p23, SplitFillStickyModel)
-    assert p23.name == "P23"
+    assert p23.name == "sticky.split_fill_lock"
     inner = getattr(p23, "_inner", None) or getattr(p23, "inner", None)
     assert inner is None or isinstance(inner, StickyLeaderModel)
     cfg = getattr(p23, "config")
@@ -17,10 +17,10 @@ def test_p23_registered_p21_sticky_with_allocate() -> None:
     assert bool(cfg.collapse_family) is True
     assert abs(float(cfg.lock_level) - 0.40) < 1e-12
     assert callable(getattr(p23, "allocate", None))
-    p22 = BASELINES["P22"]()
+    p22 = BASELINES["sticky.family_peak_lock"]()
     assert float(getattr(p22, "config").min_gap) == 0.0
     assert abs(float(getattr(p22, "config").lock_level) - 0.50) < 1e-12
-    p21 = BASELINES["P21"]()
+    p21 = BASELINES["sticky.impulse_crash"]()
     assert not hasattr(p21, "allocate") or not callable(getattr(p21, "allocate", None))
 
 
@@ -30,7 +30,7 @@ def test_p23_allocate_splits_theme_leader() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.universe.tournament import TournamentRules
 
     snap = pl.DataFrame(
@@ -64,7 +64,7 @@ def test_p23_allocate_splits_theme_leader() -> None:
         stress_grid=(0.01, 0.02, 0.05),
     )
     ctx = DecisionContext(decision_date=date(2025, 9, 22), regime=None, capital=1_000_000_000.0, held={}, rules=rules)
-    p23 = BASELINES["P23"]()
+    p23 = BASELINES["sticky.split_fill_lock"]()
     scores = p23.score(snap, ctx)
     assert "494310" in scores
     alloc = p23.allocate(

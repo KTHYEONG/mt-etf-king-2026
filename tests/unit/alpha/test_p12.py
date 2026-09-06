@@ -6,7 +6,7 @@ from pathlib import Path
 import polars as pl
 
 from src.alpha.base import DecisionContext
-from src.alpha.baselines import BASELINES
+from src.strategies.registry import STRATEGIES as BASELINES
 from src.alpha.cluster import ClusterResolver
 from src.alpha.leadership import (
     SectorLeadershipModel,
@@ -62,9 +62,9 @@ def test_theme_states_by_representative_after_score() -> None:
 
 
 def test_p12_in_baselines_registry() -> None:
-    assert "P12" in BASELINES
-    model = BASELINES["P12"]()
-    assert getattr(model, "name", None) == "P12"
+    assert "portfolio.leadership_policy" in BASELINES
+    model = BASELINES["portfolio.leadership_policy"]()
+    assert getattr(model, "name", None) == "portfolio.leadership_policy"
     assert hasattr(model, "score")
     assert hasattr(model, "allocate")
     assert callable(getattr(model, "theme_states_by_representative", None))

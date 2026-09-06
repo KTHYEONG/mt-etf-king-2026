@@ -55,15 +55,15 @@ def test_blend_rank_scores_weights() -> None:
 
 
 def test_p29_factory_excludes_macro_keeps_p27_clean() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.constraints import load_p27_exposure_limits, resolve_exposure_limits_for_model
     from src.strategies.sticky.model import DEFAULT_EXCLUDE_NAME_TOKENS
 
-    assert "P29" in BASELINES and "P29V" in BASELINES
-    p27 = BASELINES["P27"]()
-    p29 = BASELINES["P29"]()
-    p29v = BASELINES["P29V"]()
-    assert p29.name == "P29" and p29v.name == "P29V"
+    assert "sticky.equity_mom60" in BASELINES and "sticky.equity_mom60_vol" in BASELINES
+    p27 = BASELINES["sticky.mom60_raw"]()
+    p29 = BASELINES["sticky.equity_mom60"]()
+    p29v = BASELINES["sticky.equity_mom60_vol"]()
+    assert p29.name == "sticky.equity_mom60" and p29v.name == "sticky.equity_mom60_vol"
     assert tuple(getattr(p27.config, "exclude_name_tokens", ())) == ()
     assert tuple(p29.config.exclude_name_tokens) == DEFAULT_EXCLUDE_NAME_TOKENS
     assert str(p29.config.mom_col) == "mom_60"
@@ -71,8 +71,8 @@ def test_p29_factory_excludes_macro_keeps_p27_clean() -> None:
     assert p29v.config.score_aux_col == "volume_expansion"
     assert abs(float(p29v.config.score_aux_weight) - 0.3) < 1e-12
     assert float(p29v.config.min_gap) == 0.10
-    assert resolve_exposure_limits_for_model("P29", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
-    assert resolve_exposure_limits_for_model("P29V", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
+    assert resolve_exposure_limits_for_model("sticky.equity_mom60", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
+    assert resolve_exposure_limits_for_model("sticky.equity_mom60_vol", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
 
 
 def test_p29_score_prefers_equity_over_higher_mom_bond() -> None:
@@ -81,7 +81,7 @@ def test_p29_score_prefers_equity_over_higher_mom_bond() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.universe.tournament import TournamentRules
 
     snap = pl.DataFrame(
@@ -113,8 +113,8 @@ def test_p29_score_prefers_equity_over_higher_mom_bond() -> None:
         stress_grid=(0.01, 0.02, 0.05),
     )
     ctx = DecisionContext(decision_date=date(2024, 6, 3), regime=None, capital=1.0e9, held={}, rules=rules)
-    p27 = BASELINES["P27"]()
-    p29 = BASELINES["P29"]()
+    p27 = BASELINES["sticky.mom60_raw"]()
+    p29 = BASELINES["sticky.equity_mom60"]()
     s27 = p27.score(snap, ctx)
     s29 = p29.score(snap, ctx)
     assert isinstance(s27, dict) and isinstance(s29, dict)
@@ -132,7 +132,7 @@ def test_p29v_blend_changes_leader_vs_p29() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.universe.tournament import TournamentRules
 
     snap = pl.DataFrame(
@@ -164,8 +164,8 @@ def test_p29v_blend_changes_leader_vs_p29() -> None:
         stress_grid=(0.01, 0.02, 0.05),
     )
     ctx = DecisionContext(decision_date=date(2025, 3, 3), regime=None, capital=1.0e9, held={}, rules=rules)
-    p29 = BASELINES["P29"]()
-    p29v = BASELINES["P29V"]()
+    p29 = BASELINES["sticky.equity_mom60"]()
+    p29v = BASELINES["sticky.equity_mom60_vol"]()
     s29 = p29.score(snap, ctx)
     s29v = p29v.score(snap, ctx)
     assert isinstance(s29, dict) and isinstance(s29v, dict)

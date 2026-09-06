@@ -1,17 +1,17 @@
 def test_p21_registered_in_baselines() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.sticky import StickyLeaderModel
 
-    assert "P21" in BASELINES
-    p21 = BASELINES["P21"]()
+    assert "sticky.impulse_crash" in BASELINES
+    p21 = BASELINES["sticky.impulse_crash"]()
     assert isinstance(p21, StickyLeaderModel)
-    assert getattr(p21, "name", "") == "P21"
+    assert getattr(p21, "name", "") == "sticky.impulse_crash"
     cfg = getattr(p21, "config")
     assert float(cfg.impulse_gap) == 0.04
     assert cfg.impulse_require_volx is True
     assert float(cfg.cash_drawdown) == -0.12
     assert not hasattr(p21, "allocate") or not callable(getattr(p21, "allocate", None))
-    p20 = BASELINES["P20"]()
+    p20 = BASELINES["sticky.leader_base"]()
     p20_cfg = getattr(p20, "config")
     assert float(p20_cfg.impulse_gap) == 0.0
     assert float(p20_cfg.cash_drawdown) == 0.0

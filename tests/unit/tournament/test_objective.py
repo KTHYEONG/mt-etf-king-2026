@@ -15,7 +15,7 @@ def test_objective_gate_enforces_configured_ruin_probability() -> None:
     baseline_returns = [0.35] * 10 + [0.0] * 20
     horizon = 2
     cand = ReturnDistribution.summarise(name="cand", returns=candidate_returns, horizon=horizon, thresholds=[0.30], tail_weights={0.9: 1.0})
-    base = ReturnDistribution.summarise(name="B0", returns=baseline_returns, horizon=horizon, thresholds=[0.30], tail_weights={0.9: 1.0})
+    base = ReturnDistribution.summarise(name="baseline.buy_hold", returns=baseline_returns, horizon=horizon, thresholds=[0.30], tail_weights={0.9: 1.0})
     config = ObjectiveGateConfig(g1_prob_threshold=0.30, g1_min_improvement=0.02, g2a_ruin_threshold=-0.25, g2a_max_prob=0.05)
     result = evaluate_objective_gates(cand, base, config)
     assert result.status == "FAIL"
@@ -28,13 +28,13 @@ def test_objective_gate_enforces_configured_ruin_probability() -> None:
 def test_objective_gate_rejects_insufficient_sample_or_artifacts() -> None:
     config = ObjectiveGateConfig(g1_prob_threshold=0.30, g1_min_improvement=0.02, g2a_ruin_threshold=-0.25, g2a_max_prob=0.05)
     cand = ReturnDistribution.summarise(name="cand", returns=[0.1], horizon=10, thresholds=[0.30], tail_weights={0.9: 1.0})
-    base = ReturnDistribution.summarise(name="B0", returns=[0.1], horizon=2, thresholds=[0.30], tail_weights={0.9: 1.0})
+    base = ReturnDistribution.summarise(name="baseline.buy_hold", returns=[0.1], horizon=2, thresholds=[0.30], tail_weights={0.9: 1.0})
     assert cand.n_effective < 1
     res = evaluate_objective_gates(cand, base, config)
     assert res.status == "INSUFFICIENT_EVIDENCE"
     assert res.status != "PASS"
     cand2 = ReturnDistribution.summarise(name="cand", returns=[], horizon=2, thresholds=[0.30], tail_weights={0.9: 1.0})
-    base2 = ReturnDistribution.summarise(name="B0", returns=[0.1, 0.2], horizon=2, thresholds=[0.30], tail_weights={0.9: 1.0})
+    base2 = ReturnDistribution.summarise(name="baseline.buy_hold", returns=[0.1, 0.2], horizon=2, thresholds=[0.30], tail_weights={0.9: 1.0})
     res2 = evaluate_objective_gates(cand2, base2, config)
     assert res2.status == "INSUFFICIENT_EVIDENCE"
     assert res2.status != "PASS"
@@ -49,10 +49,10 @@ def test_p15_adoption_report_pass_and_fail_paths() -> None:
     b1_returns = [0.42] * 3 + [0.31] * 5 + [-0.10] * 22
     b0_returns = [0.31] * 4 + [-0.26] * 2 + [0.0] * 24
     p14_returns = [0.40] * 4 + [0.31] * 4 + [-0.10] * 22
-    p15 = ReturnDistribution.summarise(name="P15", returns=p15_returns, horizon=horizon, thresholds=[0.30, 0.40], tail_weights={0.9: 1.0})
-    b1 = ReturnDistribution.summarise(name="B1", returns=b1_returns, horizon=horizon, thresholds=[0.30, 0.40], tail_weights={0.9: 1.0})
-    b0 = ReturnDistribution.summarise(name="B0", returns=b0_returns, horizon=horizon, thresholds=[0.30, 0.40], tail_weights={0.9: 1.0})
-    p14 = ReturnDistribution.summarise(name="P14", returns=p14_returns, horizon=horizon, thresholds=[0.30, 0.40], tail_weights={0.9: 1.0})
+    p15 = ReturnDistribution.summarise(name="portfolio.tail_concentration", returns=p15_returns, horizon=horizon, thresholds=[0.30, 0.40], tail_weights={0.9: 1.0})
+    b1 = ReturnDistribution.summarise(name="baseline.mom20_top1", returns=b1_returns, horizon=horizon, thresholds=[0.30, 0.40], tail_weights={0.9: 1.0})
+    b0 = ReturnDistribution.summarise(name="baseline.buy_hold", returns=b0_returns, horizon=horizon, thresholds=[0.30, 0.40], tail_weights={0.9: 1.0})
+    p14 = ReturnDistribution.summarise(name="portfolio.lottery_exposure", returns=p14_returns, horizon=horizon, thresholds=[0.30, 0.40], tail_weights={0.9: 1.0})
     passed = evaluate_p15_adoption_report(
         p15=p15,
         b1=b1,
@@ -66,7 +66,7 @@ def test_p15_adoption_report_pass_and_fail_paths() -> None:
     )
     assert passed.status == "PASS"
     failed = evaluate_p15_adoption_report(
-        p15=ReturnDistribution.summarise(name="P15", returns=[0.45] * 5 + [-0.30] * 25, horizon=horizon, thresholds=[0.30, 0.40], tail_weights={0.9: 1.0}),
+        p15=ReturnDistribution.summarise(name="portfolio.tail_concentration", returns=[0.45] * 5 + [-0.30] * 25, horizon=horizon, thresholds=[0.30, 0.40], tail_weights={0.9: 1.0}),
         b1=b1,
         b0=b0,
         p14=p14,

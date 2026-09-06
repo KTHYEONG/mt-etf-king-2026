@@ -356,7 +356,7 @@ def test_scenario_06_12_backtest_and_replay_cli(monkeypatch: pytest.MonkeyPatch,
     pl.DataFrame(rows).write_parquet(gold_path)
 
     caplog.set_level(logging.INFO)
-    ret = main(["backtest", "--model", "B1", "--start", "2026-01-02", "--end", "2026-01-08"])
+    ret = main(["backtest", "--model", "baseline.mom20_top1", "--start", "2026-01-02", "--end", "2026-01-08"])
     assert ret == 0
     combined = "\n".join(caplog.messages)
     assert "n_effective=" in combined

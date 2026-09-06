@@ -96,7 +96,7 @@ def test_simulate_window_vehicle_rate_aggressive() -> None:
     master2 = InstrumentMaster(attributes=attrs, panel_start=master.panel_start)
     cfg = ConfidenceSizingConfig()
     policy = PortfolioPolicy(sizing_config=cfg, master=master2, state_enabled=False)
-    policy.name = "P11"  # type: ignore[attr-defined]
+    policy.name = "portfolio.momentum_confidence"  # type: ignore[attr-defined]
     # high confidence scores -> w_top ~1.0 -> confidence_low False -> should pick +2x
     high_scores = {"T1": 1.0, "T2": 0.1}
     # monkey patch score not needed; we use measure_vehicle_activity which uses allocate with seed derived from master
@@ -141,7 +141,7 @@ def test_run_rolling_leverage_propagation_single_protocol() -> None:
         costs=CostConfig(0.0, 0.0, 0.0),
     )
     policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig())
-    policy.name = "P11"  # type: ignore[attr-defined]
+    policy.name = "portfolio.momentum_confidence"  # type: ignore[attr-defined]
     policy.scores_path_independent = True
     resolve_eval_flags(policy, EvalMode.OPERATIONAL)
 
@@ -173,12 +173,12 @@ def test_run_rolling_leverage_propagation_single_protocol() -> None:
 
 
 def test_resolve_eval_flags_adoption_keeps_path_dependent_for_sticky() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.policy import PortfolioPolicy
     from src.tournament.eval_mode import EvalMode, resolve_eval_flags
     from src.tournament.simulator import model_requires_path_dependent
 
-    sticky = BASELINES["P27"]()
+    sticky = BASELINES["sticky.mom60_raw"]()
     flags = resolve_eval_flags(sticky, EvalMode.ADOPTION)
     assert flags.path_dependent is True
     assert flags.state_enabled is False
@@ -208,11 +208,11 @@ def test_scenario_wrapper(scenario_id: str) -> None:
 
 
 def test_resolve_path_dependent_mode_sticky_returns_fast() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.tournament.eval_mode import EvalMode, resolve_path_dependent_mode
 
-    p27 = BASELINES["P27"]()
-    p21 = BASELINES["P21"]()
+    p27 = BASELINES["sticky.mom60_raw"]()
+    p21 = BASELINES["sticky.impulse_crash"]()
     assert p27.scores_path_independent is False
     assert resolve_path_dependent_mode(p27, mode=EvalMode.ADOPTION) == "fast"
     assert resolve_path_dependent_mode(p21, mode=EvalMode.ADOPTION) == "fast"

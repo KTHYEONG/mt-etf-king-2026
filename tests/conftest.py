@@ -24,4 +24,7 @@ def pytest_configure(config: pytest.Config) -> None:
 def pytest_sessionstart(session: pytest.Session) -> None:
     import os
 
+    from src.core.config import clear_config_caches
+
+    clear_config_caches()
     os.environ["TMPDIR"] = str(_PROJECT_TMP)

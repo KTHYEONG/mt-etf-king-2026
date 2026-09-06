@@ -29,7 +29,7 @@ def test_build_session_cache_leverage_propagation() -> None:
         costs=CostConfig(0.0, 0.0, 0.0),
     )
     policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig())
-    policy.name = "P11"  # type: ignore[attr-defined]
+    policy.name = "portfolio.momentum_confidence"  # type: ignore[attr-defined]
 
     def _score(snapshot, ctx):  # type: ignore[no-untyped-def]
         return {"069500": 1.0}

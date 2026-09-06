@@ -13,6 +13,8 @@ def test_r4_championship_module_exports_eval() -> None:
 def test_r4_tournament_shim_line_budget() -> None:
     from pathlib import Path
 
-    for rel in ("src/tournament/distribution.py", "src/tournament/objective.py"):
+    # P5: the star-import shims became explicit packages; the package roots
+    # must stay thin re-export surfaces.
+    for rel in ("src/tournament/distribution/__init__.py", "src/tournament/objective/__init__.py"):
         count = sum(1 for _ in Path(rel).open(encoding="utf-8"))  # noqa: SIM115
         assert count <= 120, f"{rel} has {count} lines"

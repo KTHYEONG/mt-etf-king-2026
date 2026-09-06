@@ -31,7 +31,7 @@ def test_SCENARIO_B2_05_backtest_reset_trackers() -> None:  # noqa: N802
     policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig())
 
     class PolicyModel:
-        name = "P08"
+        name = "portfolio.momentum_policy"
         path_dependent = True
 
         def score(self, snapshot, context):  # type: ignore[no-untyped-def]
@@ -161,7 +161,7 @@ def test_SCENARIO_09_10_engine_leverage_allowed_false() -> None:  # noqa: N802
     recorded: list[dict[str, object]] = []
 
     class PolicyModel:
-        name = "P08"
+        name = "portfolio.momentum_policy"
         path_dependent = True
 
         def score(self, snapshot, context):  # type: ignore[no-untyped-def]

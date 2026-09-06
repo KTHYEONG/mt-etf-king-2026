@@ -25,7 +25,7 @@ def test_SCENARIO_PERF_02_close_map_once() -> None:  # noqa: N802
     engine, _, filt = build_engine(panel)
     config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1_000_000_000.0, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0.0, 0.0, 0.0))
     policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig())
-    policy.name = "P08"  # type: ignore[attr-defined]
+    policy.name = "portfolio.momentum_policy"  # type: ignore[attr-defined]
 
     def _score(snapshot, ctx):
         return {"069500": 1.0}
@@ -81,7 +81,7 @@ def test_build_session_cache_falls_back_when_session_grid_fails() -> None:
     config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1_000_000_000.0, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0.0, 0.0, 0.0))
 
     class _Model:
-        name = "P08"
+        name = "portfolio.momentum_policy"
         scores_path_independent = True
 
         def score(self, snapshot, ctx):
@@ -102,7 +102,7 @@ def test_build_session_cache_returns_empty_when_calendar_unavailable() -> None:
     config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1_000_000_000.0, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0.0, 0.0, 0.0))
 
     class _Model:
-        name = "P08"
+        name = "portfolio.momentum_policy"
         scores_path_independent = True
 
         def score(self, snapshot, ctx):

@@ -3,12 +3,13 @@ from __future__ import annotations
 
 def test_champion_research_cli_preserves_p27_when_candidate_research_only(monkeypatch, tmp_path) -> None:
     import argparse
+    from src.cli.commands import champion_research as _cr
+    from src.cli.commands.champion_research import cmd_champion_research
     from src.cli.constants import CHAMPION_STRATEGY
-    from src.cli._impl import cmd_champion_research
     from src.strategies.ids import STICKY_MOM60_RAW
 
-    monkeypatch.setattr('src.cli._impl._build_champion_research_inputs', lambda _: {})
-    monkeypatch.setattr('src.cli._impl.run_champion_walk_forward', lambda **_: type('Result', (), {'status': 'RESEARCH_ONLY', 'write': lambda self, _: tmp_path / 'promotion.json'})())
+    monkeypatch.setattr(_cr, '_build_champion_research_inputs', lambda _: {})
+    monkeypatch.setattr(_cr, 'run_champion_walk_forward', lambda **_: type('Result', (), {'status': 'RESEARCH_ONLY', 'write': lambda self, _: tmp_path / 'promotion.json'})())
     args = argparse.Namespace(start='2024-01-02', end='2026-08-27', log_level='ERROR', trace=False)
     result = cmd_champion_research(args)
 
@@ -19,26 +20,24 @@ def test_champion_research_cli_preserves_p27_when_candidate_research_only(monkey
 def test_champion_research_cli_passes_real_runtime(monkeypatch) -> None:
     import argparse
 
-    from src.cli._impl import cmd_champion_research
+    from src.cli.commands import champion_research as _cr
+    from src.cli.commands.champion_research import cmd_champion_research
     from src.tournament.champion_eval import ChampionEvaluation
 
     captured: dict[str, object] = {}
-    monkeypatch.setattr("src.cli._impl._build_champion_research_inputs", lambda _: {"runtime": object()})
-    monkeypatch.setattr("src.cli._impl.run_champion_walk_forward", lambda **kwargs: captured.update(kwargs) or ChampionEvaluation())
+    monkeypatch.setattr(_cr, "_build_champion_research_inputs", lambda _: {"runtime": object()})
+    monkeypatch.setattr(_cr, "run_champion_walk_forward", lambda **kwargs: captured.update(kwargs) or ChampionEvaluation())
 
     assert cmd_champion_research(argparse.Namespace(start="2024-01-02", end="2026-08-27", log_level="ERROR", trace=False)) == 0
     assert "runtime" in captured
 
 
-def test_champion_research_requires_explicit_p27_matched_mode(monkeypatch) -> None:
+def test_champion_research_requires_explicit_p27_matched_mode() -> None:
     import argparse
 
     import pytest
 
-    from src.cli import _impl
+    from src.cli.commands.champion_research import _build_champion_research_inputs
 
-    monkeypatch.setattr(_impl, 'get_settings', lambda: object())
-    monkeypatch.setattr(_impl, 'DataPaths', lambda root: None)
-    monkeypatch.setattr(_impl, '_load_panel_for_backtest', lambda paths, calendar: None)
     with pytest.raises(ValueError, match='candidate_mode'):
-        _impl._build_champion_research_inputs(argparse.Namespace(start='2026-01-02', end='2026-08-27', candidate_mode='invalid'))
+        _build_champion_research_inputs(argparse.Namespace(start='2026-01-02', end='2026-08-27', candidate_mode='invalid'))

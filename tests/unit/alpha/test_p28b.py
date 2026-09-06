@@ -41,16 +41,16 @@ def test_apply_abs_mom_cash_preserves_cash_intent() -> None:
 
 
 def test_p28b_factory_enables_hold_and_abs_mom() -> None:
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.alpha.sticky import StickyLeaderModel
 
-    p27 = BASELINES["P27"]()
-    p28a = BASELINES["P28A"]()
-    p28b = BASELINES["P28B"]()
+    p27 = BASELINES["sticky.mom60_raw"]()
+    p28a = BASELINES["sticky.mom60_hold"]()
+    p28b = BASELINES["sticky.mom60_abs_cash"]()
     assert isinstance(p27, StickyLeaderModel)
     assert isinstance(p28a, StickyLeaderModel)
     assert isinstance(p28b, StickyLeaderModel)
-    assert p28b.name == "P28B"
+    assert p28b.name == "sticky.mom60_abs_cash"
     assert bool(p27.config.same_leader_hold) is False
     assert bool(p27.config.abs_mom_cash) is True
     assert bool(p28a.config.same_leader_hold) is True
@@ -66,7 +66,7 @@ def test_p28b_score_cash_when_all_mom_nonpos() -> None:
     import polars as pl
 
     from src.alpha.base import DecisionContext
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.portfolio.intent import CASH_INTENT, PortfolioIntent
     from src.universe.tournament import TournamentRules
 
@@ -99,7 +99,7 @@ def test_p28b_score_cash_when_all_mom_nonpos() -> None:
         stress_grid=(0.01, 0.02, 0.05),
     )
     ctx = DecisionContext(decision_date=date(2026, 1, 2), regime=None, capital=1.0e9, held={}, rules=rules)
-    p28b = BASELINES["P28B"]()
+    p28b = BASELINES["sticky.mom60_abs_cash"]()
     out = p28b.score(snap, ctx)
     assert isinstance(out, PortfolioIntent)
     assert out.kind == CASH_INTENT.kind

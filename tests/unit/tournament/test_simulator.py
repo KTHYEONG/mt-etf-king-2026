@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 
 import polars as pl
 
-from src.alpha.baselines import BASELINES, RegimeGatedMomentum
+from src.strategies.factories._shared import RegimeGatedMomentum
+from src.strategies.registry import STRATEGIES as BASELINES
 from src.alpha.base import DecisionContext
 from src.backtest.costs import CostConfig
 from src.backtest.engine import BacktestConfig
@@ -70,7 +71,7 @@ def test_SCENARIO_06_09_rolling_fast_vs_slow_path() -> None:  # noqa: N802
         filters=filt,
         costs=CostConfig(0.0, 0.0, 0.0),
     )
-    model = BASELINES["B0"]()
+    model = BASELINES["baseline.buy_hold"]()
 
     mock_engine = MagicMock(wraps=engine)
     fast_sim = TournamentSimulator(mock_engine, cal)
@@ -103,7 +104,7 @@ def test_SCENARIO_06_10_baselines_registry_and_engine_path() -> None:  # noqa: N
         costs=CostConfig(0.0, 0.0, 0.0),
     )
     daily_len: int | None = None
-    for key in ("B0", "B1", "B2", "B3", "B4", "B5"):
+    for key in ("baseline.buy_hold", "baseline.mom20_top1", "baseline.mom20_equal3", "baseline.mom20_ma_gate", "baseline.theme_momentum", "baseline.regime_gated_theme"):
         assert key in BASELINES
         model = BASELINES[key]()
         assert hasattr(model, "score")
@@ -114,7 +115,7 @@ def test_SCENARIO_06_10_baselines_registry_and_engine_path() -> None:  # noqa: N
         else:
             assert result.daily.height == daily_len
 
-    gated = RegimeGatedMomentum(inner=BASELINES["B4"](), blocked=frozenset({RegimeState.STRONG_RISK_OFF}), name="B5")
+    gated = RegimeGatedMomentum(inner=BASELINES["baseline.theme_momentum"](), blocked=frozenset({RegimeState.STRONG_RISK_OFF}), name="baseline.regime_gated_theme")
     snap = pl.DataFrame([{"ticker": "069500", "mom_20": 0.2}])
     rules = _rules()
     blocked_ctx = DecisionContext(
@@ -153,8 +154,8 @@ def test_SCENARIO_07P_04_givebacks() -> None:  # noqa: N802
     engine, cal2, filt = build_engine(panel)
     config = __import__("src.backtest.engine", fromlist=["BacktestConfig"]).BacktestConfig(start=date(2026, 1, 2), end=date(2026, 2, 28), capital=1e9, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0, 0, 0))
     sim = TournamentSimulator(engine, cal2)
-    fast = sim.run_rolling(BASELINES["B0"](), panel, config, horizon=5, path_dependent=False)
-    slow = sim.run_rolling(BASELINES["B0"](), panel, config, horizon=5, path_dependent=True)
+    fast = sim.run_rolling(BASELINES["baseline.buy_hold"](), panel, config, horizon=5, path_dependent=False)
+    slow = sim.run_rolling(BASELINES["baseline.buy_hold"](), panel, config, horizon=5, path_dependent=True)
     assert len(fast.givebacks) == len(fast.returns)
     assert len(slow.givebacks) == len(slow.returns)
     assert max(abs(g) for g in fast.givebacks) < 1e-9
@@ -168,7 +169,7 @@ def test_SCENARIO_08_10_path_dependent_error() -> None:  # noqa: N802
     engine, cal2, filt = build_engine(panel)
     config = BacktestConfig(start=date(2026, 1, 2), end=date(2026, 1, 20), capital=1e9, scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0, 0, 0))
     policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig())
-    policy.name = "P08"  # type: ignore[attr-defined]
+    policy.name = "portfolio.momentum_policy"  # type: ignore[attr-defined]
 
     def _score(snapshot, context):
         return {"069500": 1.0}
@@ -508,7 +509,7 @@ def test_run_rolling_explicit_exposure_limits() -> None:
 
     sim = TournamentSimulator(engine, cal2)
     limits = (0.95, 1.9, 0.05)
-    with patch("src.tournament.simulator.simulate_window_from_cache", wraps=__import__("src.tournament.simulator", fromlist=["simulate_window_from_cache"]).simulate_window_from_cache) as mocked:
+    with patch("src.tournament.simulator_rolling.simulate_window_from_cache", wraps=__import__("src.tournament.simulator", fromlist=["simulate_window_from_cache"]).simulate_window_from_cache) as mocked:
         sim.run_rolling(_Simple(), panel, config, horizon=5, path_dependent=True, path_dependent_mode="fast", exposure_limits=limits)
         assert mocked.call_args.kwargs.get("exposure_limits") == limits
 
@@ -646,7 +647,7 @@ def test_simulator_falls_back_when_session_grid_fails() -> None:
         def score(self, snapshot, context):
             return {"069500": 1.0}
 
-    with patch("src.tournament.simulator.resolve_session_grid", side_effect=RuntimeError("grid fail")):
+    with patch("src.tournament.simulator_rolling.resolve_session_grid", side_effect=RuntimeError("grid fail")):
         rolling = sim.run_rolling(_Static(), panel, config, horizon=3, path_dependent=False)
     assert len(rolling.returns) > 0
 

@@ -19,7 +19,7 @@ from tests.unit.backtest.conftest import build_engine, panel_row
 
 def _policy_with_score():
     policy = PortfolioPolicy(sizing_config=ConfidenceSizingConfig())
-    policy.name = "P08"  # type: ignore[attr-defined]
+    policy.name = "portfolio.momentum_policy"  # type: ignore[attr-defined]
 
     def _score(snapshot, ctx):
         scores: dict[str, float] = {}
@@ -334,7 +334,7 @@ def test_SCENARIO_PERF_05_sticky_fast_zero_engine_runs() -> None:
 
     import polars as pl
 
-    from src.alpha.baselines import BASELINES
+    from src.strategies.registry import STRATEGIES as BASELINES
     from src.backtest.costs import CostConfig
     from src.backtest.engine import BacktestConfig
     from src.core.calendar import TradingCalendar
@@ -357,7 +357,7 @@ def test_SCENARIO_PERF_05_sticky_fast_zero_engine_runs() -> None:
         filters=filt,
         costs=CostConfig(0.0, 0.0, 0.0),
     )
-    model = BASELINES["P27"]()
+    model = BASELINES["sticky.mom60_raw"]()
     mock_engine = MagicMock(wraps=engine)
     mock_engine.run = MagicMock(wraps=engine.run)
     for attr in ("execution", "calendar", "universe", "features", "regimes"):

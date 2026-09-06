@@ -331,7 +331,7 @@ def test_count_effective_discordant_returns_zero_on_mask_failure() -> None:
     from src.tournament.champion_eval import _count_effective_discordant
 
     sessions = [date(2026, 1, 5), date(2026, 1, 6)]
-    with patch("src.tournament.champion_eval.discordant_window_mask", side_effect=ValueError("bad")):
+    with patch("src.tournament.champion.promotion.discordant_window_mask", side_effect=ValueError("bad")):
         assert (
             _count_effective_discordant(
                 paired_starts=[sessions[0]],

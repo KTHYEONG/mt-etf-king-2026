@@ -63,16 +63,16 @@ def test_family_intensity_ranks_b1_family_ahead_of_weaker_1x_rival() -> None:
     attrs = {
         "A1": _make_attr("A1", "FAM_A", 1),
         "A2": _make_attr("A2", "FAM_A", 2),
-        "B1": _make_attr("B1", "FAM_B", 1),
+        "baseline.mom20_top1": _make_attr("baseline.mom20_top1", "FAM_B", 1),
     }
     master = _master(attrs)
-    snapshot = pl.DataFrame({"ticker": ["A1", "A2", "B1"], "mom_20": [0.05, 0.12, 0.08]})
+    snapshot = pl.DataFrame({"ticker": ["A1", "A2", "baseline.mom20_top1"], "mom_20": [0.05, 0.12, 0.08]})
     out = family_intensity_scores(snapshot, master)
-    assert set(out.keys()) == {"A1", "B1"}
+    assert set(out.keys()) == {"A1", "baseline.mom20_top1"}
     assert out["A1"] == pytest.approx(0.12)
-    assert out["B1"] == pytest.approx(0.08)
+    assert out["baseline.mom20_top1"] == pytest.approx(0.08)
     # intensity promotes A family ahead; canonical-only would pick B1
-    assert out["A1"] > out["B1"]
+    assert out["A1"] > out["baseline.mom20_top1"]
     best = max(out, key=lambda k: out[k])
     assert best == "A1"
 
@@ -147,9 +147,9 @@ def test_family_intensity_fail_closed_orphans_and_config() -> None:
     # empty allowed_multiples raises
     with pytest.raises(ValueError, match="allowed_multiples"):
         FamilyIntensityConfig.from_yaml({"allowed_multiples": []})
-    # Model.name == 'M13' and delegation
+    # Model.name == 'alpha.family_intensity' and delegation
     model = FamilyIntensityModel(master)
-    assert model.name == "M13"
+    assert model.name == "alpha.family_intensity"
     ctx = DecisionContext(
         decision_date=date(2024, 6, 1),
         regime=None,

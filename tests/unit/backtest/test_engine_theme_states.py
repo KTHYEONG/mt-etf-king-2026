@@ -31,7 +31,7 @@ def test_engine_passes_theme_states_to_allocate() -> None:
     captured: list[dict[str, str] | None] = []
 
     class ThemeStateModel:
-        name = "P12"
+        name = "portfolio.leadership_policy"
 
         def score(self, snapshot, context):  # type: ignore[no-untyped-def]
             return {"069500": 1.0}

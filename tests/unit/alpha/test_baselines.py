@@ -1,2 +1,2 @@
 """stub"""
-from src.alpha.baselines import BASELINES
+from src.strategies.registry import STRATEGIES as BASELINES

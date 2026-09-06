@@ -2,13 +2,13 @@
 import polars as pl
 from datetime import date
 
-from src.alpha.baselines import BASELINES
+from src.strategies.registry import STRATEGIES as BASELINES
 
 
 def test_p15_keeps_p14_alpha_and_enables_selective_capacity_route() -> None:
     # P14 and P15 score dictionaries identical for same snapshot
-    p14 = BASELINES["P14"]()
-    p15 = BASELINES["P15"]()
+    p14 = BASELINES["portfolio.lottery_exposure"]()
+    p15 = BASELINES["portfolio.tail_concentration"]()
     # Create minimal snapshot
     panel = pl.DataFrame(
         [
@@ -29,5 +29,5 @@ def test_p15_keeps_p14_alpha_and_enables_selective_capacity_route() -> None:
     assert getattr(p15.lottery_config, "suppress_trim") is False
     assert getattr(p14.lottery_config, "suppress_vehicle_gate") is True or getattr(p14.lottery_config, "suppress_vehicle_gate") is True  # P14 is true
     # P15 BASELINES registry exists
-    assert "P15" in BASELINES
-    assert callable(BASELINES["P15"])
+    assert "portfolio.tail_concentration" in BASELINES
+    assert callable(BASELINES["portfolio.tail_concentration"])

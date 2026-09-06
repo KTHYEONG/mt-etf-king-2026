@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from src.alpha.baselines import BASELINES
+from src.strategies.registry import STRATEGIES as BASELINES
 
 
 def test_p11_registered_in_baselines() -> None:
-    assert "P11" in BASELINES
-    model = BASELINES["P11"]()
-    assert getattr(model, "name", None) == "P11"
+    assert "portfolio.momentum_confidence" in BASELINES
+    model = BASELINES["portfolio.momentum_confidence"]()
+    assert getattr(model, "name", None) == "portfolio.momentum_confidence"
     assert getattr(model, "scores_path_independent", False) is True
     assert hasattr(model, "score")
     assert hasattr(model, "allocate")
