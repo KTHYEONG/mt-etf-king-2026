@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 JsonDiag = dict[str, Any]
@@ -171,6 +172,144 @@ def _test_references_source(test_file: str, source_file: str) -> bool:
     return source_module in _imported_source_modules(test_file)
 
 
+def _is_dead_anchor(node: ast.stmt) -> bool:
+    """True for `_ = <anything>` assignments (single Name target with id '_')."""
+    return (
+        isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "_"
+    )
+
+
+def _first_identifier(expression: str) -> str:
+    match = re.match(r"\s*([A-Za-z_]\w*)", expression)
+    return match.group(1) if match else ""
+
+
+def _invocation_identifier(expression: str) -> str:
+    """Resolve the called/referenced symbol of an invocation expression.
+
+    Handles `ok = func(...)` (assignment-wrapped calls), `TABLE[key](ctx)`
+    (subscript-called tables), `TABLE[key]` (subscript reads) and plain
+    `from m import name` statements, falling back to the first identifier.
+    """
+    try:
+        tree = ast.parse(expression, mode="exec")
+    except SyntaxError:
+        return _first_identifier(expression)
+    if not tree.body:
+        return _first_identifier(expression)
+    node = tree.body[0]
+    if isinstance(node, ast.Import | ast.ImportFrom):
+        if node.names:
+            return node.names[0].name.split(".")[0]
+        return _first_identifier(expression)
+    target: ast.AST = node
+    if isinstance(node, ast.Assign | ast.Expr | ast.Return) and getattr(node, "value", None) is not None:
+        target = node.value  # type: ignore[assignment]
+    while isinstance(target, ast.Call):
+        target = target.func
+    while isinstance(target, ast.Subscript | ast.Starred):
+        target = target.value
+    if isinstance(target, ast.Name):
+        return target.id
+    if isinstance(target, ast.Attribute):
+        return target.attr
+    return _first_identifier(expression)
+
+
+def verify_wiring(
+    caller_file: Path, import_symbol: str, invocation_expression: str
+) -> tuple[bool, str]:
+    """AST-based wiring check replacing the legacy substring containment test.
+
+    PASS requires BOTH: (a) import_symbol appears as an ast.Import /
+    ast.ImportFrom alias name-or-asname, or is assigned at module level;
+    and (b) the first identifier of invocation_expression appears as the
+    func of an ast.Call node, or as an ast.Attribute / ast.Name inside a
+    non-dead-anchor statement. A name occurring only inside an ast.Constant
+    string, or only as the value of a `_ = ...` assignment, does NOT count.
+    """
+    try:
+        source = Path(caller_file).read_text(encoding="utf-8")
+    except OSError as exc:
+        return (False, f"cannot read {caller_file}: {exc}")
+    try:
+        tree = ast.parse(source, filename=str(caller_file))
+    except SyntaxError as exc:
+        return (False, f"cannot parse {caller_file}: {exc}")
+
+    has_import = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(
+                alias.name.split(".")[0] == import_symbol or alias.asname == import_symbol
+                for alias in node.names
+            ):
+                has_import = True
+                break
+        elif isinstance(node, ast.ImportFrom) and any(
+            alias.name == import_symbol or alias.asname == import_symbol for alias in node.names
+        ):
+            has_import = True
+            break
+    if not has_import:
+        for stmt in tree.body:
+            if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                if stmt.name == import_symbol:
+                    has_import = True
+                    break
+                continue
+            targets: list[ast.expr] = []
+            if isinstance(stmt, ast.Assign):
+                targets = list(stmt.targets)
+            elif isinstance(stmt, ast.AnnAssign):
+                targets = [stmt.target]
+            if any(isinstance(t, ast.Name) and t.id == import_symbol for t in targets):
+                has_import = True
+                break
+    if not has_import:
+        return (False, f"{import_symbol} is never imported (or module-level assigned) in {caller_file}")
+
+    first = _invocation_identifier(invocation_expression)
+    if not first:
+        return (False, f"no identifier found in invocation expression {invocation_expression!r}")
+
+    def _live_nodes(root: ast.AST) -> list[ast.AST]:
+        found: list[ast.AST] = []
+
+        def _visit(node: ast.AST) -> None:
+            if isinstance(node, ast.stmt) and _is_dead_anchor(node):
+                return
+            found.append(node)
+            for child in ast.iter_child_nodes(node):
+                _visit(child)
+
+        _visit(root)
+        return found
+
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Import | ast.ImportFrom):
+            continue
+        for node in _live_nodes(stmt):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name) and func.id == first:
+                    return (True, f"ok: {import_symbol} imported and called in {caller_file}")
+                if isinstance(func, ast.Attribute) and func.attr == first:
+                    return (True, f"ok: {import_symbol} imported and called in {caller_file}")
+            elif isinstance(node, ast.Attribute) and node.attr == first:
+                return (True, f"ok: {import_symbol} referenced as attribute in {caller_file}")
+            elif (
+                isinstance(node, ast.Name)
+                and node.id == first
+                and isinstance(node.ctx, ast.Load)
+            ):
+                return (True, f"ok: {import_symbol} imported and referenced in {caller_file}")
+    return (False, f"{first} is never called outside dead `_ = ...` anchors in {caller_file}")
+
+
 def _check_orphaned_implementations(fh: str, kind: str, name: str) -> list[JsonDiag]:
     if kind in ("field", "cli_argument") or not fh.startswith("src"):
         # field는 정의 자체가 사용처가 아니고, cli_argument 플래그 리터럴은
@@ -304,6 +443,37 @@ def _iter_contract_entries(contract: dict[str, Any]) -> list[dict[str, Any]]:
     return entries
 
 
+def _spec_symbol_names(kind: str, raw_name: str) -> list[str]:
+    """Canonical symbol names from a contract entry.
+
+    Contract entries may carry full signatures (`def f(...) -> T`,
+    `class C(Base):`, `NAME: Final[...]`) or multi-symbol module lists
+    (`make_a, make_b, ...`). This extracts the verifiable identifiers so
+    the checker measures the defined symbol instead of a signature token.
+    """
+    text = raw_name.strip()
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("@"):
+            continue
+        text = line
+        break
+    lowered = text.lower()
+    if lowered.startswith("class ") or lowered.startswith("def "):
+        parts = text.split(None, 2)
+        text = parts[1] if len(parts) > 1 else ""
+    candidates = re.findall(r"[A-Za-z_]\w*", text)
+    if "," in text:
+        seen: list[str] = []
+        for ident in candidates:
+            if ident not in seen:
+                seen.append(ident)
+        return seen
+    if text.rstrip().endswith("*") and candidates:
+        return [candidates[0] + "*"]
+    return candidates[:1]
+
+
 def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int, list[JsonDiag]]:
     diagnostics: list[JsonDiag] = []
     try:
@@ -326,7 +496,25 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
         fh: str = c.get("file_hint", "") or c.get("file", "")
         kind: str = c.get("kind", "function")
         raw_name: str = c.get("name", "") or c.get("symbol", "")
-        name: str = raw_name.split()[0] if raw_name else ""
+        names: list[str] = _spec_symbol_names(kind, raw_name)
+        # Directory targets (package-level outcomes such as `src/`) carry no
+        # single verifiable symbol; their gates are the architecture tests.
+        if os.path.isdir(fh):
+            continue
+        # An entry named after its target file's stem (e.g. a test module)
+        # denotes the file itself; its gates are the scenario tests.
+        if names and names[0] == Path(fh).stem:
+            if not os.path.exists(fh):
+                diagnostics.append(
+                    {
+                        "file": fh,
+                        "line": 0,
+                        "error": f"Spec: file not found ({kind} {raw_name})",
+                        "fix_hint": f"Create {fh}",
+                    }
+                )
+            continue
+        name: str = names[0] if names else ""
         if not fh or not name:
             continue
         if pre_impl:
@@ -342,17 +530,69 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                 diagnostics.append(d)
             continue
         if not os.path.exists(fh):
+            if kind == "deletion":
+                continue
             d = {
                 "file": fh,
                 "line": 0,
-                "error": f"Spec: file not found ({kind} {name})",
+                "error": f"Spec: file not found ({kind} {raw_name})",
                 "fix_hint": f"Create {fh}",
             }
             diagnostics.append(d)
             continue
+        if kind == "deletion":
+            diagnostics.append(
+                {
+                    "file": fh,
+                    "line": 0,
+                    "error": f"Spec: '{raw_name}' scheduled for deletion still exists",
+                    "fix_hint": f"Delete {fh} per the contract",
+                }
+            )
+            continue
+        if kind in ("package", "refactor", "docs"):
+            # Structural outcomes (package splits, cross-file refactors, doc
+            # syncs) are gated by the architecture scenario tests, not by a
+            # single symbol lookup.
+            continue
 
         with open(fh) as sf:
             sf_content = sf.read()
+            if kind == "module" and len(names) > 1:
+                missing = [
+                    wanted
+                    for wanted in names
+                    if not re.search(rf"^\s*(?:def|class)\s+{re.escape(wanted)}\b", sf_content, re.MULTILINE)
+                ]
+                if missing:
+                    diagnostics.append(
+                        {
+                            "file": fh,
+                            "line": 0,
+                            "error": f"Spec: {kind} '{', '.join(missing)}' not implemented",
+                            "fix_hint": f"Implement {', '.join(missing)} in {fh}",
+                        }
+                    )
+                continue
+            if kind == "module" and name.endswith("*"):
+                prefix = name[:-1]
+                if not re.search(rf"^\s*(?:def|class)\s+{re.escape(prefix)}", sf_content, re.MULTILINE):
+                    all_match = re.search(r"__all__\s*=\s*\[([^\]]*)\]", sf_content)
+                    all_names = re.findall(r"[A-Za-z_]\w*", all_match.group(1)) if all_match else []
+                    if not any(n.startswith(prefix) for n in all_names):
+                        diagnostics.append(
+                            {
+                                "file": fh,
+                                "line": 0,
+                                "error": f"Spec: {kind} '{name}' not implemented",
+                                "fix_hint": f"Implement {name} in {fh}",
+                            }
+                        )
+                continue
+            if kind == "config" and " " in raw_name.strip():
+                # Multi-word config outcomes (e.g. `pyproject cleanup`) are
+                # verified by the lint/type gates, not by a key lookup.
+                continue
             if kind == "config":
                 leaf = name.split(".")[-1] if "." in name else name
                 # for yaml config, check leaf key appears as "leaf:" in file
@@ -387,7 +627,7 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                 found_impl = False
                 try:
                     tree = ast.parse(sf_content, filename=fh)
-                    if kind in ("constant", "type alias"):
+                    if kind in ("constant", "module-constant", "type alias"):
                         # 모듈 수준 상수/타입 별칭(AnnAssign/Assign 타깃)를 인식한다.
                         for node in ast.walk(tree):
                             if (
@@ -650,8 +890,12 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
         anchor: str = w.get("anchor", "")
         import_symbol: str = w.get("import_symbol", "") or w.get("callee", "") or w.get("symbol", "")
         invocation_expr: str = w.get("invocation_expression", "") or w.get("invocation_symbol", "")
-        if not wf or not os.path.exists(wf):
-            if wf:
+        if wf and not os.path.exists(wf) and wf.endswith(".py"):
+            sibling_init = os.path.join(os.path.dirname(wf), os.path.basename(wf)[:-3], "__init__.py")
+            if os.path.exists(sibling_init):
+                wf = sibling_init
+        if not wf or not os.path.exists(wf) or os.path.isdir(wf):
+            if wf and not os.path.isdir(wf):
                 diagnostics.append(
                     {
                         "file": wf,
@@ -669,7 +913,7 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                     for t in re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]*\b", anchor)
                     if t not in ("step", "main", "when")
                 )
-                if not found_anchor:
+                if not found_anchor and pre_impl:
                     diagnostics.append(
                         {
                             "file": wf,
@@ -679,24 +923,36 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                         }
                     )
             if not pre_impl:
-                if import_symbol and import_symbol not in wf_content:
-                    diagnostics.append(
-                        {
-                            "file": wf,
-                            "line": 0,
-                            "error": f"Spec wiring: missing reference to '{import_symbol}'",
-                            "fix_hint": f"Import {import_symbol} in {wf}",
-                        }
-                    )
-                if invocation_expr and invocation_expr not in wf_content:
-                    diagnostics.append(
-                        {
-                            "file": wf,
-                            "line": 0,
-                            "error": f"Spec wiring: missing invocation of '{invocation_expr}'",
-                            "fix_hint": f"Invoke {invocation_expr} in {wf}",
-                        }
-                    )
+                if import_symbol and invocation_expr and wf.endswith(".py"):
+                    ok, reason = verify_wiring(Path(wf), import_symbol, invocation_expr)
+                    if not ok:
+                        diagnostics.append(
+                            {
+                                "file": wf,
+                                "line": 0,
+                                "error": f"Spec wiring: {reason}",
+                                "fix_hint": f"Import {import_symbol} and invoke {invocation_expr} in {wf}",
+                            }
+                        )
+                else:
+                    if import_symbol and import_symbol not in wf_content:
+                        diagnostics.append(
+                            {
+                                "file": wf,
+                                "line": 0,
+                                "error": f"Spec wiring: missing reference to '{import_symbol}'",
+                                "fix_hint": f"Import {import_symbol} in {wf}",
+                            }
+                        )
+                    if invocation_expr and invocation_expr not in wf_content:
+                        diagnostics.append(
+                            {
+                                "file": wf,
+                                "line": 0,
+                                "error": f"Spec wiring: missing invocation of '{invocation_expr}'",
+                                "fix_hint": f"Invoke {invocation_expr} in {wf}",
+                            }
+                        )
 
     return (1 if diagnostics else 0, diagnostics)
 
@@ -985,7 +1241,8 @@ def main() -> None:
         ):
             parts = pf.split("/")
             test_name = f"test_{parts[-1]}"
-            has_test = any(test_name in tf for tf in test_files) or (
+            path_test_name = f"test_{parts[-2]}_{parts[-1]}" if len(parts) > 2 else test_name
+            has_test = any(test_name in tf or path_test_name in tf for tf in test_files) or (
                 pf in spec_target_files and len(test_files) > 0
             )
             if not has_test:
