@@ -308,7 +308,6 @@ def pick_convex_ticker(
     fresh_val = rank_by_ticker.get(str(fresh))
     if held_val is None or fresh_val is None:
         return fresh
-    _ = col
     if float(fresh_val) - float(held_val) < float(mg) - 1e-12:
         return held
     return fresh
@@ -324,7 +323,7 @@ class ConvexImpulseModel:
     path_dependent: bool = True
     scores_path_independent: bool = False
 
-    def __init__(self, name: str = "P31", config: ConvexImpulseConfig | None = None) -> None:
+    def __init__(self, name: str = "convex.lottery_impulse", config: ConvexImpulseConfig | None = None) -> None:
         self.name = str(name)
         self.config = config if config is not None else ConvexImpulseConfig()
         self._held: str | None = None

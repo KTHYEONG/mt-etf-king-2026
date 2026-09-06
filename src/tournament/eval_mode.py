@@ -32,8 +32,7 @@ def resolve_path_dependent_mode(model: object, *, mode: EvalMode | str = EvalMod
                 eval_mode = EvalMode.ADOPTION
     else:
         eval_mode = mode
-    _ = model
-    _ = eval_mode
+    del eval_mode  # normalised for validation only; adoption eval always uses fast path
     return "fast"
 
 

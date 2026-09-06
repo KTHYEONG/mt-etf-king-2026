@@ -228,7 +228,12 @@ def optimize_p25_overlay(
             best_arm = float(arms[0])
             best_lr = int(lock_remaining_values[0])
             best_score = -float("inf")
-        selections.append({"fold": int(fold_idx), "arm": float(best_arm), "lock_remaining": int(best_lr), "train_score": float(best_score), "train_indices": list(fold.train_indices), "test_indices": list(fold.test_indices)})
+        selections.append({
+            "fold": int(fold_idx), "arm": float(best_arm),
+            "lock_remaining": int(best_lr), "train_score": float(best_score),
+            "train_indices": list(fold.train_indices),
+            "test_indices": list(fold.test_indices),
+        })
         # apply to test
         test_daily = [float(daily_rets[i]) for i in fold.test_indices]
         # Note: test indices are not contiguous daily_rets slice for window returns? But we use them as daily_rets for test window returns

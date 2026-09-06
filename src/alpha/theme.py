@@ -54,8 +54,6 @@ def build_theme_panel_indexed(
     decision_date: date,
     weights: object,
 ) -> ThemePanel:
-    _ = decision_date
-    _ = weights
     if not choices:
         return ThemePanel([])
     if not index:
@@ -184,7 +182,6 @@ def build_theme_panel(
     decision_date: date,
     weights: object,
 ) -> ThemePanel:
-    _ = history
     index: SnapshotIndex = build_snapshot_index(snapshot)
     # also ensure history not used; indexed version uses snapshot only
     return build_theme_panel_indexed(index, choices, decision_date, weights)

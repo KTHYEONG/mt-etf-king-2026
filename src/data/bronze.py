@@ -136,7 +136,9 @@ class BronzeStore:
         for p in base.rglob("*.json"):
             if ".rev." in p.name:
                 continue
-            # handle .json.gz: rglob *.json will also match .json.gz because it ends with .json? Actually *.json pattern may match .json.gz? In Path.rglob, *.json matches files ending with .json but not .json.gz? Need to also glob *.json.gz
+            # handle .json.gz: rglob *.json also matches .json.gz since it
+            # ends with .json? In Path.rglob, *.json matches files ending
+            # with .json but not .json.gz? Need to also glob *.json.gz
             # Instead handle filtering after: if name endswith .json.gz, strip .json.gz and parse
             # For plain .json files, parse stem
             # For .json.gz files, the path's name ends with .json.gz but rglob *.json might not match it depending on OS glob behavior.

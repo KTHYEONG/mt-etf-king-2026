@@ -64,8 +64,8 @@ def _truncate_list(items: list[str], limit: int = 5) -> str:
     return f"{head} truncated={len(items) - limit}"
 
 
-def find_future_dates(dates: Sequence[date], as_of: date) -> list[date]:
-    future = {d for d in dates if d > as_of}
+def find_future_dates(dates: Sequence[date], decision_date: date) -> list[date]:
+    future = {d for d in dates if d > decision_date}
     return sorted(future)
 
 
@@ -340,7 +340,7 @@ class PanelValidator:
         # For now, if is_tradable column exists, check counts
         if "is_tradable" in frame.columns and rows > 0:
             try:  # noqa: SIM105
-                _ = frame.filter(pl.col("is_tradable") == False).height  # noqa: E712
+                pass
             except Exception:  # noqa: S110
                 pass  # noqa: S110
 

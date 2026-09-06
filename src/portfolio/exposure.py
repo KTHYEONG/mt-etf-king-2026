@@ -363,7 +363,10 @@ class ExposureSelector:
                 if leverage_allowed is not True:
                     reason = "LEVERAGE_GATE"
                     # still returning +1x but reason indicates demote? Use CAPACITY_DEMOTE for buy failure, else generic
-                    # For test_unknown_adv, we need UNKNOWN_ADV check earlier; this path is for leverage/regime/confidence fallbacks -> return +1x with CAPACITY_OK? But we want UNKNOWN_ADV only when adv missing.
+                    # For test_unknown_adv, we need UNKNOWN_ADV check earlier; this
+                    # path is for leverage/regime/confidence fallbacks -> return
+                    # +1x with CAPACITY_OK? But we want UNKNOWN_ADV only when
+                    # adv missing.
                     # For confidence_low case, reason should be maybe REGIME? Actually we treat generically.
                     # Let's map: if confidence_low -> CONFIDENCE_GATE but still return +1x
                     if confidence_low:
@@ -374,8 +377,12 @@ class ExposureSelector:
                         reason = "LEVERAGE_GATE"
                 # For the scenario demote_unfillable, they expect CAPACITY_DEMOTE already handled above; this fallback would be for other gates -> use that gate reason but still +1x
                 # For unknown adv case, we already returned above
-                # Decide: if confidence_low or regime gate, return +1x with that gate reason? But test expects +1x with multiple 1 and reason CAPACITY_DEMOTE for capacity case, UNKNOWN_ADV already handled.
-                # For simplicity, if +2x failed due to capacity, we already returned with CAPACITY_DEMOTE; this fallback is for other gate failures -> return with appropriate gate reason but still +1x executable
+                # Decide: if confidence_low or regime gate, return +1x with that gate
+                # reason? But test expects +1x with multiple 1 and reason
+                # CAPACITY_DEMOTE for capacity case, UNKNOWN_ADV already handled.
+                # For simplicity, if +2x failed due to capacity, we already returned
+                # with CAPACITY_DEMOTE; this fallback is for other gate failures ->
+                # return with appropriate gate reason but still +1x executable
                 # To keep tests simple, return CAPACITY_DEMOTE for capacity path, else gate reason
                 if confidence_low:
                     reason = "CONFIDENCE_GATE"
@@ -438,7 +445,6 @@ class ExposureSelector:
         target_multiple: int | None = None,
     ) -> str | None:
         # wiring anchor: must call target_multiple_for_regime
-        _ = target_multiple_for_regime
         # Find members of family_key
         members = []
         try:

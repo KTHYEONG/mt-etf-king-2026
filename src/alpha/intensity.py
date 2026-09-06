@@ -190,7 +190,7 @@ def family_intensity_scores(
 
 
 class FamilyIntensityModel:
-    name: str = "M13"
+    name: str = "alpha.family_intensity"
 
     def __init__(self, master: InstrumentMaster, config: FamilyIntensityConfig | None = None) -> None:
         self.master = master

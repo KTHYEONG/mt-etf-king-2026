@@ -53,7 +53,6 @@ def write_backtest_result(
         if windows is not None:
             win_path = write_window_timeseries(dest, windows)
             artifacts["windows"] = "windows.parquet"
-            _ = win_path
         meta_doc["artifacts"] = artifacts
         summary_doc["artifacts"] = artifacts
         summary_doc["daily_rows"] = int(daily.height)

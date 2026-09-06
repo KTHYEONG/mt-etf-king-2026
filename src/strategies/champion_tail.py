@@ -69,8 +69,6 @@ class ChampionTailPolicy:
         inverse_allowed: bool | None = None,
         current_weights: Mapping[str, float] | None = None,
     ) -> PortfolioDecision:
-        _ = inverse_allowed
-        _ = current_weights
         if not scores:
             return PortfolioDecision(weights={}, rationale={}, vehicles={}, gross=0.0)
         # Only the top family is used.

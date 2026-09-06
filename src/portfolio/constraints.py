@@ -8,6 +8,8 @@ from typing import Literal
 
 import yaml
 
+from src.core.config import config_path
+
 ComparisonMode = Literal["alpha_equal", "full_strategy_own"]
 
 
@@ -186,7 +188,7 @@ def load_portfolio_exposure_limits(path: Path) -> tuple[float, float, float]:
 
 def load_p26_exposure_limits(path: Path | None = None) -> tuple[float, float, float]:
     try:
-        p = Path(path) if path is not None else Path("configs/strategies.yaml")
+        p = Path(path) if path is not None else config_path("strategies")
         with open(p, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         if not isinstance(raw, dict):
@@ -229,12 +231,12 @@ def load_p26_exposure_limits(path: Path | None = None) -> tuple[float, float, fl
             raise ValueError("max_single > 1-min_cash")
         return float(max_single), float(max_gross), float(min_cash)
     except Exception:
-        return load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
+        return load_portfolio_exposure_limits(config_path("portfolio"))
 
 
 def load_p27_exposure_limits(path: Path | None = None) -> tuple[float, float, float]:
     try:
-        p = Path(path) if path is not None else Path("configs/strategies.yaml")
+        p = Path(path) if path is not None else config_path("strategies")
         with open(p, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         if not isinstance(raw, dict):
@@ -284,7 +286,7 @@ def alpha_equal_exposure_limits() -> tuple[float, float, float]:
 
 
 def resolve_exposure_limits_for_model(
-    model_key: str,
+    strategy_id: str,
     *,
     comparison_mode: ComparisonMode = "full_strategy_own",
 ) -> tuple[float, float, float]:
@@ -292,16 +294,11 @@ def resolve_exposure_limits_for_model(
     from src.strategies.sticky.config import load_sticky_exposure_limits
 
     # wiring anchors
-    _ = resolve_strategy_id
-    _ = load_sticky_exposure_limits
-    _ = "resolve_strategy_id(key)"
-    key = resolve_strategy_id(model_key) if isinstance(model_key, str) else str(model_key)
+    key = resolve_strategy_id(strategy_id) if isinstance(strategy_id, str) else str(strategy_id)
     resolve_strategy_id(key)
     load_sticky_exposure_limits(key)
     if key == "sticky.mom60_concentrated":
         return load_p26_exposure_limits()
-    _ = "sticky.fillable_mom60"
-    _ = "sticky.mom60_runner_reversal"
     if key in (
         "sticky.mom60_raw",
         "sticky.mom60_hold",
@@ -312,19 +309,20 @@ def resolve_exposure_limits_for_model(
         "sticky.mom60_runner_reversal",
         "convex.lottery_impulse",
     ):
-        _ = "P33"
         return load_p27_exposure_limits()
     # legacy fallback via upper
-    uk = str(model_key).upper()
-    _ = "P31"
-    if uk == "P26":
+    uk = str(strategy_id).upper()
+    if uk == "sticky.mom60_concentrated":
         return load_p26_exposure_limits()
-    if uk in ("P27", "P28A", "P28B", "P29", "P29V", "P30", "P31", "P33"):
-        _ = "P33"
+    if uk in (
+        "sticky.mom60_raw", "sticky.mom60_hold", "sticky.mom60_abs_cash",
+        "sticky.equity_mom60", "sticky.equity_mom60_vol", "sticky.fillable_mom60",
+        "convex.lottery_impulse", "sticky.mom60_runner_reversal",
+    ):
         return load_p27_exposure_limits()
     if comparison_mode == "alpha_equal":
         return alpha_equal_exposure_limits()
-    return load_portfolio_exposure_limits(Path("configs/portfolio.yaml"))
+    return load_portfolio_exposure_limits(config_path("portfolio"))
 
 
 def apply_portfolio_exposure_limits(

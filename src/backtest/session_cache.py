@@ -133,12 +133,11 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_
     # prebuild rules once
     rules = None
     try:
-        from pathlib import Path as _Path
-
+        from src.core.config import config_path
         from src.universe.tournament import TournamentRules
 
         try:
-            rules = TournamentRules.from_yaml(_Path("configs/tournament.yaml"))
+            rules = TournamentRules.from_yaml(config_path("tournament"))
         except Exception:
             comm_val = config.costs.commission_bps if config.costs.commission_bps is not None else 0.0
             slip_val = config.costs.slippage_bps if config.costs.slippage_bps is not None else 0.0
@@ -247,7 +246,6 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_
         try:
             from src.backtest.engine import build_execution_adv
 
-            _ = build_execution_adv
             # wiring: engine.universe.adv(str(tk), d)
             mp: dict[str, float] = {}
             if "ticker" in panel.columns and "date" in panel.columns:

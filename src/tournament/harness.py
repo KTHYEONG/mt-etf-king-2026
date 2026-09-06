@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import replace
-from pathlib import Path
 
 import polars as pl
 import yaml
@@ -20,7 +19,9 @@ DEFAULT_PROTOCOL_PARTICIPATION: float = 0.01
 
 def load_participation_grid() -> tuple[float, ...]:
     try:
-        with open(Path("configs/universe.yaml"), encoding="utf-8") as f:
+        from src.core.config import config_path
+
+        with open(config_path("universe"), encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         uni = raw.get("universe", raw) if isinstance(raw, dict) else {}
         grid = uni.get("participation_grid") if isinstance(uni, dict) else None
@@ -80,14 +81,11 @@ def run_distribution_eval(
     thresholds: Sequence[float],
     tail_weights: dict[float, float],
 ) -> ReturnDistribution:
-    _ = resolve_leverage_scenario
     filt = replace(base_config.filters, max_order_to_adv=float(participation))
     config = replace(base_config, filters=filt)
     _is_pd = bool(model_requires_path_dependent(model))
     _scores_pi = bool(getattr(model, "scores_path_independent", True))
     _mode = "fast" if _scores_pi else "slow"
-    _ = _mode
-    _ = "path_dependent_mode"
     if _is_pd:
         rolling = simulator.run_rolling(
             model,

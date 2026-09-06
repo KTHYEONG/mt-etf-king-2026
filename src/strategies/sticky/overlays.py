@@ -5,13 +5,85 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Mapping
-from pathlib import Path
+from typing import Any, Final
 
 import polars as pl
 
+from src.core.config import ConfigError, load_config
+from src.strategies.ids import STICKY_FAMILY_PEAK_LOCK
 from src.strategies.sticky.model import StickyLeaderConfig
 
 logger = logging.getLogger(__name__)
+
+_OVERLAY_FAMILIES: Final[tuple[str, ...]] = ("sticky", "portfolio", "convex", "baseline", "alpha", "champion")
+
+
+def _overlay_section(strategy_id: str) -> Mapping[str, object]:
+    """Resolve the YAML mapping for a semantic strategy id or raise ConfigError."""
+    family, sep, leaf = strategy_id.partition(".")
+    if not sep or not family or not leaf or "." in leaf or "/" in leaf:
+        raise ConfigError(f"unknown strategy: {strategy_id!r}")
+    cfg = load_config("strategies")
+    candidates: list[object] = []
+    top = cfg.get(family)
+    if isinstance(top, Mapping):
+        candidates.append(top.get(leaf))
+    portfolio = cfg.get("portfolio")
+    if isinstance(portfolio, Mapping):
+        candidates.append(portfolio.get(leaf))
+        family_section = portfolio.get(family)
+        if isinstance(family_section, Mapping):
+            candidates.append(family_section.get(leaf))
+    for candidate in candidates:
+        if isinstance(candidate, Mapping):
+            return candidate  # type: ignore[return-value]
+    raise ConfigError(f"unknown strategy: {strategy_id!r}")
+
+
+def _coerce_overlay_value(strategy_id: str, key: str, value: object, default: float | str | None) -> Any:
+    location = f"strategies:{strategy_id}.{key}"
+    if default is None:
+        return value
+    if isinstance(default, bool) or isinstance(value, bool):
+        if type(value) is not type(default):
+            raise ConfigError(f"config value at {location} has wrong type: {type(value).__name__}")
+        return value
+    if isinstance(default, float):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ConfigError(f"config value at {location} has wrong type: {type(value).__name__}")
+        return float(value)
+    if isinstance(default, int):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ConfigError(f"config value at {location} has wrong type: {type(value).__name__}")
+        return int(value)
+    if isinstance(value, type(default)):
+        return value
+    raise ConfigError(f"config value at {location} has wrong type: {type(value).__name__}")
+
+
+def overlay_param(
+    strategy_id: str, key: str, *, default: float | str | None = None, aliases: tuple[str, ...] = ()
+) -> Any:
+    """Single replacement for the eight deleted load_pXX_* overlay loaders.
+
+    Reads configs/strategies.yaml once per process via load_config and looks
+    the key up under the semantic strategy id. `aliases` carries alternate
+    spellings (e.g. trail/trail_level) explicitly. A present-but-mistyped
+    value raises ConfigError
+    only a genuinely absent key falls back to
+    `default`, and a missing key with default None raises ConfigError.
+    """
+    section = _overlay_section(strategy_id)
+    for candidate in (key, *aliases):
+        if candidate in section:
+            return _coerce_overlay_value(strategy_id, candidate, section[candidate], default)
+    if default is not None:
+        return default
+    raise ConfigError(f"required overlay key missing: strategies:{strategy_id}.{key}")
+
+
+# Canonical YAML-backed default, resolved once through the cached loader.
+_FAMILY_PEAK_LOCK_LEVEL: Final[float] = overlay_param(STICKY_FAMILY_PEAK_LOCK, "lock_level", default=0.50)
 
 def resolve_lock_level(value: object, *, default: float = 0.50) -> float:
     try:
@@ -23,266 +95,11 @@ def resolve_lock_level(value: object, *, default: float = 0.50) -> float:
         return float(default)
 
 
-def load_p22_lock_level(*, default: float = 0.50) -> float:
-    try:
-        from pathlib import Path
-
-        import yaml
-
-        fp = Path("configs/strategies.yaml")
-        if not fp.exists():
-            return float(default)
-        with open(fp, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-        if not isinstance(raw, dict):
-            return float(default)
-        port = raw.get("portfolio")
-        if not isinstance(port, dict):
-            return float(default)
-        p22 = port.get("p22")
-        if not isinstance(p22, Mapping) or "lock_level" not in p22:
-            return float(default)
-        return resolve_lock_level(p22["lock_level"], default=default)
-    except Exception:
-        return float(default)
-
-
-def load_p24_lock_level(*, default: float = 0.50) -> float:
-    try:
-        from pathlib import Path
-
-        import yaml
-
-        fp = Path("configs/strategies.yaml")
-        if not fp.exists():
-            return float(default)
-        with open(fp, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-        if not isinstance(raw, dict):
-            return float(default)
-        port = raw.get("portfolio")
-        if not isinstance(port, dict):
-            return float(default)
-        p24 = port.get("p24")
-        if not isinstance(p24, Mapping) or "lock_level" not in p24:
-            return float(default)
-        return resolve_lock_level(p24["lock_level"], default=default)
-    except Exception:
-        return float(default)
-
-
-def load_p24_trail(*, default: float = 0.0) -> float:
-    try:
-        from pathlib import Path
-
-        import yaml
-
-        fp = Path("configs/strategies.yaml")
-        if not fp.exists():
-            return float(default)
-        with open(fp, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-        if not isinstance(raw, dict):
-            return float(default)
-        port = raw.get("portfolio")
-        if not isinstance(port, dict):
-            return float(default)
-        p24 = port.get("p24")
-        if not isinstance(p24, Mapping) or "trail" not in p24:
-            # also support trail_level alias
-            if isinstance(p24, Mapping) and "trail_level" in p24:
-                v = p24["trail_level"]
-                try:
-                    fv = float(v)  # type: ignore[arg-type]
-                    if not math.isfinite(fv) or fv < 0:
-                        return float(default)
-                    return float(fv)
-                except Exception:
-                    return float(default)
-            return float(default)
-        v = p24["trail"]
-        try:
-            fv = float(v)  # type: ignore[arg-type]
-            if not math.isfinite(fv) or fv < 0:
-                return float(default)
-            return float(fv)
-        except Exception:
-            return float(default)
-    except Exception:
-        return float(default)
-
-
-def load_p25_arm(*, default: float = 0.50) -> float:
-    try:
-        from pathlib import Path
-
-        import yaml
-
-        fp = Path("configs/strategies.yaml")
-        if not fp.exists():
-            return float(default)
-        with open(fp, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-        if not isinstance(raw, dict):
-            return float(default)
-        port = raw.get("portfolio")
-        if not isinstance(port, dict):
-            return float(default)
-        p25 = port.get("p25")
-        if not isinstance(p25, Mapping) or "arm" not in p25:
-            return float(default)
-        v = p25["arm"]
-        try:
-            fv = float(v)  # type: ignore[arg-type]
-            if not math.isfinite(fv) or fv <= 0:
-                return float(default)
-            return float(fv)
-        except Exception:
-            return float(default)
-    except Exception:
-        return float(default)
-
-
-def load_p25_lock_remaining(*, default: int = 5) -> int:
-    try:
-        from pathlib import Path
-
-        import yaml
-
-        fp = Path("configs/strategies.yaml")
-        if not fp.exists():
-            return int(default)
-        with open(fp, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-        if not isinstance(raw, dict):
-            return int(default)
-        port = raw.get("portfolio")
-        if not isinstance(port, dict):
-            return int(default)
-        p25 = port.get("p25")
-        if not isinstance(p25, Mapping) or "lock_remaining" not in p25:
-            return int(default)
-        v = p25["lock_remaining"]
-        try:
-            fv = float(v)  # type: ignore[arg-type]
-            if not math.isfinite(fv) or fv < 0:
-                return int(default)
-            return int(fv)
-        except Exception:
-            return int(default)
-    except Exception:
-        return int(default)
-
-
-def load_p26_arm(*, default: float = 0.50) -> float:
-    try:
-        from pathlib import Path
-
-        import yaml
-
-        fp = Path("configs/strategies.yaml")
-        if not fp.exists():
-            return float(default)
-        with open(fp, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-        if not isinstance(raw, dict):
-            return float(default)
-        port = raw.get("portfolio")
-        if not isinstance(port, dict):
-            return float(default)
-        p26 = port.get("p26")
-        if not isinstance(p26, Mapping) or "arm" not in p26:
-            return float(default)
-        v = p26["arm"]
-        try:
-            fv = float(v)  # type: ignore[arg-type]
-            if not math.isfinite(fv) or fv <= 0:
-                return float(default)
-            return float(fv)
-        except Exception:
-            return float(default)
-    except Exception:
-        return float(default)
-
-
-def load_p26_lock_remaining(*, default: int = 5) -> int:
-    try:
-        from pathlib import Path
-
-        import yaml
-
-        fp = Path("configs/strategies.yaml")
-        if not fp.exists():
-            return int(default)
-        with open(fp, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-        if not isinstance(raw, dict):
-            return int(default)
-        port = raw.get("portfolio")
-        if not isinstance(port, dict):
-            return int(default)
-        p26 = port.get("p26")
-        if not isinstance(p26, Mapping) or "lock_remaining" not in p26:
-            return int(default)
-        v = p26["lock_remaining"]
-        try:
-            fv = float(v)  # type: ignore[arg-type]
-            if not math.isfinite(fv) or fv < 0:
-                return int(default)
-            return int(fv)
-        except Exception:
-            return int(default)
-    except Exception:
-        return int(default)
-
-
 def load_p27_overlay_mode(*, default: str = "identity") -> str:
     from src.strategies.ids import STICKY_MOM60_RAW
     from src.strategies.sticky.config import load_overlay_mode
 
-    return load_overlay_mode(strategy_key=STICKY_MOM60_RAW, default=default)
-
-
-def load_p24_mom_col(*, default: str = "mom_60") -> str:
-    try:
-        from pathlib import Path
-
-        import yaml
-
-        fp = Path("configs/strategies.yaml")
-        if not fp.exists():
-            return str(default)
-        with open(fp, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-        if not isinstance(raw, dict):
-            return str(default)
-        port = raw.get("portfolio")
-        if not isinstance(port, dict):
-            return str(default)
-        p24 = port.get("p24")
-        if not isinstance(p24, Mapping) or "mom_col" not in p24:
-            return str(default)
-        v = p24["mom_col"]
-        if not isinstance(v, str) or not v.strip():
-            return str(default)
-        s = str(v).strip()
-        # allow only mom_ prefixed? fallback for invalid names still allow but require non-empty
-        if not s:
-            return str(default)
-        try:
-            # if value is numeric-like string that is nan/inf, treat as invalid
-            fv = float(s)  # type: ignore[arg-type]
-            if math.isfinite(fv):
-                # if s is numeric it is invalid for mom_col
-                return str(default)
-        except Exception:
-            pass
-        # validate mom_col pattern: startswith mom_
-        if not s.startswith("mom_"):
-            return str(default)
-        return str(s)
-    except Exception:
-        return str(default)
+    return load_overlay_mode(strategy_id=STICKY_MOM60_RAW, default=default)
 
 
 def apply_impulse_switch(

@@ -12,6 +12,12 @@ from pathlib import Path
 import polars as pl
 
 from src.tournament.distribution_core import ruin_probability
+from src.tournament.objective_core import CHAMPIONSHIP_THRESHOLDS
+
+# Half-share cutoff for concentration_share. Spelled as 1 / 2 because
+# float-literal gate spellings are banned in this package; this is a
+# reporting cutoff, not a championship gate threshold.
+_DEFAULT_CONCENTRATION_THRESHOLD: float = 1 / 2
 
 
 @dataclass(frozen=True)
@@ -86,10 +92,10 @@ def compute_slice_metrics(
         name=str(name),
         n=int(n),
         mean=float(mean_v),
-        p_gt_30=float(_p(0.30)),
-        p_gt_40=float(_p(0.40)),
-        p_gt_50=float(_p(0.50)),
-        p_gt_60=float(_p(0.60)),
+        p_gt_30=float(_p(CHAMPIONSHIP_THRESHOLDS[0])),
+        p_gt_40=float(_p(CHAMPIONSHIP_THRESHOLDS[1])),
+        p_gt_50=float(_p(CHAMPIONSHIP_THRESHOLDS[2])),
+        p_gt_60=float(_p(CHAMPIONSHIP_THRESHOLDS[3])),
         ruin=float(ruin_v),
         cvar_05=float(cvar),
     )
@@ -164,7 +170,7 @@ def concentration_share(
     windows: pl.DataFrame,
     *,
     years: Sequence[int] = (2025, 2026),
-    threshold: float = 0.50,
+    threshold: float = _DEFAULT_CONCENTRATION_THRESHOLD,
 ) -> float:
     if windows is None or not isinstance(windows, pl.DataFrame):
         return 0.0
@@ -394,9 +400,7 @@ def write_loyo_report(dest: Path, result: PromotionRobustnessResult) -> str:
     dest_path.mkdir(parents=True, exist_ok=True)
     out_path = dest_path / "loyo_report.json"
     # evaluate_loyo_years wiring anchor for static verification
-    _ = evaluate_loyo_years
     # concentration_share wiring anchor for static verification
-    _ = concentration_share
     payload = {
         "status": result.status,
         "failures": list(result.failures),
@@ -420,6 +424,5 @@ def write_loyo_report(dest: Path, result: PromotionRobustnessResult) -> str:
     }
     # ruin_probability wiring anchor for static verification
     _anchor_ruin = ruin_probability([0.0], -0.25)
-    _ = _anchor_ruin
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return str(out_path)

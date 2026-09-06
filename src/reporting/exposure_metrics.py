@@ -96,9 +96,13 @@ def summarise_realised_exposure(
         if idx > 0:
             prev_d = dates[idx - 1]
             if prev_d in decision_to_weights:
-                # For tickers that were traded, update; missing tickers zero out? We need to reconstruct full holdings from trades: trades only contain rows where delta !=0. So we need to infer holdings from last set.
+                # For tickers that were traded, update; missing tickers zero out? We
+                # need to reconstruct full holdings from trades: trades only contain
+                # rows where delta !=0. So we need to infer holdings from last set.
                 # Simplify: holdings = decision_to_weights[prev_d] plus zero for missing?
-                # But trades may not include all tickers; we need to keep previous holdings for not traded tickers? Actually trades includes all tickers that had delta; those not in map imply weight 0 or unchanged?
+                # But trades may not include all tickers; we need to keep previous
+                # holdings for not traded tickers? Actually trades includes all tickers
+                # that had delta; those not in map imply weight 0 or unchanged?
                 # For our reconstruction, we will assume decision_to_weights[prev_d] is the full holdings after execution (as engine records new_weights). So set holdings to that dict.
                 # Filter epsilon
                 raw = decision_to_weights[prev_d]
@@ -149,7 +153,12 @@ def summarise_realised_exposure(
     multi_family_rate = (multi_sessions / active_sessions) if active_sessions else 0.0
     # means
     active_name_mean = sum(active_names) / len(active_names) if active_names else 0.0
-    # but spec says active-name mean should ignore zero weights? Our active_names already counts zero; mean over all sessions includes zeros? Spec says "Zero and <=1e-9 residual keys do not increase active-name/family counts; reconstructed effective gross and turnover equal hand-calculated values." So our mean includes zeros as 0? Might need mean over active sessions only? We'll use overall mean but zeros count as 0, which matches spec's ignoring zero weights.
+    # but spec says active-name mean should ignore zero weights? Our active_names
+    # already counts zero; mean over all sessions includes zeros? Spec says "Zero and
+    # <=1e-9 residual keys do not increase active-name/family counts; reconstructed
+    # effective gross and turnover equal hand-calculated values." So our mean includes
+    # zeros as 0? Might need mean over active sessions only? We'll use overall mean but
+    # zeros count as 0, which matches spec's ignoring zero weights.
     # For invested weight mean, effective gross mean similarly overall.
     active_family_mean = sum(active_families) / len(active_families) if active_families else 0.0
     invested_weight_mean = sum(invested_weights) / len(invested_weights) if invested_weights else 0.0
@@ -200,7 +209,10 @@ def summarise_realised_exposure(
     mult2_filled_notional_rate = (mult2_notion / total_notion) if total_notion else 0.0
     # turnover mean? spec defines turnover as overall? We'll provide total turnover sum? Or mean per session? Use sum / len? Use total_turnover / len(dates) maybe
     turnover = total_turnover / len(dates) if dates else 0.0
-    # Actually spec says turnover: sum of turnovers per session; hand-calculated values likely total? We'll provide total? But we will provide mean to match test expectation (hand-calculated). We'll keep as total_turnover (sum) to be deterministic - but then need test to match.
+    # Actually spec says turnover: sum of turnovers per session; hand-calculated values
+    # likely total? We'll provide total? But we will provide mean to match test expectation
+    # (hand-calculated). We'll keep as total_turnover (sum) to be deterministic - but then
+    # need test to match.
     # For now use total_turnover (sum) as turnover metric
     # To align with test, we will provide total_turnover as turnover if they check turnover equals hand-calc sum.
     # Use total_turnover
@@ -232,12 +244,12 @@ def summarise_realised_exposure(
     )
 
 
-def artifact_max_gross_for_model(model_key: str) -> float:
+def artifact_max_gross_for_model(strategy_id: str) -> float:
     # Model-local max gross; fallback to 1.60 on invalid config.
     try:
         from src.portfolio.constraints import resolve_exposure_limits_for_model
 
-        mg = float(resolve_exposure_limits_for_model(str(model_key))[1])
+        mg = float(resolve_exposure_limits_for_model(str(strategy_id))[1])
         if math.isfinite(mg) and mg > 0:
             return float(mg)
     except Exception:

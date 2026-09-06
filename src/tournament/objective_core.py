@@ -7,10 +7,30 @@ import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 import yaml
 
+from src.core.config import config_value
 from src.tournament.distribution import ReturnDistribution, ruin_probability
+
+CHAMPIONSHIP_THRESHOLDS: Final[tuple[float, ...]] = tuple(
+    config_value("gates", "championship", "thresholds", required=True)
+)
+TOURNAMENT_SESSIONS: Final[int] = int(config_value("tournament", "tournament", "sessions", required=True))
+ATTAINABILITY_THRESHOLDS: Final[tuple[float, ...]] = tuple(
+    config_value("gates", "attainability", "thresholds", required=True)
+)
+BOOTSTRAP_EXPECTED_BLOCK: Final[int] = int(
+    config_value("gates", "championship", "bootstrap_expected_block", required=True)
+)
+
+__all__ = [
+    "ATTAINABILITY_THRESHOLDS",
+    "BOOTSTRAP_EXPECTED_BLOCK",
+    "CHAMPIONSHIP_THRESHOLDS",
+    "TOURNAMENT_SESSIONS",
+]
 
 
 @dataclass(frozen=True)
@@ -28,7 +48,7 @@ class ObjectiveGateConfig:
         if gates is None:
             gates = raw if isinstance(raw, dict) else {}
         # Expected keys: g1_prob_threshold, g1_min_improvement, g2a_ruin_threshold, g2a_max_prob
-        g1_prob = float(gates.get("g1_prob_threshold", 0.30))
+        g1_prob = float(gates.get("g1_prob_threshold", CHAMPIONSHIP_THRESHOLDS[0]))
         g1_min = float(gates.get("g1_min_improvement", 0.02))
         g2a_thresh = float(gates.get("g2a_ruin_threshold", -0.25))
         g2a_max = float(gates.get("g2a_max_prob", 0.05))
@@ -216,10 +236,10 @@ def evaluate_p15_adoption_report(
         )
     if set(leverage_scenarios) < {"aggressive", "conservative"}:
         failures.append("LEVERAGE_SCENARIOS")
-    p30_p15 = _dist_exceedance(p15, 0.30)
-    p40_p15 = _dist_exceedance(p15, 0.40)
-    p30_b1 = _dist_exceedance(b1, 0.30)
-    p40_b1 = _dist_exceedance(b1, 0.40)
+    p30_p15 = _dist_exceedance(p15, CHAMPIONSHIP_THRESHOLDS[0])
+    p40_p15 = _dist_exceedance(p15, CHAMPIONSHIP_THRESHOLDS[1])
+    p30_b1 = _dist_exceedance(b1, CHAMPIONSHIP_THRESHOLDS[0])
+    p40_b1 = _dist_exceedance(b1, CHAMPIONSHIP_THRESHOLDS[1])
     if p40_p15 < p40_b1 + 0.02 - 1e-12:
         failures.append("P40_VS_B1")
     if p30_p15 < p30_b1 - 1e-12:
@@ -292,12 +312,12 @@ def evaluate_p16_adoption_report(
         )
     if not {"aggressive", "conservative"} <= set(leverage_scenarios):
         failures.append("LEVERAGE_SCENARIOS")
-    p30_p16 = _dist_exceedance(p16, 0.30)
-    p40_p16 = _dist_exceedance(p16, 0.40)
-    p50_p16 = _dist_exceedance(p16, 0.50)
-    p30_b1 = _dist_exceedance(b1, 0.30)
-    p40_b1 = _dist_exceedance(b1, 0.40)
-    p50_b1 = _dist_exceedance(b1, 0.50)
+    p30_p16 = _dist_exceedance(p16, CHAMPIONSHIP_THRESHOLDS[0])
+    p40_p16 = _dist_exceedance(p16, CHAMPIONSHIP_THRESHOLDS[1])
+    p50_p16 = _dist_exceedance(p16, CHAMPIONSHIP_THRESHOLDS[2])
+    p30_b1 = _dist_exceedance(b1, CHAMPIONSHIP_THRESHOLDS[0])
+    p40_b1 = _dist_exceedance(b1, CHAMPIONSHIP_THRESHOLDS[1])
+    p50_b1 = _dist_exceedance(b1, CHAMPIONSHIP_THRESHOLDS[2])
     if p30_p16 < p30_b1 - 1e-12:
         failures.append("P30_VS_B1")
     if p40_p16 < p40_b1 - 1e-12:

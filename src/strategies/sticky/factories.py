@@ -4,20 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 
-from src.alpha.baselines import (
-    _make_p20,
-    _make_p21,
-    _make_p22,
-    _make_p23,
-    _make_p24,
-    _make_p25,
-    _make_p26,
-    _make_p27,
-    _make_p28a,
-    _make_p28b,
-    _make_p29,
-    _make_p29v,
-    _make_p30,
+from src.strategies.factories.sticky import (
+    make_sticky_equity_mom60 as _make_p29,
+    make_sticky_equity_mom60_vol as _make_p29v,
+    make_sticky_family_peak_lock as _make_p22,
+    make_sticky_fillable_mom60 as _make_p30,
+    make_sticky_house_money as _make_p25,
+    make_sticky_impulse_crash as _make_p21,
+    make_sticky_leader_base as _make_p20,
+    make_sticky_mom60_abs_cash as _make_p28b,
+    make_sticky_mom60_concentrated as _make_p26,
+    make_sticky_mom60_hold as _make_p28a,
+    make_sticky_mom60_peak_lock as _make_p24,
+    make_sticky_mom60_raw as _make_p27,
+    make_sticky_split_fill_lock as _make_p23,
 )
 from src.strategies.ids import (
     STICKY_EQUITY_MOM60,
@@ -35,6 +35,7 @@ from src.strategies.ids import (
     STICKY_SPLIT_FILL_LOCK,
 )
 from src.strategies.sticky.model import StickyLeaderModel
+
 
 
 def make_sticky_mom60_raw() -> object:

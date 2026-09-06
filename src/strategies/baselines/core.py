@@ -8,7 +8,7 @@ from src.alpha.base import DecisionContext
 
 
 class BuyAndHoldBaseline:
-    def __init__(self, ticker: str, name: str = "B0") -> None:
+    def __init__(self, ticker: str, name: str = "baseline.buy_hold") -> None:
         self.ticker = ticker
         self.name = name
 
@@ -25,7 +25,7 @@ def make_baseline_buy_hold() -> BuyAndHoldBaseline:
 
 
 def make_alpha_sector_leadership() -> object:
-    from src.alpha.baselines import _make_m07
+    from src.strategies.factories.alpha import make_alpha_sector_leadership as _make_m07
 
     return _make_m07()
 

@@ -65,7 +65,7 @@ def filter_scores_by_theme_state(
 
 
 class SectorLeadershipModel:
-    name: str = "M07"
+    name: str = "alpha.sector_leadership"
 
     def __init__(
         self,

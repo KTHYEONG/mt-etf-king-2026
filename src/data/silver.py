@@ -50,7 +50,7 @@ class SilverBuilder:
         import contextlib
 
         with contextlib.suppress(KeyError):
-            _ = resolve_endpoint(dataset)
+            resolve_endpoint(dataset)
 
         silver_path = self._paths.silver(dataset)
 
@@ -167,7 +167,10 @@ class SilverBuilder:
             # If mode is full and report fatal, remove file if it was newly created? But we haven't written yet, so just ensure not created.
             # If incremental and existing file existed, should we keep it? The test expects after fatal build, file does NOT exist (implies no prior file)
             # For safety, if silver_path exists and we are in full mode and fatal, we could remove? But requirement says MUST NOT write when fatal, so we should not overwrite.
-            # If incremental fatal, keep existing? But test for 03-08 says building full then adding one later bronze session and building incremental... When validator returns fatal report, build raises and DataPaths.silver does not exist afterwards.
+            # If incremental fatal, keep existing? Test for 03-08 says building
+            # full then adding one later bronze session and building incremental...
+            # When validator returns fatal report, build raises and DataPaths.silver
+            # does not exist afterwards.
             # That test case is isolated: start with no file, validator fatal -> build raises, file not exist.
             # So we just raise without writing.
             raise RuntimeError(f"validation fatal for {dataset}: {[i.gate for i in report.issues if i.severity.value == 'CRITICAL']}")

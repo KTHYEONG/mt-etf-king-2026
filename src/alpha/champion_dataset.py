@@ -58,6 +58,13 @@ def collect_family_candidates(
 ) -> pl.DataFrame:
     """Point-in-time deployment-only 1x family representatives (vectorized per date)."""
     from src.universe.instruments import Confidence
+    from src.universe.provider import LiquidityAdmissionMode
+
+    _staged = False
+    try:
+        _staged = filters.liquidity_admission == LiquidityAdmissionMode.STAGED_EXECUTION
+    except Exception:
+        _staged = False
 
     rows: list[dict[str, object]] = []
     session_list = list(sessions)
@@ -274,4 +281,64 @@ def build_family_tail_dataset(
     return frame
 
 
-__all__ = ["ChampionDatasetConfig", "build_family_tail_dataset", "collect_family_candidates"]
+__all__ = ["ChampionDatasetConfig", "build_family_tail_dataset", "collect_direct_vehicle_candidates", "collect_family_candidates"]
+
+
+def collect_direct_vehicle_candidates(
+    panel: pl.DataFrame,
+    *,
+    sessions: Sequence[date],
+    universe,
+    filters,
+    master,
+    feature_columns: Sequence[str],
+) -> pl.DataFrame:
+    """Exact-vehicle candidates: every PIT sponsor ETF kept as its own ticker (no family collapse)."""
+    cols = tuple(feature_columns or ())
+    session_list = list(sessions)
+    if not session_list:
+        return pl.DataFrame({"decision_date": [], "source_ticker": [], "family_key": [], **{c: [] for c in cols}})
+    by_date: dict[object, dict[str, dict[str, object]]] = {}
+    if panel.height > 0 and "date" in panel.columns and "ticker" in panel.columns:
+        for row in panel.iter_rows(named=True):
+            by_date.setdefault(row.get("date"), {})[str(row.get("ticker"))] = row
+    rows: list[dict[str, object]] = []
+    for d in session_list:
+        try:
+            snap = universe.get(d, filters)
+            eligible = list(snap.tickers)
+        except Exception:  # noqa: S112
+            continue
+        if not eligible:
+            continue
+        for ticker in sorted({str(t) for t in eligible}):
+            attr = None
+            try:
+                attr = master.attributes.get(ticker)
+            except Exception:
+                attr = None
+            if attr is None:
+                continue
+            if bool(getattr(attr, "is_synthetic", False)):
+                continue
+            if not bool(getattr(attr, "is_active", True)):  # pragma: no cover - defensive runtime filter
+                continue
+            if str(getattr(getattr(attr, "confidence", None), "value", getattr(attr, "confidence", "high"))).lower() != "high":  # pragma: no cover - defensive runtime filter
+                continue
+            try:
+                multiple = int(getattr(attr, "leverage_multiple", 1) or 1)
+            except Exception:  # noqa: S112  # pragma: no cover - malformed metadata
+                continue
+            if multiple not in (1, 2):  # pragma: no cover - defensive runtime filter
+                continue
+            out: dict[str, object] = {"decision_date": d, "source_ticker": ticker, "family_key": str(getattr(attr, "leverage_family_key", ticker))}
+            day_row = by_date.get(d, {}).get(ticker, {})
+            if "is_tradable" in day_row and not bool(day_row.get("is_tradable")):  # pragma: no cover - defensive runtime filter
+                continue
+            out["leverage_multiple"] = multiple
+            for col in cols:
+                out[col] = day_row.get(col)
+            rows.append(out)
+    if not rows:
+        return pl.DataFrame({"decision_date": [], "source_ticker": [], "family_key": [], **{c: [] for c in cols}})
+    return pl.DataFrame(rows, schema_overrides=dict.fromkeys(cols, pl.Float64), strict=False)
