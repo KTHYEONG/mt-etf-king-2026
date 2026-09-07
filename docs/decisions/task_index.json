@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_CHAMPIONSHIP_FRONTIER_ACCOUNTING",
+      "date": "2026-09-07",
+      "adr_id": "ADR_20260907_CHAMPIONSHIP_FRONTIER_ACCOUNTING",
+      "domain": "execution",
+      "title": "Championship Frontier accounting and lineage hardening",
+      "why": "The frontier research path could lose held ownership, diverge from the production exposure limits, and accept misaligned panel quotes.",
+      "resolution": "Connected every ledger transition to cash-conserving execution, added stale-mark and input validation, aligned panel date filtering and simulator limits, and verified frontier edge cases with tests.",
+      "impact": "Research execution is deterministic and fail-closed with 100% lean diff coverage, while all frontier outputs remain RESEARCH_ONLY until the full eight-scenario comparison is measured."
+    },
+    {
       "task_id": "TASK_P38_ADAPTIVE_SPECIALISTS",
       "date": "2026-09-07",
       "adr_id": "ADR_20260907_P38_ADAPTIVE_SPECIALISTS",
@@ -18,8 +28,7 @@
       "title": "sticky family id(snapshot) 캐시 키 비결정성 버그 수정",
       "why": "동일 코드·동일 데이터·동일 프로세스에서도 CPython id() 메모리 주소 재사용으로 sticky.mom60_raw 등 전략이 세션마다 다른 trade 개수를 산출(실측 28건 vs 0건), 백테스트 재현성 위반",
       "resolution": "cached_filtered_scores가 id(snapshot) 대신 context.decision_date를 캐시 키로 사용하도록 수정, None 키 fail-closed, reset_trackers()가 캐시도 초기화; stale int-id 시딩 방식의 결정론적 회귀테스트로 교체(gc 타이밍 의존 제거)",
-      "impact": "sticky 14종 전략 재현성 복원, 회귀테스트가 되돌린 버그 코드에서 100% 결정론적으로 실패함을 검증, 프로덕션 로직 변경 없음",
-      "archive_path": "docs/decisions/archive/TASK_STICKY_CACHE_DETERMINISM/sticky_snapshot_cache_determinism_contract.json"
+      "impact": "sticky 14종 전략 재현성 복원, 회귀테스트가 되돌린 버그 코드에서 100% 결정론적으로 실패함을 검증, 프로덕션 로직 변경 없음"
     },
     {
       "task_id": "TASK_R6_ARCHITECTURE_REFACTOR",
@@ -29,8 +38,7 @@
       "title": "R6 — 시맨틱 ID 통일·CLI 해체·설정 단일화·검증도구 정합성",
       "why": "6607줄 CLI 모놀리스·이중 전략ID(P코드/semantic)·8중복 config 파싱·975개 죽은 wiring anchor로 AI 편집·확장·유지보수 비용 급증",
       "resolution": "P0~P7: lean_check AST 기반화, src/core/config.py 단일 소스, P코드 완전 제거, strategies/factories 팩토리 분리, CLI 6607줄→32개 응집 모듈, tournament champion/distribution/objective 패키지 분리, 파라미터 명명 통일, 죽은 anchor 전량 제거",
-      "impact": "src.cli mypy strict 통과, 전 모듈 400statement 이하, R14 골든런(sticky.mom60_raw 전구간) exceedance bitwise 동일 확인, 회귀 0건(사전 결함 5건만 잔존)",
-      "archive_path": "docs/decisions/archive/TASK_R6_ARCHITECTURE_REFACTOR/refactor_architecture_contract.json"
+      "impact": "src.cli mypy strict 통과, 전 모듈 400statement 이하, R14 골든런(sticky.mom60_raw 전구간) exceedance bitwise 동일 확인, 회귀 0건(사전 결함 5건만 잔존)"
     },
     {
       "task_id": "championship_edge_redesign",
@@ -40,8 +48,7 @@
       "title": "Executable championship tail hurdle",
       "why": "기존 P27 후보는 실행 가능성·유동성·OOF tail 우위를 실제로 검증하지 못했다.",
       "resolution": "실제 ETF별 executable 라벨, staged liquidity, LightGBM hurdle, incumbent 비교 OOF 게이트와 법적 익스포저 제한을 연결했다.",
-      "impact": "실행 가능한 tail 기회만 활성화하고 실패 시 incumbent로 fail-closed 하며 향후 재현 가능한 근거와 계약을 보존한다.",
-      "archive_path": "docs/decisions/archive/championship_edge_redesign/championship_edge_redesign_contract.json"
+      "impact": "실행 가능한 tail 기회만 활성화하고 실패 시 incumbent로 fail-closed 하며 향후 재현 가능한 근거와 계약을 보존한다."
     },
     {
       "task_id": "TASK_P35_TAIL_OBJECTIVE_RECOVERY",
@@ -51,8 +58,7 @@
       "title": "P35 tail-objective 학습 및 path-faithful 승격 검증",
       "why": "P35 ranker가 raw return을 학습하고 fast rolling의 holding trace가 없어 discordant power가 0으로 측정됐다.",
       "resolution": "Primary exceedance utility 기반 label_rank 학습과 실제 fast/slow holding trace를 연결하고, known gate 실패를 RESEARCH_ONLY로 우선 처리했다.",
-      "impact": "전체 2018-01-02..2026-08-27 평가에서 881개 discordant window를 복원했지만 tail·LOYO 게이트 실패로 P27을 유지한다.",
-      "archive_path": "docs/decisions/archive/TASK_P35_TAIL_OBJECTIVE_RECOVERY/champion_attainability_recovery_contract.json"
+      "impact": "전체 2018-01-02..2026-08-27 평가에서 881개 discordant window를 복원했지만 tail·LOYO 게이트 실패로 P27을 유지한다."
     },
     {
       "task_id": "TASK_P36_ATTAINABILITY_GATE",
@@ -62,8 +68,7 @@
       "title": "P36 — measurement integrity, attainability/capture, power-aware promotion",
       "why": "Phantom XKRX sessions and priceless-session ledger inflation distorted tail metrics; promotion lacked attainable-vs-captured decomposition and a discordant-window power gate.",
       "resolution": "Shipped session grid, priceless-session HOLD, attainability/capture summaries, champion INSUFFICIENT_POWER resolution, and cmd_backtest P36 artifact wiring with full lean_check coverage.",
-      "impact": "Backtest runs now record attainability, capture, and breadth; champion promotion fails closed when effective discordant windows fall below gates.yaml minimum.",
-      "archive_path": "docs/decisions/archive/TASK_P36_ATTAINABILITY_GATE/p36_breakthrough_contract.json"
+      "impact": "Backtest runs now record attainability, capture, and breadth; champion promotion fails closed when effective discordant windows fall below gates.yaml minimum."
     },
     {
       "task_id": "TASK_P35_P27_MATCHED_RANKER",
