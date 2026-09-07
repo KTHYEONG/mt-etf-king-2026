@@ -208,6 +208,9 @@
       "tests/unit/cli/test_decide_scoring.py"
     ]
   },
+  "src/cli/commands/feasibility_audit.py": {
+    "testing": "tests/unit/cli/test_feasibility_audit.py"
+  },
   "src/cli/commands/features.py": {
     "testing": "tests/unit/cli/test_features.py"
   },
@@ -238,6 +241,7 @@
     "testing": [
       "tests/unit/cli/test_cli_main.py",
       "tests/unit/cli/test_cli_parser.py",
+      "tests/unit/cli/test_feasibility_audit.py",
       "tests/unit/test_cli.py"
     ]
   },
@@ -405,6 +409,24 @@
   },
   "src/reporting/trace_store.py": {
     "testing": "tests/unit/reporting/test_trace_store.py"
+  },
+  "src/research/audit_regime.py": {
+    "testing": "tests/unit/research/test_audit_regime.py"
+  },
+  "src/research/decision_population.py": {
+    "testing": "tests/unit/research/test_decision_population.py"
+  },
+  "src/research/executable_oracle.py": {
+    "testing": "tests/unit/research/test_executable_oracle.py"
+  },
+  "src/research/feasibility_audit.py": {
+    "testing": "tests/unit/research/test_feasibility_audit.py"
+  },
+  "src/research/feasibility_metrics.py": {
+    "testing": "tests/unit/research/test_feasibility_metrics.py"
+  },
+  "src/research/p38_promotion.py": {
+    "testing": "tests/unit/research/test_p38_promotion.py"
   },
   "src/strategies/baselines/core.py": {
     "testing": "tests/unit/strategies/baselines/test_core.py"
@@ -584,6 +606,9 @@
   },
   "src/universe/instruments.py": {
     "testing": "tests/unit/universe/test_instruments.py"
+  },
+  "src/universe/manifest_validate.py": {
+    "testing": "tests/unit/universe/test_manifest_validate.py"
   },
   "src/universe/provider.py": {
     "testing": "tests/unit/universe/test_provider.py"
