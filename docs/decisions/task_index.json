@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P38_ADAPTIVE_SPECIALISTS",
+      "date": "2026-09-07",
+      "adr_id": "ADR_20260907_P38_ADAPTIVE_SPECIALISTS",
+      "domain": "tournament",
+      "title": "P38 Adaptive Specialists — online regime routing and wealth-aware championship control",
+      "why": "Static ETF ranking failed across regimes despite an executable oracle tail, and the 2025 path demonstrated late wealth giveback.",
+      "resolution": "Added four specialist proposals, causal Fixed-Share routing, historical continuation wealth control, PIT lineage repairs, and production next-open ledger wiring with fail-closed guards.",
+      "impact": "P38 now has auditable adaptive research wiring and full-window diagnostics while remaining research-only until non-inferiority, ruin, manifest, and integrity gates pass."
+    },
+    {
       "task_id": "TASK_STICKY_CACHE_DETERMINISM",
       "date": "2026-09-06",
       "adr_id": "ADR_20260906_STICKY_CACHE_DETERMINISM",

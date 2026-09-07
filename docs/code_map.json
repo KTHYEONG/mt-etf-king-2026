@@ -176,7 +176,10 @@
     ]
   },
   "src/cli/commands/champion_research.py": {
-    "testing": "tests/unit/cli/test_champion_research.py"
+    "testing": [
+      "tests/integration/tournament/test_adaptive_specialists_e2e.py",
+      "tests/unit/cli/test_champion_research.py"
+    ]
   },
   "src/cli/commands/config.py": {
     "testing": "tests/unit/cli/test_config.py"
@@ -239,10 +242,7 @@
     ]
   },
   "src/cli/parser.py": {
-    "testing": [
-      "tests/unit/cli/test_cli_parser.py",
-      "tests/unit/cli/test_refactor_wiring.py"
-    ]
+    "testing": "tests/unit/cli/test_parser.py"
   },
   "src/core/calendar.py": {
     "testing": "tests/unit/core/test_calendar.py"
@@ -495,13 +495,23 @@
       "tests/unit/strategies/test_split_fill_model.py"
     ]
   },
+  "src/tournament/adaptive_specialists.py": {
+    "testing": "tests/unit/tournament/test_adaptive_specialists.py"
+  },
   "src/tournament/attainability.py": {
     "testing": "tests/unit/tournament/test_attainability.py"
   },
-  "src/tournament/champion/oos_scores.py": {},
+  "src/tournament/champion/oos_scores.py": {
+    "testing": "tests/unit/tournament/test_champion_eval.py"
+  },
   "src/tournament/champion/promotion.py": {},
   "src/tournament/champion/runtime.py": {},
-  "src/tournament/champion/walkforward.py": {},
+  "src/tournament/champion/walkforward.py": {
+    "testing": [
+      "tests/unit/tournament/test_champion_eval.py",
+      "tests/unit/tournament/test_champion_walkforward.py"
+    ]
+  },
   "src/tournament/champion_eval.py": {
     "testing": "tests/unit/tournament/test_champion_eval.py"
   },
@@ -574,6 +584,5 @@
   },
   "src/universe/tournament.py": {
     "testing": "tests/unit/universe/test_tournament.py"
-  },
-  "src/main.py": {}
+  }
 }
