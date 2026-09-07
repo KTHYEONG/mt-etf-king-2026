@@ -410,6 +410,9 @@
   "src/reporting/trace_store.py": {
     "testing": "tests/unit/reporting/test_trace_store.py"
   },
+  "src/research/activation_state.py": {
+    "testing": "tests/unit/research/test_activation_state.py"
+  },
   "src/research/audit_regime.py": {
     "testing": "tests/unit/research/test_audit_regime.py"
   },
