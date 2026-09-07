@@ -27,6 +27,7 @@ from src.portfolio.intent import HOLD_INTENT, PortfolioIntent
 from src.portfolio.policy import PortfolioDecision
 from src.strategies.champion_tail import ChampionPolicyConfig, ChampionTailPolicy
 from src.tournament.champion.oos_scores import build_champion_oos_scores, build_executable_hurdle_oos_scores
+from src.tournament.adaptive_specialists import run_adaptive_specialist_research
 from src.tournament.champion.promotion import champion_promotion_status
 from src.tournament.champion.runtime import ChampionEvaluation, ChampionOosModel, ChampionResearchRuntime
 from src.tournament.champion.runtime import Mom60RawMatchedComparisonProfile, Mom60RawMatchedOosModel, mom60_raw_matched_comparison_profile
@@ -63,6 +64,8 @@ def run_champion_walk_forward(
 ) -> ChampionEvaluation:
     """Execute P34-raw/P34/P27/conservative on identical fold-local OOS sessions."""
     t0 = time.time()
+    if runtime is not None and getattr(runtime, "candidate_mode", "") == "adaptive_specialists":
+        return run_adaptive_specialist_research(runtime)
     if runtime is None:
         required = {
             "engine": engine,

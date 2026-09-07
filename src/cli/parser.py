@@ -16,6 +16,7 @@ from src.cli.commands.loyo import cmd_loyo
 from src.cli.commands.replay import cmd_replay
 from src.cli.commands.storage import cmd_storage_migrate
 from src.cli.commands.universe import cmd_universe
+from src.tournament import adaptive_specialists as adaptive_specialists
 
 SUBCOMMANDS: Final[tuple[str, ...]] = (
     "config-check",
@@ -117,10 +118,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_champ = sub.add_parser("champion-research", help="P34 family-tail research walk-forward")
     p_champ.add_argument("--start", required=True, help="start date YYYY-MM-DD")
     p_champ.add_argument("--end", required=True, help="end date YYYY-MM-DD")
+    choices = ("p27_matched_2x", "executable_hurdle", adaptive_specialists.__name__.split(".")[-1])
     p_champ.add_argument(
         "--candidate-mode",
         dest="candidate_mode",
-        choices=("p27_matched_2x", "executable_hurdle"),
+        choices=choices,
         default="executable_hurdle",
         help="research-only challenger mode (P27 execution-matched +2x)",
     )
