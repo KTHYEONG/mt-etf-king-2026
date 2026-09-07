@@ -100,3 +100,14 @@ def test_adaptive_runtime_rejects_invalid_panel_contract() -> None:
         run_adaptive_specialist_research(SimpleNamespace(panel=unique, dataset_config=SimpleNamespace(label_horizon=35)))
     with pytest.raises(ValueError, match="next-open execution"):
         run_adaptive_specialist_research(SimpleNamespace(panel=unique, dataset_config=SimpleNamespace(label_horizon=36), engine=SimpleNamespace()))
+
+
+def test_adaptive_specialists_integrity_calls_population_counts_match() -> None:
+    from pathlib import Path
+
+    from src.research.feasibility_metrics import population_counts_match
+
+    text = Path("src/tournament/adaptive_specialists.py").read_text(encoding="utf-8")
+    assert "population_counts_match" in text
+    assert "eligible_window_count == 2090" not in text
+    assert population_counts_match(eligible=3, evaluated=3, router_reset=3, controller=3 * 36, shadow=3 * 36 * 4, horizon=36) is True
