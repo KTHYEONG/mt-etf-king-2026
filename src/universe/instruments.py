@@ -67,11 +67,17 @@ def load_sponsor_brand_map(path: Path) -> dict[str, str]:
 
 
 def resolve_issuer(name: str, brand_map: Mapping[str, str]) -> str:
-    # brand is first token of ISU_NM
-    if not name:
+    if not name or not name.strip():
         return "UNKNOWN"
-    first = name.strip().split()[0] if name.strip() else ""
-    return brand_map.get(first, "UNKNOWN")
+    normalized = "".join(name.strip().split()).upper()
+    best_issuer = "UNKNOWN"
+    best_len = -1
+    for brand, issuer in brand_map.items():
+        key = "".join(str(brand).strip().split()).upper()
+        if normalized.startswith(key) and len(key) > best_len:
+            best_issuer = str(issuer)
+            best_len = len(key)
+    return best_issuer
 
 
 @dataclass(frozen=True)

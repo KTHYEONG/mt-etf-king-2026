@@ -30,6 +30,44 @@ from src.tournament.champion.runtime import ChampionResearchRuntime
 from src.tournament.objective_core import CHAMPIONSHIP_THRESHOLDS, TOURNAMENT_SESSIONS
 
 
+def build_hurdle_calibration_frame(
+    rows: Sequence[Mapping[str, object]], feature_columns: Sequence[str]
+) -> pl.DataFrame:
+    feats = tuple(feature_columns or ())
+    parsed: list[dict[str, object]] = []
+    for row in rows:
+        rec = dict(row)
+        raw_date = rec.get("date", rec.get("decision_date"))
+        if isinstance(raw_date, str):
+            rec["date"] = date.fromisoformat(raw_date)
+            raw_date = rec["date"]
+        elif isinstance(raw_date, date) and "date" not in rec:
+            rec["date"] = raw_date
+        parsed.append(rec)
+    best: dict[object, dict[str, object]] = {}
+    best_score: dict[object, float] = {}
+    for rec in parsed:
+        day = rec.get("date")
+        score_raw = rec.get("score")
+        score_val = float(score_raw) if score_raw is not None else float("-inf")
+        if day not in best or score_val > best_score[day]:
+            best[day] = rec
+            best_score[day] = score_val
+    ordered = [best[day] for day in sorted(best, key=lambda d: str(d))]
+    frame = pl.DataFrame(ordered, strict=False)
+    casts: list[pl.Expr] = []
+    if "date" in frame.columns:
+        casts.append(pl.col("date").cast(pl.Date))
+    if "ticker" in frame.columns:
+        casts.append(pl.col("ticker").cast(pl.String))
+    for col in feats:
+        if str(col) in frame.columns:
+            casts.append(pl.col(str(col)).cast(pl.Float64))
+    if casts:
+        frame = frame.with_columns(casts)
+    return frame
+
+
 def build_executable_hurdle_oos_scores(
     runtime: ChampionResearchRuntime,
 ) -> tuple[pl.DataFrame, tuple[dict[str, object], ...]]:
@@ -171,7 +209,7 @@ def build_executable_hurdle_oos_scores(
             inc_ticker, inc_ret = incumbent_for(exec_labeled, d)
             for row in inner_oof.filter(pl.col("decision_date") == d).iter_rows(named=True):
                 cal_rows.append({**row, "incumbent_return": inc_ret, "incumbent_ticker": inc_ticker})
-        calibration = pl.DataFrame(cal_rows, strict=False) if cal_rows else inner_oof.with_columns(pl.lit(None).cast(pl.Float64).alias("incumbent_return"))
+        calibration = build_hurdle_calibration_frame(cal_rows, feature_columns) if cal_rows else inner_oof.with_columns(pl.lit(None).cast(pl.Float64).alias("incumbent_return"))
         inner_oof = calibration
         artifact = fit_executable_hurdle(inner_train, inner_oof, feature_columns=feature_columns, objective=objective, seed=runtime.ranker_seed, min_activations=min_attainable)
         if not is_valid_champion_artifact(artifact):

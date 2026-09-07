@@ -14,6 +14,26 @@ logger = logging.getLogger(__name__)
 
 
 from src.cli.commands.decide.scoring import _load_panel_for_backtest
+from src.universe.provider import UniverseFilters
+
+
+def build_champion_research_filters(base: UniverseFilters, candidate_mode: str) -> UniverseFilters:
+    from dataclasses import replace
+
+    from src.universe.provider import LiquidityAdmissionMode
+
+    return (
+        replace(
+            base,
+            liquidity_admission=LiquidityAdmissionMode.STAGED_EXECUTION,
+            max_order_to_adv=0.01,
+            max_position_weight=0.80,
+            allow_leverage=True,
+            allow_inverse=True,
+        )
+        if str(candidate_mode) in ("executable_hurdle", "adaptive_specialists")
+        else base
+    )
 
 
 def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, object]:
@@ -30,7 +50,7 @@ def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, objec
     if start > end:
         raise ValueError("start must not exceed end")
     _candidate_mode_arg = getattr(args, "candidate_mode", None)
-    if _candidate_mode_arg not in {"p27_matched_2x", "executable_hurdle"}:  # pragma: no cover - CLI validation
+    if _candidate_mode_arg not in {"p27_matched_2x", "executable_hurdle", "adaptive_specialists"}:  # pragma: no cover - CLI validation
         raise ValueError("invalid candidate_mode")  # pragma: no cover - CLI validation
     from pathlib import Path as _Path
 
@@ -75,6 +95,7 @@ def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, objec
         universe_config = {}
     sponsor_issuers = tuple(sorted(set(brand_map.values()))) if brand_map else ()
     filt = UniverseFilters.for_mode(UniverseMode.DEPLOYMENT, universe_config, sponsor_issuers)
+    filt = build_champion_research_filters(filt, _candidate_mode_arg)
     universe = PointInTimeUniverse(panel, master, cal, adv_window=20, brand_map=brand_map)
     try:
         fconfig = FeatureConfig.from_yaml(config_path("features"))
@@ -102,9 +123,9 @@ def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, objec
         _ml = _ml_raw.get("ml", _ml_raw) if isinstance(_ml_raw, dict) else {}
         _ct = _ml.get("champion_tail", {}) if isinstance(_ml, dict) else {}
         _ml_candidate_mode = _ct.get("candidate_mode", None)
-        if _ml_candidate_mode not in {"p27_matched_2x", "executable_hurdle"}:  # pragma: no cover - CLI validation
+        if _ml_candidate_mode not in {"p27_matched_2x", "executable_hurdle", "adaptive_specialists"}:  # pragma: no cover - CLI validation
             raise ValueError("invalid candidate_mode")  # pragma: no cover - CLI validation
-        feature_key = "executable_feature_columns" if _ml_candidate_mode == "executable_hurdle" else "feature_columns"  # pragma: no cover - config branch
+        feature_key = "executable_feature_columns" if _ml_candidate_mode in ("executable_hurdle", "adaptive_specialists") else "feature_columns"  # pragma: no cover - config branch
         feature_columns = tuple(_ct.get(feature_key, ()))  # pragma: no cover - config branch
         label_horizon = int(_ct.get("label_horizon", 36))
         embargo = int(_ct.get("embargo", 36))
@@ -169,7 +190,7 @@ def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, objec
 
     # candidate_mode=str(ml['champion_tail']['candidate_mode']) passed to ChampionResearchRuntime after exact value validation
     _validated_candidate_mode = str(_ml['champion_tail']['candidate_mode'])
-    if _validated_candidate_mode not in {'p27_matched_2x', 'executable_hurdle'}:  # pragma: no cover - CLI validation
+    if _validated_candidate_mode not in {'p27_matched_2x', 'executable_hurdle', 'adaptive_specialists'}:  # pragma: no cover - CLI validation
         raise ValueError("invalid candidate_mode")  # pragma: no cover - CLI validation
     if _candidate_mode_arg != _validated_candidate_mode:
         raise ValueError("invalid candidate_mode: args/ml mismatch")

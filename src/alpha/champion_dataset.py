@@ -321,8 +321,6 @@ def collect_direct_vehicle_candidates(
                 continue
             if bool(getattr(attr, "is_synthetic", False)):
                 continue
-            if not bool(getattr(attr, "is_active", True)):  # pragma: no cover - defensive runtime filter
-                continue
             if str(getattr(getattr(attr, "confidence", None), "value", getattr(attr, "confidence", "high"))).lower() != "high":  # pragma: no cover - defensive runtime filter
                 continue
             try:
