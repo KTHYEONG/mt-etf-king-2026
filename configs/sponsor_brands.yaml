@@ -16,21 +16,21 @@ asset_managers:
   미래에셋자산운용:
     brands: ["TIGER", "KoAct"]
   KB자산운용:
-    brands: ["RISE"]
+    brands: ["RISE", "KBSTAR"]
   한국투자신탁운용:
-    brands: ["ACE"]
+    brands: ["ACE", "KINDEX", "네비게이터"]
   신한자산운용:
-    brands: ["SOL"]
+    brands: ["SOL", "SMART"]
   한화자산운용:
-    brands: ["PLUS"]
+    brands: ["PLUS", "ARIRANG"]
   타임폴리오자산운용:
-    brands: ["TIME"]
+    brands: ["TIME", "TIMEFOLIO"]
   NH아문디자산운용:
     brands: ["HANARO"]
   키움투자자산운용:
-    brands: ["KIWOOM"]
+    brands: ["KIWOOM", "KOSEF", "히어로즈"]
   하나자산운용:
-    brands: ["1Q"]
+    brands: ["1Q", "KTOP"]
 
 # resolve_issuer() 가 UNKNOWN 을 반환하면 issuer_whitelist 활성 시 fail-closed 제외.
 unknown_brand_policy: exclude

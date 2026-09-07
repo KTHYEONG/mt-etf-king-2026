@@ -589,11 +589,11 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                             }
                         )
                 continue
-            if kind == "config" and " " in raw_name.strip():
+            if kind in ("config", "configuration") and " " in raw_name.strip():
                 # Multi-word config outcomes (e.g. `pyproject cleanup`) are
                 # verified by the lint/type gates, not by a key lookup.
                 continue
-            if kind == "config":
+            if kind in ("config", "configuration"):
                 leaf = name.split(".")[-1] if "." in name else name
                 # for yaml config, check leaf key appears as "leaf:" in file
                 pat_cfg = rf"\b{re.escape(leaf)}\s*:"
