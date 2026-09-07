@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_R1_ACTIVATION_STATE",
+      "date": "2026-09-07",
+      "adr_id": "ADR_20260907_R1_ACTIVATION_STATE",
+      "domain": "regime",
+      "title": "Phase 1 ActivationState — expanding PIT mom60 tercile P27 gate",
+      "why": "P27 championship tail is regime-dependent; audit_regime and overlay RegimeState must not serve as production activation gates.",
+      "resolution": "Added research-only ActivationState on expanding KOSPI mom60 terciles and wired optional diagnostics into run_feasibility_audit without champion routing changes.",
+      "impact": "Phase 1 causal gate research path is callable from feasibility audit; production gate flags remain false."
+    },
+    {
       "task_id": "TASK_CHAMPIONSHIP_NEXT_DEV",
       "date": "2026-09-07",
       "adr_id": "ADR_20260907_CHAMPIONSHIP_NEXT_DEV",
