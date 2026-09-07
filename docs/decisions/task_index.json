@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_CHAMPIONSHIP_NEXT_DEV",
+      "date": "2026-09-07",
+      "adr_id": "ADR_20260907_CHAMPIONSHIP_NEXT_DEV",
+      "domain": "research",
+      "title": "Championship Phase-0 feasibility audit (executable population + CLI)",
+      "why": "2086/2088/2090 window mismatch and mixed giveback/oracle units blocked reproducible championship gap measurement before any alpha change.",
+      "resolution": "Shipped feasibility-audit CLI, three WindowPolicy populations, deployment oracle, P38 entry-date loader, return-space gap metrics, and population_counts_match integrity wiring with E2E artifacts.",
+      "impact": "Phase-0 audit is one-command reproducible (2086 executable windows, P27 capture~30%); B1 tagged NON_COMPLIANT_REFERENCE; P38 date-joined; no production alpha/gate change."
+    },
+    {
       "task_id": "TASK_CHAMPIONSHIP_FRONTIER_ACCOUNTING",
       "date": "2026-09-07",
       "adr_id": "ADR_20260907_CHAMPIONSHIP_FRONTIER_ACCOUNTING",
