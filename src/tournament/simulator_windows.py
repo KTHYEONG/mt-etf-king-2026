@@ -258,6 +258,15 @@ def simulate_window_from_cache(
     adv_global = getattr(cache, "adv_map", None)
     if panel is None:
         panel = getattr(cache, "panel", None)
+    effective_exposure_limits = exposure_limits
+    if effective_exposure_limits is None:
+        try:
+            from src.core.config import config_path
+            from src.portfolio.constraints import load_portfolio_exposure_limits
+
+            effective_exposure_limits = load_portfolio_exposure_limits(config_path("portfolio"))
+        except Exception:  # pragma: no cover - project config is present in production
+            effective_exposure_limits = None  # pragma: no cover
     # reset trackers (capital=config.capital per INV-PERF-1)
     try:
         fn = getattr(model, "reset_trackers", None)
@@ -381,7 +390,7 @@ def simulate_window_from_cache(
                 cost_model=cost_model,
                 adv_by_ticker=adv_by_ticker,
                 max_order_to_adv=float(max_order_to_adv),
-                exposure_limits=exposure_limits,
+                exposure_limits=effective_exposure_limits,
                 leverage_multiples=leverage_multiples,
                 execution=execution if execution is not None and hasattr(execution, "resolve") else None,
                 panel=panel,
@@ -419,7 +428,7 @@ def simulate_window_from_cache(
                 cost_model=cost_model,
                 adv_by_ticker=adv_by_ticker,
                 max_order_to_adv=float(max_order_to_adv),
-                exposure_limits=exposure_limits,
+                exposure_limits=effective_exposure_limits,
                 leverage_multiples=leverage_multiples,
                 execution=execution if execution is not None and hasattr(execution, "resolve") else None,
                 panel=panel,

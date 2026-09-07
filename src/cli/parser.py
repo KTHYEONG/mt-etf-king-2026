@@ -118,7 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_champ = sub.add_parser("champion-research", help="P34 family-tail research walk-forward")
     p_champ.add_argument("--start", required=True, help="start date YYYY-MM-DD")
     p_champ.add_argument("--end", required=True, help="end date YYYY-MM-DD")
-    choices = ("p27_matched_2x", "executable_hurdle", adaptive_specialists.__name__.split(".")[-1])
+    choices = ("p27_matched_2x", "executable_hurdle", adaptive_specialists.__name__.split(".")[-1], "capacity_frontier")
     p_champ.add_argument(
         "--candidate-mode",
         dest="candidate_mode",
@@ -126,5 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="executable_hurdle",
         help="research-only challenger mode (P27 execution-matched +2x)",
     )
+    p_champ.add_argument("--data-root", dest="data_root", default="data", help="data root")
+    p_champ.add_argument("--output", dest="output", default="results/championship_frontier", help="output dir")
     p_champ.set_defaults(func=cmd_champion_research)
     return parser
