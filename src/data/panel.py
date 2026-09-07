@@ -31,6 +31,41 @@ BACKTEST_PANEL_COLUMNS: tuple[str, ...] = (
 )
 
 
+def align_feature_rows(silver: pl.DataFrame, gold: pl.DataFrame) -> pl.DataFrame:
+    keys = ["date", "ticker"]
+    for frame in (silver, gold):
+        counts = frame.group_by(keys).len()
+        if (counts["len"] > 1).any():
+            raise ValueError("duplicate (date,ticker) keys")
+    silver_keys = silver.select(keys).unique()
+    gold_keys = gold.select(keys).unique()
+    extra = gold_keys.join(silver_keys, on=keys, how="anti")
+    if extra.height > 0:
+        placeholders = gold.join(extra, on=keys, how="semi")
+        ohlc = [c for c in ("open", "high", "low", "close") if c in gold.columns]
+        ok = True
+        for row in placeholders.iter_rows(named=True):
+            ohlc_null = all(row.get(c) is None for c in ohlc)
+            tradable = row.get("is_tradable")
+            tv = row.get("trading_value")
+            tv_zero = tv is None or (isinstance(tv, float) and tv != tv) or tv == 0
+            if not (ohlc_null and tradable in (False, None) and tv_zero):
+                ok = False
+                break
+        if not ok:
+            raise ValueError("gold-only quote rows")
+    missing = silver_keys.join(gold_keys, on=keys, how="anti")
+    if missing.height > 0:
+        raise ValueError("missing gold rows")
+    joined = silver.select([*keys, "open", "close", "is_tradable", "trading_value"]).join(gold.select([*keys, "open", "close", "is_tradable", "trading_value"]), on=keys, how="inner", suffix="_gold")
+    for col in ("open", "close", "is_tradable", "trading_value"):
+        left, right = col, f"{col}_gold"
+        mismatch = joined.filter(~((pl.col(left) == pl.col(right)) | (pl.col(left).is_null() & pl.col(right).is_null())))
+        if mismatch.height > 0:
+            raise ValueError(f"quote mismatch in {col}")
+    return gold.join(silver_keys, on=keys, how="semi")
+
+
 def load_backtest_panel(
     paths: DataPaths,
     *,
@@ -39,6 +74,18 @@ def load_backtest_panel(
     end: date | None = None,
 ) -> pl.DataFrame | None:
     requested = list(columns) if columns is not None else list(BACKTEST_PANEL_COLUMNS)
+    silver_path = paths.silver("etf_daily")
+    gold_path = paths.gold("etf_features")
+    if silver_path.exists() and gold_path.exists():
+        silver_full = pl.read_parquet(str(silver_path))
+        gold_full = pl.read_parquet(str(gold_path))
+        aligned = align_feature_rows(silver_full, gold_full)
+        projection = [c for c in requested if c in aligned.columns]
+        if start is not None:
+            aligned = aligned.filter(pl.col("date") >= start)
+        if end is not None:
+            aligned = aligned.filter(pl.col("date") <= end)
+        return aligned.select(projection)
     # Prefer gold then silver
     candidates = [
         paths.gold("etf_features"),

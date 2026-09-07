@@ -24,6 +24,7 @@ from src.execution.ledger_state import (
     carry_forward_marks,
     is_priceless_session,
 )
+from src.execution.cash_accounting import cash_order_transition
 
 
 def transition_portfolio_state(
@@ -41,7 +42,25 @@ def transition_portfolio_state(
     leverage_multiples: Mapping[str, int],
     execution: NextOpenExecution | None,
     panel: pl.DataFrame | None,
+    lot_size: int | None = None,
 ) -> PortfolioTransitionResult:
+    return cash_order_transition(
+        prior_state=prior_state,
+        intent=intent,
+        decision_date=decision_date,
+        prev_closes=prev_closes,
+        opens=opens,
+        closes=closes,
+        cost_model=cost_model,
+        adv_by_ticker=adv_by_ticker,
+        max_order_to_adv=max_order_to_adv,
+        exposure_limits=exposure_limits,
+        leverage_multiples=leverage_multiples,
+        execution=execution,
+        panel=panel,
+        lot_size=lot_size,
+    )
+
     if is_priceless_session(prior_state.shares, opens):
         try:
             _eq_prev = prior_state.equity_at_prices(prev_closes) if prev_closes else float(prior_state.cash)

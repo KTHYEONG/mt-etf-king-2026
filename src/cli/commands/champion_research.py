@@ -9,6 +9,7 @@ from typing import Any
 from src.core.config import config_path
 from src.core.paths import DataPaths
 from src.tournament.champion_eval import run_champion_walk_forward
+from src.tournament.frontier import run_frontier_from_paths
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,15 @@ def _build_champion_research_inputs(args: argparse.Namespace) -> dict[str, objec
 
 
 def cmd_champion_research(args: argparse.Namespace) -> int:
+    if getattr(args, "candidate_mode", None) == "capacity_frontier":
+        try:
+            from pathlib import Path
+
+            run_frontier_from_paths(data_root=Path(args.data_root), start=date.fromisoformat(args.start), end=date.fromisoformat(args.end), output=Path(args.output))
+        except (ValueError, OSError) as exc:
+            logger.error(f"[SYS] champion-research status=fail error={exc!r}")
+            return 1
+        return 0
     try:
         kwargs: Any = _build_champion_research_inputs(args)
     except ValueError as exc:
