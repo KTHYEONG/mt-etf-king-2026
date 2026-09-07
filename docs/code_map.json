@@ -292,6 +292,9 @@
   "src/data/validation.py": {
     "testing": "tests/unit/data/test_validation.py"
   },
+  "src/execution/cash_accounting.py": {
+    "testing": "tests/unit/execution/test_cash_accounting.py"
+  },
   "src/execution/ledger.py": {
     "testing": "tests/unit/execution/test_ledger.py"
   },
@@ -348,6 +351,9 @@
   },
   "src/portfolio/intent.py": {
     "testing": "tests/unit/portfolio/test_intent.py"
+  },
+  "src/portfolio/opportunity_frontier.py": {
+    "testing": "tests/unit/portfolio/test_opportunity_frontier.py"
   },
   "src/portfolio/policy.py": {
     "testing": "tests/unit/portfolio/test_policy.py"
@@ -530,6 +536,9 @@
   },
   "src/tournament/eval_mode.py": {
     "testing": "tests/unit/tournament/test_eval_mode.py"
+  },
+  "src/tournament/frontier.py": {
+    "testing": "tests/unit/tournament/test_frontier.py"
   },
   "src/tournament/harness.py": {
     "testing": "tests/unit/tournament/test_harness.py"
