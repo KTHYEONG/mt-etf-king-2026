@@ -41,3 +41,14 @@ def test_champion_research_requires_explicit_p27_matched_mode() -> None:
 
     with pytest.raises(ValueError, match='candidate_mode'):
         _build_champion_research_inputs(argparse.Namespace(start='2026-01-02', end='2026-08-27', candidate_mode='invalid'))
+
+
+def test_champion_research_filters_match_executable_labels() -> None:
+    from src.cli.commands.champion_research import build_champion_research_filters
+    from src.universe.provider import LiquidityAdmissionMode, UniverseFilters
+
+    result = build_champion_research_filters(UniverseFilters(capital=1_000_000_000), "adaptive_specialists")
+    assert result.liquidity_admission is LiquidityAdmissionMode.STAGED_EXECUTION
+    assert result.max_order_to_adv == 0.01
+    assert result.max_position_weight == 0.80
+    assert result.allow_leverage and result.allow_inverse

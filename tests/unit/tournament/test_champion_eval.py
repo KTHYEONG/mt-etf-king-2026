@@ -501,3 +501,24 @@ def test_build_executable_hurdle_oos_scores_rejects_empty_candidate_or_label_sta
     thin_dataset = _CDC(feature_columns=('mom_5',), label_horizon=2, entry_cost_rate=0.0, exit_cost_rate=0.0)
     with pytest.raises(ValueError, match='no executable labels'):
         build_executable_hurdle_oos_scores(SimpleNamespace(panel=panel, engine=engine_thin, backtest_config=config, dataset_config=thin_dataset, objective_config=SimpleNamespace(), policy_config=SimpleNamespace(), p27_factory=lambda: None, min_train_sessions=10, n_folds=2, embargo_sessions=36, purge_sessions=36, ranker_seed=7, ranker_num_leaves=8, ranker_max_depth=4, ranker_min_data_in_leaf=100, candidate_mode='executable_hurdle'))
+
+
+def test_hurdle_calibration_schema_accepts_late_float() -> None:
+    import polars as pl
+    from src.tournament.champion.oos_scores import build_hurdle_calibration_frame
+
+    rows = [{"date": "2026-01-02", "ticker": str(i), "score": None} for i in range(100)]
+    rows.append({"date": "2026-01-03", "ticker": "100", "score": 1.024351})
+    frame = build_hurdle_calibration_frame(rows, ["score"])
+    assert frame.schema["score"] == pl.Float64
+    assert frame.item(-1, "score") == 1.024351
+
+
+def test_adaptive_mode_dispatches_before_legacy_ranker(monkeypatch) -> None:
+    from types import SimpleNamespace
+    import src.tournament.champion.walkforward as module
+
+    sentinel = object()
+    monkeypatch.setattr(module, "run_adaptive_specialist_research", lambda runtime: sentinel)
+    monkeypatch.setattr(module, "build_executable_hurdle_oos_scores", lambda runtime: (_ for _ in ()).throw(AssertionError("legacy ranker called")))
+    assert module.run_champion_walk_forward(runtime=SimpleNamespace(candidate_mode="adaptive_specialists")) is sentinel

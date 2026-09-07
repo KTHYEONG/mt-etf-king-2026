@@ -219,3 +219,18 @@ def test_direct_candidates_fail_closed_on_backend_errors() -> None:
 
     steady = SimpleNamespace(get=lambda _day, _filters: SimpleNamespace(tickers=('ONE',)))
     assert collect_direct_vehicle_candidates(panel, sessions=[day], universe=steady, filters=SimpleNamespace(), master=SimpleNamespace(attributes=_Exploding()), feature_columns=('mom_5',)).height == 0
+
+
+def test_direct_candidates_keep_pit_existing_later_inactive_etf() -> None:
+    from datetime import date
+    from types import SimpleNamespace
+    import polars as pl
+    from src.alpha.champion_dataset import collect_direct_vehicle_candidates
+
+    d0 = date(2020, 1, 2)
+    panel = pl.DataFrame([{"date": d0, "ticker": "OLD", "is_tradable": True, "mom60": 0.2}])
+    universe = SimpleNamespace(get=lambda decision_date, filters: SimpleNamespace(tickers=("OLD",)))
+    attr = SimpleNamespace(is_synthetic=False, is_active=False, confidence=SimpleNamespace(value="high"), leverage_multiple=2, leverage_family_key="BROAD")
+    master = SimpleNamespace(attributes={"OLD": attr})
+    result = collect_direct_vehicle_candidates(panel, sessions=(d0,), universe=universe, filters=object(), master=master, feature_columns=("mom60",))
+    assert result.get_column("source_ticker").to_list() == ["OLD"]
