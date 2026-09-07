@@ -71,3 +71,12 @@ def test_scenario_04_02_instrument_master_and_issuer() -> None:
     expected_key = normalize_index_key("코스피 200")
     assert master.attributes["A"].leverage_family_key == expected_key
     assert master.attributes["A"].index_key == expected_key
+
+
+def test_resolve_issuer_matches_historical_and_unspaced_prefixes() -> None:
+    from src.universe.instruments import resolve_issuer
+
+    brands = {"KBSTAR": "KB", "RISE": "KB", "KODEX": "SAMSUNG"}
+    assert resolve_issuer("KBSTAR200선물인버스2X", brands) == "KB"
+    assert resolve_issuer("KODEX 200", brands) == "SAMSUNG"
+    assert resolve_issuer("NOT_A_SPONSOR ETF", brands) == "UNKNOWN"
