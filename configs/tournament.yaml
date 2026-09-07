@@ -7,8 +7,8 @@ tournament:
 
   category:
     name: autonomous
-    leverage_allowed: unknown
-    inverse_allowed: unknown
+    leverage_allowed: true
+    inverse_allowed: true
 
   rules:
     min_trade_unit: 1

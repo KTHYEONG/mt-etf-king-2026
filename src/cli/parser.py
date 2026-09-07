@@ -10,6 +10,7 @@ from src.cli.commands.champion_research import cmd_champion_research
 from src.cli.commands.config import cmd_calendar, cmd_config_check
 from src.cli.commands.data import cmd_ingest, cmd_normalize
 from src.cli.commands.decide import cmd_decide
+from src.cli.commands.feasibility_audit import cmd_feasibility_audit
 from src.cli.commands.features import cmd_features
 from src.cli.commands.forensics import cmd_forensics
 from src.cli.commands.loyo import cmd_loyo
@@ -32,6 +33,7 @@ SUBCOMMANDS: Final[tuple[str, ...]] = (
     "decide",
     "storage-migrate",
     "champion-research",
+    "feasibility-audit",
 )
 
 
@@ -129,4 +131,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_champ.add_argument("--data-root", dest="data_root", default="data", help="data root")
     p_champ.add_argument("--output", dest="output", default="results/championship_frontier", help="output dir")
     p_champ.set_defaults(func=cmd_champion_research)
+    # feasibility-audit
+    p_audit = sub.add_parser("feasibility-audit", help="phase-0 championship feasibility audit")
+    p_audit.add_argument("--start", required=True, help="start date YYYY-MM-DD")
+    p_audit.add_argument("--end", required=True, help="end date YYYY-MM-DD")
+    p_audit.add_argument("--horizon", type=int, default=36, help="window horizon sessions")
+    p_audit.add_argument("--p27-run", required=False, default=None, dest="p27_run", help="P27 run dir with windows.parquet")
+    p_audit.add_argument("--b1-run", required=False, default=None, dest="b1_run", help="B1 run dir with windows.parquet")
+    p_audit.add_argument("--p38-promotion", required=False, default=None, dest="p38_promotion", help="P38 promotion JSON")
+    p_audit.add_argument("--output", required=False, default="docs/research", dest="output", help="output dir")
+    p_audit.add_argument("--data-root", required=False, default="data", dest="data_root", help="data root")
+    p_audit.set_defaults(func=cmd_feasibility_audit)
     return parser

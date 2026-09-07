@@ -12,6 +12,7 @@ from src.cli.commands.champion_research import cmd_champion_research
 from src.cli.commands.config import cmd_calendar, cmd_config_check
 from src.cli.commands.data import cmd_ingest, cmd_normalize
 from src.cli.commands.decide import cmd_decide
+from src.cli.commands.feasibility_audit import cmd_feasibility_audit
 from src.cli.commands.features import cmd_features
 from src.cli.commands.forensics import cmd_forensics
 from src.cli.commands.loyo import cmd_loyo
@@ -37,6 +38,7 @@ SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "decide": cmd_decide,
     "storage-migrate": cmd_storage_migrate,
     "champion-research": cmd_champion_research,
+    "feasibility-audit": cmd_feasibility_audit,
 }
 
 
