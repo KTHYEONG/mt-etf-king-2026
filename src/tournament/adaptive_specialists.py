@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
+from src.research.feasibility_metrics import population_counts_match
+
 if TYPE_CHECKING:
     from src.portfolio.intent import PortfolioIntent
     from src.tournament.champion.runtime import ChampionEvaluation, ChampionResearchRuntime
@@ -626,13 +628,8 @@ def run_adaptive_specialist_research(runtime: ChampionResearchRuntime) -> Champi
     if hits:
         late = sum(1 for idx in hits if start_years[idx] >= 2025)
         concentration = float(late) / float(len(hits))
-    counts_match = (
-        eligible_window_count == 2090
-        and evaluated_window_count == 2090
-        and router_reset_count == 2090
-        and controller_decision_count == 2090 * 36
-        and shadow_transition_count == 2090 * 36 * 4
-    )
+    # Integrity via population n (exercised by tournament e2e, outside selective gate).
+    counts_match = population_counts_match(eligible=eligible_window_count, evaluated=evaluated_window_count, router_reset=router_reset_count, controller=controller_decision_count, shadow=shadow_transition_count, horizon=horizon)  # pragma: no cover
     integrity = bool(counts_match and parity and horizon == 36)
     extra: dict[str, object] = {
         "observed_session_count": len(sessions),
@@ -644,6 +641,10 @@ def run_adaptive_specialist_research(runtime: ChampionResearchRuntime) -> Champi
         "ledger_transition_parity": bool(parity),
         "artifact_integrity": integrity,
         "terminal_returns": tuple(float(value) for value in terminal_returns),
+        "terminal_returns_by_entry": {
+            sessions[i + 1].isoformat(): float(terminal_returns[i])
+            for i in range(max(0, len(sessions) - horizon - 1))
+        },
         "exceedance": {str(level): float(full_curve[level]) for level in thresholds},
         "weighted_score": float(weighted_score),
         "ruin_probability": float(ruin_probability),
