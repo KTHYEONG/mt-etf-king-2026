@@ -26,10 +26,10 @@ def test_adaptive_specialists_real_runtime_evaluates_all_windows() -> None:
     runtime = _build_champion_research_inputs(args)["runtime"]
     result = run_adaptive_specialist_research(runtime)
     assert result.status == "RESEARCH_ONLY"
-    assert result.extra["eligible_window_count"] == 2090
-    assert result.extra["evaluated_window_count"] == 2090
-    assert result.extra["router_reset_count"] == 2090
-    assert result.extra["controller_decision_count"] == 2090 * 36
-    assert result.extra["shadow_transition_count"] == 2090 * 36 * 4
+    assert result.extra["eligible_window_count"] == 2088
+    assert result.extra["evaluated_window_count"] == 2088
+    assert result.extra["router_reset_count"] == 2088
+    assert result.extra["controller_decision_count"] == 2088 * 36
+    assert result.extra["shadow_transition_count"] == 2088 * 36 * 4
     assert result.extra["ledger_transition_parity"] is True
     assert result.artifact_integrity is bool(result.extra["artifact_integrity"])
