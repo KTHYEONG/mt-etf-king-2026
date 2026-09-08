@@ -65,6 +65,7 @@ class SessionInputs:
     regimes: dict[date, object] | None = None
     rules: object | None = None
     model_name: str | None = None
+    championship_sleeves: dict[date, str] | None = None
 
 
 def _is_fillable_sticky_model(model: object) -> bool:
@@ -280,6 +281,8 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_
         except Exception:
             pass
 
+    _sleeves = getattr(engine, "championship_sleeves", None)
+    _sleeve_map = _sleeves if isinstance(_sleeves, dict) else None
     return SessionInputs(
         dates=dates_t,
         close_map=close_map,
@@ -292,4 +295,5 @@ def build_session_cache(engine, model, panel: pl.DataFrame, config, *, leverage_
         regimes=getattr(engine, "regimes", None) if hasattr(engine, "regimes") else None,  # type: ignore[attr-defined]
         rules=rules,
         model_name=str(getattr(model, "name", "")) or None,
+        championship_sleeves=_sleeve_map,
     )

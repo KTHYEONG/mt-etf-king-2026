@@ -14,6 +14,8 @@ from src.backtest.costs import CostConfig
 from src.cli.commands.backtest._core import _SPLIT_FILL_IDS
 from src.cli.context import BacktestContext
 from src.core.config import config_path
+from src.core.paths import DataPaths
+from src.tournament.championship_regime import build_championship_sleeve_map, kospi_sleeve_feature_maps
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,25 @@ class _Prep:
     control_flags: Any = None
     rolling_exposure_limits: Any = None
     master: Any = None
+
+def load_index_daily_panel(paths: DataPaths) -> pl.DataFrame | None:
+    try:
+        index_path = paths.silver("index_daily")
+        if not index_path.exists():
+            return None
+        return pl.read_parquet(index_path)
+    except Exception:
+        return None
+
+
+def prep_championship_sleeves_on_engine(engine: object, index_daily: object | None) -> dict[date, str] | None:
+    if index_daily is None:
+        return None
+    m60, m20, rv = kospi_sleeve_feature_maps(index_daily)  # type: ignore[arg-type]
+    sleeve_map = build_championship_sleeve_map(mom60_by_date=m60, mom20_by_date=m20, rv20_daily_by_date=rv)
+    engine.championship_sleeves = sleeve_map  # type: ignore[attr-defined]
+    return sleeve_map
+
 
 def prepare_run(ctx: BacktestContext) -> _Prep:
     """Assemble engine, simulator, cases and caches for a backtest run."""
@@ -220,23 +241,17 @@ def prepare_run(ctx: BacktestContext) -> _Prep:
     universe = PointInTimeUniverse(panel, master, cal, adv_window=20, brand_map=brand_map)
     execution = NextOpenExecution(cal)
     regimes = None
-    try:
-        index_path = paths.silver("index_daily")
-        if index_path.exists():
-            import polars as _pl2
-
-            index_panel_r = _pl2.read_parquet(index_path)
-            try:
-                breadth_panel_r = _pl2.DataFrame({"date": [], "breadth_ma20": []})
-            except Exception:
-                breadth_panel_r = _pl2.DataFrame()
+    index_panel_r = load_index_daily_panel(paths)
+    if index_panel_r is None:
+        logger.warning("[DATA] backtest regimes=None index_daily not found")
+    else:
+        try:
+            breadth_panel_r = pl.DataFrame({"date": [], "breadth_ma20": []})
             sessions_for_regime = cal.sessions(start, end)
             regimes = builder.build_regime_series(index_panel_r, breadth_panel_r, sessions_for_regime)
-        else:
-            logger.warning(f"[DATA] backtest regimes=None index_daily not found {index_path}")
-    except Exception as exc:
-        logger.warning(f"[DATA] backtest regime build failed {exc!r}")
-        regimes = None
+        except Exception as exc:
+            logger.warning(f"[DATA] backtest regime build failed {exc!r}")
+            regimes = None
     prep.regimes = regimes
     if regimes is not None:
         engine = BacktestEngine(
@@ -257,6 +272,7 @@ def prepare_run(ctx: BacktestContext) -> _Prep:
             leverage_allowed=lev_allowed,
             inverse_allowed=inv_allowed,
         )
+    prep_championship_sleeves_on_engine(engine, index_panel_r)
     limit_loader = _ENGINE_LIMIT_LOADERS.get(model_key)
     if limit_loader is not None:
         from src.portfolio.constraints import load_p26_exposure_limits, load_p27_exposure_limits
