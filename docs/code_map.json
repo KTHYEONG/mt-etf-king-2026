@@ -500,7 +500,10 @@
     ]
   },
   "src/strategies/sticky/model_config.py": {
-    "testing": "tests/unit/strategies/test_model_config.py"
+    "testing": [
+      "tests/unit/alpha/test_p27.py",
+      "tests/unit/strategies/test_model_config.py"
+    ]
   },
   "src/strategies/sticky/model_runner.py": {
     "testing": [
@@ -550,6 +553,9 @@
   },
   "src/tournament/championship.py": {
     "testing": "tests/unit/tournament/test_championship.py"
+  },
+  "src/tournament/championship_regime.py": {
+    "testing": "tests/unit/tournament/test_championship_regime.py"
   },
   "src/tournament/distribution/bootstrap.py": {},
   "src/tournament/distribution/core.py": {},

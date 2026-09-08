@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_CHAMPIONSHIP_REGIME_LIFT",
+      "date": "2026-09-08",
+      "adr_id": "ADR_20260908_CHAMPIONSHIP_REGIME_LIFT",
+      "domain": "tournament",
+      "title": "Championship sleeve classifier — research diagnostic layer",
+      "why": "P27 P>50 tail is concentrated in 2025-26 lottery regimes; heavy P38 routing and generic KOSPI MA20 regime gates were rejected by probe.",
+      "resolution": "Added ChampionshipSleeve classifier in tournament policy, annualized rv helper, feasibility-audit sleeve table, and fail-closed crash-rebound bypass wiring with production gate False.",
+      "impact": "Research-only sleeve diagnostics on P27 full run show LOTTERY_ON P>50=18.8% vs 0% INACTIVE; P27 production behavior unchanged until gate proof."
+    },
+    {
       "task_id": "TASK_P27_CHAMPIONSHIP_SHARPEN",
       "date": "2026-09-07",
       "adr_id": "ADR_20260907_P27_CHAMPIONSHIP_SHARPEN",
