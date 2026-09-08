@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_CHAMPIONSHIP_OBJECTIVE",
+      "date": "2026-09-08",
+      "adr_id": "ADR_20260908_CHAMPIONSHIP_OBJECTIVE",
+      "domain": "alpha",
+      "title": "Championship objective cutoff-AUC + attack policy instrumentation",
+      "why": "Fixed +50% exceedance objective and all-era adoption gates misaligned with regime-conditional one-shot championship tail capture.",
+      "resolution": "Added cutoff_auc scoring, rebound_leader_scores, attack-policy evaluators, and P27 summary metrics; fixed contract/lean_check coverage; production gate remains false.",
+      "impact": "Full P27 backtest PASS (P>50=4.98%, ruin=2.68%, cutoff_auc_score=0.051); mom60 routing unchanged until CUTOFF_AUC_IS_PRODUCTION_GATE proof."
+    },
+    {
       "task_id": "TASK_P27_REGIME_MOMENTUM",
       "date": "2026-09-08",
       "adr_id": "ADR_20260908_P27_REGIME_MOMENTUM",
