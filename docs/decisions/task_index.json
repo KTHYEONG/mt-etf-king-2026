@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P27_CHAMPIONSHIP_SHARPEN",
+      "date": "2026-09-07",
+      "adr_id": "ADR_20260907_P27_CHAMPIONSHIP_SHARPEN",
+      "domain": "alpha",
+      "title": "P27 championship capacity capital pinning",
+      "why": "Equity-grown apply_capacity_filter capital tightened fillability as mark-to-market equity rose, dropping fillable +2x names in late championship windows.",
+      "resolution": "Added resolve_capacity_capital to pin capacity checks to rules.initial_capital and wired it through StickyLeaderModel and ConvexImpulseModel score paths.",
+      "impact": "Capacity filtering stays fixed at tournament initial capital; P27 sticky params, identity overlay, and activation gate remain unchanged."
+    },
+    {
       "task_id": "TASK_R1_ACTIVATION_STATE",
       "date": "2026-09-07",
       "adr_id": "ADR_20260907_R1_ACTIVATION_STATE",
