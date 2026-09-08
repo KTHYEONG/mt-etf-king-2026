@@ -401,3 +401,74 @@ def test_p27_championship_invariants_unchanged() -> None:
     assert overlay_should_cash("identity", 0.99, 0, 0.50, 5) is False
     assert load_p27_exposure_limits() == (0.95, 1.90, 0.05)
     assert ACTIVATION_STATE_IS_PRODUCTION_GATE is False
+
+
+def test_p27_factory_crash_rebound_abs_mom_bypass_disabled() -> None:
+    from src.alpha.sticky import load_p27_overlay_mode
+    from src.strategies.registry import STRATEGIES as BASELINES
+    from src.strategies.sticky.model_config import StickyLeaderConfig
+    from src.tournament.championship_regime import CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE
+
+    p27 = BASELINES["sticky.mom60_raw"]()
+    assert p27.name == "sticky.mom60_raw"
+    assert bool(getattr(p27.config, "crash_rebound_abs_mom_bypass", False)) is False
+    assert bool(p27.config.abs_mom_cash) is True
+    assert load_p27_overlay_mode() == "identity"
+    assert CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE is False
+    loaded = StickyLeaderConfig.from_yaml({"crash_rebound_abs_mom_bypass": True, "abs_mom_cash": True})
+    assert bool(getattr(loaded, "crash_rebound_abs_mom_bypass", False)) is False
+
+
+def test_p27_score_cashes_on_crash_rebound_sleeve_while_gate_false() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.alpha.base import DecisionContext
+    from src.portfolio.intent import CASH_INTENT, PortfolioIntent
+    from src.strategies.registry import STRATEGIES as BASELINES
+    from src.tournament.championship_regime import ChampionshipSleeve
+    from src.universe.tournament import TournamentRules
+
+    snap = pl.DataFrame(
+        {
+            "ticker": ["LEV1", "LEV2"],
+            "name": ["KODEX 레버리지", "KODEX 코스닥150레버리지"],
+            "mom_60": [-0.05, -0.02],
+            "mom_5": [0.0, 0.0],
+            "volume_expansion": [0.1, 0.1],
+            "drawdown_20": [0.0, 0.0],
+            "trading_value": [1.0e11, 1.0e11],
+        }
+    )
+    rules = TournamentRules(
+        name="t",
+        start_date=date(2026, 9, 21),
+        end_date=date(2026, 11, 13),
+        initial_capital=1_000_000_000,
+        category="autonomous",
+        leverage_allowed=True,
+        inverse_allowed=True,
+        max_weight=1.0,
+        cash_allowed=True,
+        sponsor_etf_only=True,
+        manifest_path=None,
+        issuer_whitelist=None,
+        commission_bps=3.0,
+        slippage_bps=5.0,
+        max_order_to_adv=0.01,
+        stress_grid=(0.01, 0.02, 0.05),
+    )
+    model = BASELINES["sticky.mom60_raw"]()
+    model.config.crash_rebound_abs_mom_bypass = True
+    ctx = DecisionContext(
+        decision_date=date(2026, 1, 2),
+        regime=None,
+        capital=1.0e9,
+        held={},
+        rules=rules,
+        championship_sleeve=ChampionshipSleeve.CRASH_REBOUND.value,
+    )
+    out = model.score(snap, ctx)
+    assert isinstance(out, PortfolioIntent)
+    assert out.kind == CASH_INTENT.kind
