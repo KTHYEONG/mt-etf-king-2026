@@ -103,3 +103,24 @@ def test_p28b_score_cash_when_all_mom_nonpos() -> None:
     out = p28b.score(snap, ctx)
     assert isinstance(out, PortfolioIntent)
     assert out.kind == CASH_INTENT.kind
+
+
+def test_apply_abs_mom_cash_rebound_bypass_keeps_nonpos_mapping() -> None:
+    from src.alpha.sticky import StickyLeaderConfig, apply_abs_mom_cash
+    from src.portfolio.intent import PortfolioIntent
+
+    cfg = StickyLeaderConfig(mom_col="mom_60", abs_mom_cash=True)
+    scores = {"AAA": -0.10, "BBB": 0.0}
+    out = apply_abs_mom_cash(scores, cfg, rebound_bypass=True)
+    assert not isinstance(out, PortfolioIntent)
+    assert out == {"AAA": -0.10, "BBB": 0.0}
+
+
+def test_apply_abs_mom_cash_rebound_bypass_default_still_cashes() -> None:
+    from src.alpha.sticky import StickyLeaderConfig, apply_abs_mom_cash
+    from src.portfolio.intent import CASH_INTENT, PortfolioIntent
+
+    cfg = StickyLeaderConfig(mom_col="mom_60", abs_mom_cash=True)
+    out = apply_abs_mom_cash({"AAA": -0.10, "BBB": 0.0}, cfg)
+    assert isinstance(out, PortfolioIntent)
+    assert out.kind == CASH_INTENT.kind

@@ -77,6 +77,8 @@ def test_p26_score_ranks_mom60_and_keeps_crashed_leader() -> None:
     assert scores, "crash-cash must stay disabled so scores remain non-empty"
     w = weights_from_scores(scores, SizingScheme.TOP1, k=1)
     assert set(w.keys()) <= {"SLOW", "FAST"}
+    from src.portfolio.intent import CASH_INTENT
+
     p25 = BASELINES["sticky.house_money"]()
     empty = p25.score(snap, ctx)
-    assert empty == {}
+    assert empty is CASH_INTENT
