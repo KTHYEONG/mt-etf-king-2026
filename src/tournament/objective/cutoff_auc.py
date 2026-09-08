@@ -1,6 +1,6 @@
 # mypy: ignore-errors
 # ruff: noqa
-"""Championship cutoff-AUC objective and attack policy (research-only gate)."""
+"""Championship cutoff-AUC objective and attack policy (live production gate)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Final
 CUTOFF_AUC_THRESHOLDS: Final[tuple[float, ...]] = (0.40, 0.45, 0.50, 0.55, 0.60)
 CUTOFF_AUC_LOW: Final[float] = 0.40
 CUTOFF_AUC_HIGH: Final[float] = 0.55
-CUTOFF_AUC_IS_PRODUCTION_GATE: Final[bool] = False
+CUTOFF_AUC_IS_PRODUCTION_GATE: Final[bool] = True
 ATTACK_RUIN_MAX: Final[float] = 0.05
 
 

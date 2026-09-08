@@ -103,6 +103,67 @@ def classify_championship_sleeve_series(
     return tuple(snapshots)
 
 
+def kospi_sleeve_feature_maps(index_daily: pl.DataFrame) -> tuple[dict[date, float | None], dict[date, float | None], dict[date, float | None]]:
+    empty: tuple[dict[date, float | None], dict[date, float | None], dict[date, float | None]] = ({}, {}, {})
+    if index_daily.height == 0:
+        return empty
+    cols = set(index_daily.columns)
+    if not {"index_name", "date", "close"} <= cols:
+        return empty
+    sub = index_daily.filter(pl.col("index_name") == "KOSPI").sort("date")
+    dates: list[date] = list(sub.get_column("date").to_list())
+    closes: list[float] = [float(c) for c in sub.get_column("close").to_list()]
+    mom60_by_date: dict[date, float | None] = {}
+    mom20_by_date: dict[date, float | None] = {}
+    rv20_daily_by_date: dict[date, float | None] = {}
+    rets: list[float] = [0.0] * len(dates)
+    for i in range(1, len(dates)):
+        rets[i] = float(closes[i]) / float(closes[i - 1]) - 1.0
+    for i, d in enumerate(dates):
+        mom60: float | None = None
+        if i >= 60:
+            base = closes[i - 60]
+            cur = closes[i]
+            if base > 0.0:
+                mom60 = float(float(cur) / float(base) - 1.0)
+        mom20: float | None = None
+        if i >= 20:
+            base = closes[i - 20]
+            cur = closes[i]
+            if base > 0.0:
+                mom20 = float(float(cur) / float(base) - 1.0)
+        rv: float | None = None
+        if i >= 20:
+            window = rets[i - 19 : i + 1]
+            finite = [float(x) for x in window]
+            if len(finite) >= 20:
+                mean = float(sum(finite) / 20.0)
+                var = float(sum((float(x) - mean) ** 2 for x in finite) / 20.0)
+                rv = float(math.sqrt(var))
+        mom60_by_date[d] = mom60
+        mom20_by_date[d] = mom20
+        rv20_daily_by_date[d] = rv
+    return (mom60_by_date, mom20_by_date, rv20_daily_by_date)
+
+
+def build_championship_sleeve_map(*, mom60_by_date: Mapping[date, float | None], mom20_by_date: Mapping[date, float | None], rv20_daily_by_date: Mapping[date, float | None]) -> dict[date, str]:
+    out: dict[date, str] = {}
+    for d in sorted(set(mom60_by_date) | set(mom20_by_date) | set(rv20_daily_by_date)):
+        snap = classify_championship_sleeve(decision_date=d, mom60=mom60_by_date.get(d), mom20=mom20_by_date.get(d), rv20_daily=rv20_daily_by_date.get(d))
+        out[d] = snap.sleeve.value
+    return out
+
+
+def championship_sleeve_from_cache(cache: object, decision_date: date) -> str | None:
+    mapping = getattr(cache, "championship_sleeves", None)
+    if not isinstance(mapping, Mapping):
+        return None
+    raw = mapping.get(decision_date)
+    if isinstance(raw, str) and raw != "":
+        return raw
+    return None
+
+
 def abs_mom_rebound_bypass_allowed(*, sleeve: str | None, config_enabled: bool) -> bool:
     return bool(CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE and config_enabled and sleeve == ChampionshipSleeve.CRASH_REBOUND.value)
 

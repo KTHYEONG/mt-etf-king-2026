@@ -27,6 +27,11 @@ from src.execution.ledger import (
 from src.portfolio.intent import HOLD_INTENT, resolve_portfolio_intent
 from src.portfolio.policy import PathDependentPolicyError
 from src.portfolio.sizing import SizingScheme, weights_from_scores
+from src.tournament.championship_regime import championship_sleeve_from_cache
+
+
+def DecisionContext_championship_sleeve_injection(cache: object, decision_date: date) -> str | None:
+    return championship_sleeve_from_cache(cache, decision_date)
 
 # anchor for wiring
 compute_next_open_session_return(  # type: ignore[misc]
@@ -174,6 +179,7 @@ def resolve_prestart_intent(
                 capital=float(capital),
                 held={},
                 rules=rules_val,  # type: ignore[arg-type]
+                championship_sleeve=championship_sleeve_from_cache(cache, pre_decision_date),
             )
         except Exception:
             ctx = DecisionContext(
@@ -182,6 +188,7 @@ def resolve_prestart_intent(
                 capital=float(capital),
                 held={},
                 rules=getattr(cache, "rules", None),  # type: ignore[arg-type]
+                championship_sleeve=championship_sleeve_from_cache(cache, pre_decision_date),
             )
         try:
             score_result = model.score(snapshot, ctx)  # type: ignore[call-arg]
@@ -475,6 +482,7 @@ def simulate_window_from_cache(
                     capital=float(equity_for_ctx),
                     held=dict(current_weights),
                     rules=rules_val,  # type: ignore[arg-type]
+                    championship_sleeve=DecisionContext_championship_sleeve_injection(cache, decision_date),
                 )
             except Exception:
                 ctx = DecisionContext(
@@ -483,6 +491,7 @@ def simulate_window_from_cache(
                     capital=float(capital),
                     held=dict(current_weights),
                     rules=getattr(cache, "rules", None),  # type: ignore[arg-type]
+                    championship_sleeve=DecisionContext_championship_sleeve_injection(cache, decision_date),
                 )
             try:
                 score_result = model.score(snapshot, ctx)  # type: ignore[call-arg]
