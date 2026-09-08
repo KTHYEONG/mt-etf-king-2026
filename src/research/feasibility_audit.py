@@ -28,6 +28,14 @@ from src.research.feasibility_metrics import (
     peak_return_from_wealth_giveback,
     return_space_gap,
 )
+from src.tournament.championship_regime import (
+    CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE as CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE,
+)
+from src.tournament.championship_regime import ChampionshipSleeve as ChampionshipSleeve
+from src.tournament.championship_regime import (
+    classify_championship_sleeve_series as classify_championship_sleeve_series,
+)
+from src.tournament.championship_regime import sleeve_conditional_table as sleeve_conditional_table
 from src.universe.manifest_validate import validate_deployment_manifest
 
 CAPTURE_THRESHOLD: Final[float] = 0.50
@@ -47,6 +55,8 @@ def run_feasibility_audit(
     manifest: frozenset[str] | None = None,
     enforce_horizon_36: bool = True,
     kospi_mom60_by_date: Mapping[date, float | None] | None = None,
+    kospi_mom20_by_date: Mapping[date, float | None] | None = None,
+    kospi_rv20_daily_by_date: Mapping[date, float | None] | None = None,
 ) -> dict[str, object]:
     if enforce_horizon_36 and horizon != 36:
         raise PopulationError(f"feasibility audit requires horizon=36, got {horizon}")
@@ -105,7 +115,8 @@ def run_feasibility_audit(
         reason = ", ".join(sorted({e.reason for e in pop.exclusions})) or "phantoms kept"
         md_lines.append(f"| {policy_name} | {len(calendar_sessions)} | {pop.n_windows} | {excluded} | {reason} |")
     (output_dir / "window_population_reconciliation.md").write_text("\n".join(md_lines) + "\n", encoding="utf-8")
-    metrics = {"horizon": horizon, "b1_role": b1_role, "p38_status": p38_status, "p38_mean_terminal": p38_mean, "manifest_status": manifest_result.status, "audit_regime_is_activation_gate": AUDIT_REGIME_IS_ACTIVATION_GATE, "activation_state_is_production_gate": ACTIVATION_STATE_IS_PRODUCTION_GATE, "activation_as_of": None, "audit_regime_unlabeled_fallback": audit_regime_label(mom60=None, mom20=None, rv20=None, dd60=None), "strategies": strategies, "populations": {k: {"eligible_windows": v.n_windows, "excluded": len(v.exclusions)} for k, v in populations.items()}}
+    championship_sleeve_is_production_gate = CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE
+    metrics = {"horizon": horizon, "b1_role": b1_role, "p38_status": p38_status, "p38_mean_terminal": p38_mean, "manifest_status": manifest_result.status, "audit_regime_is_activation_gate": AUDIT_REGIME_IS_ACTIVATION_GATE, "activation_state_is_production_gate": ACTIVATION_STATE_IS_PRODUCTION_GATE, "championship_sleeve_is_production_gate": championship_sleeve_is_production_gate, "activation_as_of": None, "audit_regime_unlabeled_fallback": audit_regime_label(mom60=None, mom20=None, rv20=None, dd60=None), "strategies": strategies, "populations": {k: {"eligible_windows": v.n_windows, "excluded": len(v.exclusions)} for k, v in populations.items()}}
     if kospi_mom60_by_date is not None and len(executable_pop.windows) > 0:
         last_decision = executable_pop.windows[-1].decision_date
         pit_map = {day: value for day, value in kospi_mom60_by_date.items() if day <= last_decision}
@@ -117,6 +128,12 @@ def run_feasibility_audit(
         activation_states = [state_by_decision.get(w.decision_date, "UNCERTAIN") for w in executable_pop.windows]
         activation_table = activation_conditional_table(states=activation_states, terminal_returns=sticky_aligned, oracle_returns=oracle_seq)
         activation_table.write_csv(output_dir / "p27_regime_activation_table.csv")
+    if kospi_mom60_by_date is not None and kospi_mom20_by_date is not None and kospi_rv20_daily_by_date is not None and sticky_aligned is not None:
+        sleeve_snaps = classify_championship_sleeve_series(mom60_by_date=kospi_mom60_by_date, mom20_by_date=kospi_mom20_by_date, rv20_daily_by_date=kospi_rv20_daily_by_date)
+        sleeve_by_decision = {snap.as_of: snap.sleeve for snap in sleeve_snaps}
+        sleeve_states = [sleeve_by_decision.get(w.decision_date, ChampionshipSleeve.UNCERTAIN) for w in executable_pop.windows]
+        championship_table = sleeve_conditional_table(sleeves=sleeve_states, terminal_returns=sticky_aligned, oracle_returns=oracle_seq)
+        championship_table.write_csv(output_dir / "championship_sleeve_table.csv")
     (output_dir / "2026_championship_feasibility_metrics.json").write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
     table_rows = [{"strategy": name, "metric": metric, "value": str(value)} for name, vals in strategies.items() for metric, value in vals.items()]
     pl.DataFrame(table_rows, schema={"strategy": pl.String, "metric": pl.String, "value": pl.String}, strict=False).write_csv(output_dir / "2026_championship_feasibility_tables.csv")
