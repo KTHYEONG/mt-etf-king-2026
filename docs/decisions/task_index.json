@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P27_REGIME_MOMENTUM",
+      "date": "2026-09-08",
+      "adr_id": "ADR_20260908_P27_REGIME_MOMENTUM",
+      "domain": "quant",
+      "title": "P27 regime momentum — phantom-safe features + research classifier",
+      "why": "Phantom sessions in the ETF panel nullified mom_60 on 2026-08-27 and left P27 opportunity UNCERTAIN instead of a valid OFF/ON read.",
+      "resolution": "Shipped phantom-safe add_momentum, classify_p27_regime with conditional table, feasibility-audit wiring, tests, and rebuilt etf_features.parquet through 2026-08-27.",
+      "impact": "Latest P27 regime is OFF (confidence 0.25); probe keeps strict mom60 gate ahead on P>50 but breadth filter lowers ruin; P27_REGIME_IS_PRODUCTION_GATE stays false."
+    },
+    {
       "task_id": "TASK_CHAMPIONSHIP_REGIME_LIFT",
       "date": "2026-09-08",
       "adr_id": "ADR_20260908_CHAMPIONSHIP_REGIME_LIFT",
