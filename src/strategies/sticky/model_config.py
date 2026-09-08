@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_EXCLUDE_NAME_TOKENS: Final[tuple[str, ...]] = ("국채", "채권", "달러", "엔선물", "골드", "금선물", "gold", "커버드콜", "스티프너", "플래트너")
 
+# Fail-closed default: the crash-rebound bypass is never parsed from YAML.
+crash_rebound_abs_mom_bypass: bool = False
+
 
 def name_excluded(name: str, tokens: Sequence[str]) -> bool:
     try:
@@ -109,6 +112,7 @@ class StickyLeaderConfig:
     min_fill_ratio: float = 0.0
     runner_reversal_exit: bool = False
     runner_mom_col: str = "mom_5"
+    crash_rebound_abs_mom_bypass: bool = crash_rebound_abs_mom_bypass
     @classmethod
     def from_yaml(cls, raw: Mapping[str, object]) -> StickyLeaderConfig:
         defaults = cls()
@@ -322,4 +326,5 @@ class StickyLeaderConfig:
             abs_mom_exit=float(abs_mom_exit),
             runner_reversal_exit=bool(runner_reversal_exit),
             runner_mom_col=str(runner_mom_col),
+            crash_rebound_abs_mom_bypass=bool(defaults.crash_rebound_abs_mom_bypass),
         )

@@ -6,6 +6,16 @@ import math
 from typing import Final
 
 AUDIT_REGIME_IS_ACTIVATION_GATE: Final[bool] = False
+AUDIT_RV20_SESSIONS_PER_YEAR: Final[float] = 252.0
+
+
+def annualize_daily_realized_vol(daily_std: float | None) -> float | None:
+    if daily_std is None:
+        return None
+    value = float(daily_std)
+    if not math.isfinite(value) or value < 0:
+        return None
+    return float(value * (AUDIT_RV20_SESSIONS_PER_YEAR**0.5))
 
 
 def _num(value: float | None) -> float | None:

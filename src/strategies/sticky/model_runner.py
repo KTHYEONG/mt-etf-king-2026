@@ -210,9 +210,14 @@ class StickyLeaderModel:
             apply_impulse_switch,
             apply_same_leader_hold,
         )
+        from src.tournament.championship_regime import abs_mom_rebound_bypass_allowed
+
         impulsed = apply_impulse_switch(sticky, held, snapshot, self.config)
         crashed = apply_crash_cash(impulsed, held, snapshot, self.config)
-        abs_gated = apply_abs_mom_cash(crashed, self.config, held=held)
+        _sleeve_raw = getattr(context, "championship_sleeve", None)
+        _sleeve = _sleeve_raw if isinstance(_sleeve_raw, str) else None
+        _bypass = abs_mom_rebound_bypass_allowed(sleeve=_sleeve, config_enabled=bool(getattr(self.config, "crash_rebound_abs_mom_bypass", False)))
+        abs_gated = apply_abs_mom_cash(crashed, self.config, held=held, rebound_bypass=_bypass)
         out = apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
         if _runner_exit and held is not None and _runner_cap is not None and _runner_mom is not None:
             try:

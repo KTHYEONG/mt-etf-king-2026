@@ -10,6 +10,9 @@ import polars as pl
 from src.features.regime import RegimeSnapshot
 from src.universe.tournament import TournamentRules
 
+# Research-only championship sleeve default (mirrored on DecisionContext).
+championship_sleeve: str | None = None
+
 
 @dataclass(frozen=True)
 class DecisionContext:
@@ -18,6 +21,7 @@ class DecisionContext:
     capital: float
     held: Mapping[str, float]
     rules: TournamentRules
+    championship_sleeve: str | None = championship_sleeve
 
 
 class AlphaModel(Protocol):

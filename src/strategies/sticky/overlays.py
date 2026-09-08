@@ -264,7 +264,9 @@ def apply_crash_cash(
     return dict(scores)
 
 
-def apply_abs_mom_cash(scores: Mapping[str, float] | object, config: StickyLeaderConfig, *, held: str | None = None) -> dict[str, float] | object:
+def apply_abs_mom_cash(scores: Mapping[str, float] | object, config: StickyLeaderConfig, *, held: str | None = None, rebound_bypass: bool = False) -> dict[str, float] | object:
+    if rebound_bypass:
+        return scores
     if not bool(getattr(config, "abs_mom_cash", False)): return scores
     try:
         from src.portfolio.intent import PortfolioIntent as _PI
