@@ -472,3 +472,19 @@ def test_p27_score_cashes_on_crash_rebound_sleeve_while_gate_false() -> None:
     out = model.score(snap, ctx)
     assert isinstance(out, PortfolioIntent)
     assert out.kind == CASH_INTENT.kind
+
+
+def test_sticky_score_routes_attack_sleeve_behind_production_gate() -> None:
+    import inspect
+
+    from src.strategies.sticky.model_runner import StickyLeaderModel
+    from src.tournament.objective.cutoff_auc import CUTOFF_AUC_IS_PRODUCTION_GATE
+
+    src = inspect.getsource(StickyLeaderModel.score)
+    assert "rebound_leader_scores" in src
+    assert "apply_attack_sleeve_route" in src
+    assert "CUTOFF_AUC_IS_PRODUCTION_GATE" in src
+    abs_at = src.index("apply_abs_mom_cash")
+    route_at = src.index("apply_attack_sleeve_route")
+    assert abs_at < route_at
+    assert CUTOFF_AUC_IS_PRODUCTION_GATE is False
