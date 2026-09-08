@@ -467,6 +467,7 @@
   "src/strategies/sticky/capacity.py": {
     "testing": [
       "tests/unit/strategies/test_capacity.py",
+      "tests/unit/strategies/test_capacity_initial_capital.py",
       "tests/unit/strategies/test_p30_fillable_sticky.py"
     ]
   },
@@ -503,6 +504,7 @@
   },
   "src/strategies/sticky/model_runner.py": {
     "testing": [
+      "tests/unit/alpha/test_p27.py",
       "tests/unit/strategies/test_capacity.py",
       "tests/unit/strategies/test_model_runner.py"
     ]
