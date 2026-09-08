@@ -84,3 +84,63 @@ def test_p27_cli_gross_diagnostics_avoids_undefined_name() -> None:
     assert re.search(r"^\s*_ = diagnostics\b", p27_src, flags=re.M) is None
     assert "gross_violation_count" in p27_src
     assert "sticky.mom60_raw" in STICKY_ADOPTION_MODELS
+
+
+def test_p27_hook_records_cutoff_auc_without_replacing_championship_gate() -> None:
+    import inspect
+
+    from src.cli.commands.backtest.families.sticky_champion import _hook_mom60_raw
+
+    src = inspect.getsource(_hook_mom60_raw)
+    assert "cutoff_auc_score" in src
+    assert "mean_smooth_cutoff_utility" in src
+    assert "CUTOFF_AUC_IS_PRODUCTION_GATE" in src
+    assert 'summary["cutoff_auc_score"]' in src
+    assert 'summary["cutoff_auc_smooth_mean"]' in src
+    assert 'summary["cutoff_auc_is_production_gate"]' in src
+    assert "evaluate_championship_adoption" in src
+    assert 'summary["championship_gate_status"]' in src
+    champ_at = src.index("evaluate_championship_adoption")
+    auc_at = src.index("cutoff_auc_score")
+    status_at = src.index('summary["championship_gate_status"]')
+    assert champ_at < status_at
+    assert "evaluate_attack_policy" not in src.split('summary["championship_gate_status"]')[1]
+
+
+def test_p27_hook_executes_cutoff_auc_summary_fields() -> None:
+    from datetime import date
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from src.cli.commands.backtest.families.sticky_champion import _hook_mom60_raw
+
+    returns = [0.61, 0.51, 0.41, 0.0]
+    rolling = SimpleNamespace(returns=returns, backtest=None, diagnostics=None)
+    cal = MagicMock()
+    cal.sessions.return_value = []
+    summary: dict[str, object] = {}
+    cell = SimpleNamespace(
+        summary=summary,
+        model=MagicMock(),
+        engine=MagicMock(),
+        panel=MagicMock(),
+        case_config=MagicMock(),
+        horizon=36,
+        simulator=MagicMock(),
+        close_map={},
+        lev_allowed=True,
+        inv_allowed=True,
+        eval_mode="identity",
+        rolling=rolling,
+        cal=cal,
+        start=date(2025, 1, 1),
+        end=date(2025, 12, 31),
+        path_mode="default",
+        shared_cache={},
+        master=MagicMock(),
+        rolling_exposure_limits=None,
+    )
+    _hook_mom60_raw(cell)
+    assert "cutoff_auc_score" in summary
+    assert "cutoff_auc_smooth_mean" in summary
+    assert summary["cutoff_auc_is_production_gate"] is False
