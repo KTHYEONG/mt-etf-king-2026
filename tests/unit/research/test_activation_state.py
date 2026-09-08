@@ -178,3 +178,14 @@ def test_activation_constants_are_research_only() -> None:
     assert set(ActivationState) != set(RegimeState)
     assert "AGGRESSIVE_ON" not in {member.value for member in RegimeState}
 
+
+def test_activation_state_remains_research_only() -> None:
+    from src.features.regime import RegimeState
+    from src.research.activation_state import ACTIVATION_STATE_IS_PRODUCTION_GATE, ActivationState
+    from src.research.audit_regime import AUDIT_REGIME_IS_ACTIVATION_GATE
+
+    assert ACTIVATION_STATE_IS_PRODUCTION_GATE is False
+    assert AUDIT_REGIME_IS_ACTIVATION_GATE is False
+    assert {member.value for member in ActivationState} == {"AGGRESSIVE_ON", "UNCERTAIN", "AGGRESSIVE_OFF"}
+    assert set(ActivationState) != set(RegimeState)
+

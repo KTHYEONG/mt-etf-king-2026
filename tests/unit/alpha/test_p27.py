@@ -303,3 +303,101 @@ def test_p27_factory_fillability_and_abs_mom() -> None:
     assert abs(float(p27.config.min_fill_ratio) - 0.25) < 1e-12
     assert tuple(p27.config.exclude_name_tokens) == ()
     assert not hasattr(p27, "allocate") or not callable(getattr(p27, "allocate", None))
+
+
+def test_p27_score_capacity_ignores_grown_equity() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.alpha.base import DecisionContext
+    from src.strategies.registry import STRATEGIES as BASELINES
+    from src.universe.tournament import TournamentRules
+
+    # required_adv(1e9, phi=0.01) = 2.375e10; required_adv(1.5e9) = 3.5625e10
+    snap = pl.DataFrame(
+        {
+            "ticker": ["MID"],
+            "name": ["KODEX 반도체레버리지"],
+            "mom_60": [0.40],
+            "mom_5": [0.02],
+            "volume_expansion": [1.0],
+            "drawdown_20": [0.0],
+            "trading_value": [3.0e10],
+        }
+    )
+    rules = TournamentRules(
+        name="t",
+        start_date=date(2025, 9, 22),
+        end_date=date(2025, 11, 14),
+        initial_capital=1_000_000_000,
+        category="autonomous",
+        leverage_allowed=True,
+        inverse_allowed=True,
+        max_weight=1.0,
+        cash_allowed=True,
+        sponsor_etf_only=True,
+        manifest_path=None,
+        issuer_whitelist=None,
+        commission_bps=3.0,
+        slippage_bps=5.0,
+        max_order_to_adv=0.01,
+        stress_grid=(0.01, 0.02, 0.05),
+    )
+    grown = DecisionContext(
+        decision_date=date(2025, 9, 22),
+        regime=None,
+        capital=1.5e9,
+        held={},
+        rules=rules,
+    )
+    start = DecisionContext(
+        decision_date=date(2025, 9, 22),
+        regime=None,
+        capital=1.0e9,
+        held={},
+        rules=rules,
+    )
+    model_a = BASELINES["sticky.mom60_raw"]()
+    model_b = BASELINES["sticky.mom60_raw"]()
+    out_grown = model_a.score(snap, grown)
+    out_start = model_b.score(snap, start)
+    assert isinstance(out_grown, dict)
+    assert isinstance(out_start, dict)
+    assert out_grown.get("MID") == 0.40
+    assert out_start.get("MID") == 0.40
+
+
+def test_sticky_leader_score_wires_resolve_capacity_capital() -> None:
+    import inspect
+
+    from src.strategies.sticky.model_runner import StickyLeaderModel
+
+    src = inspect.getsource(StickyLeaderModel.score)
+    cap_at = src.index("apply_capacity_filter")
+    prefix = src[:cap_at]
+    assert "resolve_capacity_capital(context)" in prefix
+
+
+def test_p27_championship_invariants_unchanged() -> None:
+    from src.alpha.sticky import load_p27_overlay_mode
+    from src.portfolio.constraints import load_p27_exposure_limits
+    from src.research.activation_state import ACTIVATION_STATE_IS_PRODUCTION_GATE
+    from src.strategies.registry import STRATEGIES as BASELINES
+    from src.tournament.policy import overlay_should_cash
+
+    p27 = BASELINES["sticky.mom60_raw"]()
+    cfg = p27.config
+    assert str(cfg.mom_col) == "mom_60"
+    assert float(cfg.min_gap) == 0.04
+    assert int(cfg.min_hold) == 2
+    assert cfg.only_plus_2 is True
+    assert cfg.no_inverse is True
+    assert bool(cfg.abs_mom_cash) is True
+    assert bool(cfg.exclude_synthetic) is True
+    assert float(cfg.min_fill_ratio) == 0.25
+    assert bool(getattr(cfg, "same_leader_hold", False)) is False
+    assert load_p27_overlay_mode() == "identity"
+    assert overlay_should_cash("identity", 0.99, 0, 0.50, 5) is False
+    assert load_p27_exposure_limits() == (0.95, 1.90, 0.05)
+    assert ACTIVATION_STATE_IS_PRODUCTION_GATE is False

@@ -302,3 +302,60 @@ def test_p31_factory_registry_exposure() -> None:
     from src.cli.constants import STICKY_ADOPTION_MODELS
 
     assert "convex.lottery_impulse" in STICKY_ADOPTION_MODELS
+
+
+def test_convex_impulse_score_capacity_ignores_grown_equity() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.alpha.base import DecisionContext
+    from src.strategies.convex_impulse import ConvexImpulseConfig, ConvexImpulseModel
+    from src.universe.tournament import TournamentRules
+
+    snap = pl.DataFrame(
+        {
+            "ticker": ["243880"],
+            "name": ["TIGER 200IT레버리지"],
+            "underlying_index_name": ["코스피 200 정보기술"],
+            "mom_5": [0.04],
+            "mom_10": [0.03],
+            "mom_20": [0.05],
+            "mom_60": [0.30],
+            "volume_expansion": [1.0],
+            "trading_value": [3.0e10],
+            "drawdown_20": [0.0],
+        }
+    )
+    rules = TournamentRules(
+        name="t",
+        start_date=date(2025, 9, 22),
+        end_date=date(2025, 11, 14),
+        initial_capital=1_000_000_000,
+        category="autonomous",
+        leverage_allowed=True,
+        inverse_allowed=True,
+        max_weight=1.0,
+        cash_allowed=True,
+        sponsor_etf_only=True,
+        manifest_path=None,
+        issuer_whitelist=None,
+        commission_bps=3.0,
+        slippage_bps=5.0,
+        max_order_to_adv=0.01,
+        stress_grid=(0.01, 0.02, 0.05),
+    )
+    grown = DecisionContext(
+        decision_date=date(2025, 9, 22),
+        regime=None,
+        capital=1.5e9,
+        held={},
+        rules=rules,
+    )
+    model = ConvexImpulseModel(name="convex.lottery_impulse", config=ConvexImpulseConfig(min_fill_ratio=0.25))
+    out = model.score(snap, grown)
+    assert isinstance(out, dict)
+    assert "243880" in out
+    src_mod = __import__("inspect").getsource(ConvexImpulseModel.score)
+    cap_at = src_mod.index("apply_capacity_filter")
+    assert "resolve_capacity_capital(context)" in src_mod[:cap_at]
