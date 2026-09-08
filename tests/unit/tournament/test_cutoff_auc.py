@@ -108,16 +108,29 @@ def test_resolve_attack_sleeve_fail_closed_unknown() -> None:
     assert resolve_attack_sleeve("not_a_sleeve") == "CASH"
 
 
-def test_apply_attack_sleeve_route_identity_when_gate_false() -> None:
+def test_apply_attack_sleeve_route_identity_when_gate_kwarg_false() -> None:
     from src.tournament.championship_regime import ChampionshipSleeve
     from src.tournament.objective.cutoff_auc import CUTOFF_AUC_IS_PRODUCTION_GATE, apply_attack_sleeve_route
 
     mom60 = {"AAA": 0.12}
     rebound = {"BBB": 0.20}
-    assert CUTOFF_AUC_IS_PRODUCTION_GATE is False
-    for sleeve in (ChampionshipSleeve.LOTTERY_ON.value, ChampionshipSleeve.CRASH_REBOUND.value, ChampionshipSleeve.INACTIVE.value, None):
-        out = apply_attack_sleeve_route(sleeve=sleeve, mom60_scores=mom60, rebound_scores=rebound, production_gate=False)
+    assert CUTOFF_AUC_IS_PRODUCTION_GATE is True
+    for sleeve in (
+        ChampionshipSleeve.LOTTERY_ON.value,
+        ChampionshipSleeve.CRASH_REBOUND.value,
+        ChampionshipSleeve.INACTIVE.value,
+        None,
+    ):
+        out = apply_attack_sleeve_route(
+            sleeve=sleeve, mom60_scores=mom60, rebound_scores=rebound, production_gate=False
+        )
         assert out == mom60
+
+
+def test_cutoff_auc_is_production_gate_true() -> None:
+    from src.tournament.objective.cutoff_auc import CUTOFF_AUC_IS_PRODUCTION_GATE
+
+    assert CUTOFF_AUC_IS_PRODUCTION_GATE is True
 
 
 def test_apply_attack_sleeve_route_cash_rebound_mom60_when_gate_true() -> None:

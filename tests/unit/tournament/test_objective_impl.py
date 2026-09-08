@@ -21,7 +21,7 @@ def test_cutoff_auc_exported_from_objective_package() -> None:
     from src.tournament.objective import evaluate_championship_adoption
     from src.tournament.objective_impl import cutoff_auc_score as impl_score
 
-    assert CUTOFF_AUC_IS_PRODUCTION_GATE is False
+    assert CUTOFF_AUC_IS_PRODUCTION_GATE is True
     assert pkg_score is impl_score
     assert callable(pkg_eval)
     assert callable(evaluate_championship_adoption)

@@ -290,3 +290,61 @@ def test_p27_regime_conditional_table_rejects_bad_overlap_and_values() -> None:
         p27_regime_conditional_table(states=(P27RegimeState.ON,), confidences=(0.5,), terminal_returns=(float("nan"),), overlap_horizon=2)
     with pytest.raises(ValueError, match="confidence"):
         p27_regime_conditional_table(states=(P27RegimeState.ON,), confidences=(1.5,), terminal_returns=(0.1,), overlap_horizon=2)
+
+
+import polars as pl
+
+
+def test_kospi_sleeve_feature_maps_empty_schema_fail_closed() -> None:
+    from src.tournament.championship_regime import kospi_sleeve_feature_maps
+
+    m60, m20, rv = kospi_sleeve_feature_maps(pl.DataFrame({"foo": [1]}))
+    assert m60 == {}
+    assert m20 == {}
+    assert rv == {}
+    empty = kospi_sleeve_feature_maps(pl.DataFrame())
+    assert empty == ({}, {}, {})
+
+
+def test_build_championship_sleeve_map_crash_vector() -> None:
+    from datetime import date
+
+    from src.tournament.championship_regime import ChampionshipSleeve, build_championship_sleeve_map
+
+    d = date(2026, 8, 27)
+    out = build_championship_sleeve_map(
+        mom60_by_date={d: -0.22},
+        mom20_by_date={d: 0.23},
+        rv20_daily_by_date={d: 0.05644660723119608},
+    )
+    assert out[d] == ChampionshipSleeve.CRASH_REBOUND.value
+
+
+def test_championship_sleeve_from_cache_fail_closed() -> None:
+    from datetime import date
+    from types import SimpleNamespace
+
+    from src.tournament.championship_regime import ChampionshipSleeve, championship_sleeve_from_cache
+
+    d = date(2026, 8, 27)
+    assert championship_sleeve_from_cache(SimpleNamespace(), d) is None
+    assert championship_sleeve_from_cache(SimpleNamespace(championship_sleeves="bad"), d) is None
+    assert championship_sleeve_from_cache(SimpleNamespace(championship_sleeves={}), d) is None
+    assert championship_sleeve_from_cache(SimpleNamespace(championship_sleeves={d: 1}), d) is None
+    assert (
+        championship_sleeve_from_cache(
+            SimpleNamespace(championship_sleeves={d: ChampionshipSleeve.CRASH_REBOUND.value}), d
+        )
+        == ChampionshipSleeve.CRASH_REBOUND.value
+    )
+
+
+def test_simulator_windows_injects_championship_sleeve_into_context() -> None:
+    import inspect
+
+    import src.tournament.simulator_windows as sw
+
+
+    src = inspect.getsource(sw)
+    assert "championship_sleeve_from_cache" in src
+    assert src.count("championship_sleeve=championship_sleeve_from_cache(cache,") >= 2

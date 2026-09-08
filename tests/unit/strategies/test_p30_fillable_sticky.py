@@ -98,6 +98,7 @@ def test_p30_score_prefers_fillable_equity_over_illiquid_synth() -> None:
         capital=1.0e9,
         held={},
         rules=rules,
+        championship_sleeve="LOTTERY_ON",
     )
     p27 = BASELINES["sticky.mom60_raw"]()
     p30 = BASELINES["sticky.fillable_mom60"]()
@@ -293,7 +294,7 @@ def test_fillable_sticky_session_cache_widens_score_snapshots() -> None:
     score_day = cache_p30.dates[0]
     snap_p30 = cache_p30.snapshots[score_day]
     assert snap_p30.height >= 3
-    ctx = DecisionContext(decision_date=score_day, regime=None, capital=1e9, held={}, rules=rules)
+    ctx = DecisionContext(decision_date=score_day, regime=None, capital=1e9, held={}, rules=rules, championship_sleeve="LOTTERY_ON")
     s27 = p27.score(snap_p30, ctx)
     s30 = p30.score(snap_p30, ctx)
     assert isinstance(s27, dict) and isinstance(s30, dict)

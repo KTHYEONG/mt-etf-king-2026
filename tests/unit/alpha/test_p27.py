@@ -109,6 +109,7 @@ def test_p27_score_emits_mapping_when_sticky_stays() -> None:
         capital=1.0e9,
         held={"FAST": 0.95},
         rules=rules,
+        championship_sleeve="LOTTERY_ON",
     )
     p27 = BASELINES["sticky.mom60_raw"]()
     scores = p27.score(snap, ctx)
@@ -204,7 +205,7 @@ def test_p21_keeps_scores_when_all_mom_nonpos() -> None:
         max_order_to_adv=0.01,
         stress_grid=(0.01, 0.02, 0.05),
     )
-    ctx = DecisionContext(decision_date=date(2026, 1, 2), regime=None, capital=1.0e9, held={}, rules=rules)
+    ctx = DecisionContext(decision_date=date(2026, 1, 2), regime=None, capital=1.0e9, held={}, rules=rules, championship_sleeve="LOTTERY_ON")
     p21 = BASELINES["sticky.impulse_crash"]()
     assert bool(getattr(p21.config, "abs_mom_cash", False)) is False
     out = p21.score(snap, ctx)
@@ -350,6 +351,7 @@ def test_p27_score_capacity_ignores_grown_equity() -> None:
         capital=1.5e9,
         held={},
         rules=rules,
+        championship_sleeve="LOTTERY_ON",
     )
     start = DecisionContext(
         decision_date=date(2025, 9, 22),
@@ -357,6 +359,7 @@ def test_p27_score_capacity_ignores_grown_equity() -> None:
         capital=1.0e9,
         held={},
         rules=rules,
+        championship_sleeve="LOTTERY_ON",
     )
     model_a = BASELINES["sticky.mom60_raw"]()
     model_b = BASELINES["sticky.mom60_raw"]()
@@ -487,4 +490,119 @@ def test_sticky_score_routes_attack_sleeve_behind_production_gate() -> None:
     abs_at = src.index("apply_abs_mom_cash")
     route_at = src.index("apply_attack_sleeve_route")
     assert abs_at < route_at
-    assert CUTOFF_AUC_IS_PRODUCTION_GATE is False
+    assert CUTOFF_AUC_IS_PRODUCTION_GATE is True
+
+
+def test_sticky_score_routes_crash_rebound_to_mom20_when_gate_true() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.alpha.base import DecisionContext
+    from src.strategies.registry import STRATEGIES as BASELINES
+    from src.tournament.championship_regime import ChampionshipSleeve
+    from src.tournament.objective.cutoff_auc import CUTOFF_AUC_IS_PRODUCTION_GATE
+    from src.universe.tournament import TournamentRules
+
+
+    assert CUTOFF_AUC_IS_PRODUCTION_GATE is True
+    snap = pl.DataFrame(
+        {
+            "ticker": ["122630", "233740"],
+            "name": ["KODEX 레버리지", "KODEX 코스닥150레버리지"],
+            "mom_60": [0.10, 0.05],
+            "mom_20": [0.08, 0.25],
+            "mom_5": [0.0, 0.0],
+            "volume_expansion": [0.1, 0.2],
+            "drawdown_20": [0.0, 0.0],
+            "trading_value": [1.0e11, 1.0e11],
+        }
+    )
+    rules = TournamentRules(
+        name="t",
+        start_date=date(2026, 9, 21),
+        end_date=date(2026, 11, 13),
+        initial_capital=1_000_000_000,
+        category="autonomous",
+        leverage_allowed=True,
+        inverse_allowed=True,
+        max_weight=1.0,
+        cash_allowed=True,
+        sponsor_etf_only=True,
+        manifest_path=None,
+        issuer_whitelist=None,
+        commission_bps=3.0,
+        slippage_bps=5.0,
+        max_order_to_adv=0.01,
+        stress_grid=(0.01, 0.02, 0.05),
+    )
+    model = BASELINES["sticky.mom60_raw"]()
+    ctx = DecisionContext(
+        decision_date=date(2026, 1, 2),
+        regime=None,
+        capital=1.0e9,
+        held={},
+        rules=rules,
+        championship_sleeve=ChampionshipSleeve.CRASH_REBOUND.value,
+    )
+    out = model.score(snap, ctx)
+    assert isinstance(out, dict)
+    assert "233740" in out
+    assert out["233740"] >= out.get("122630", float("-inf"))
+
+
+def test_sticky_score_cashes_when_sleeve_missing_under_production_gate() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.alpha.base import DecisionContext
+    from src.portfolio.intent import CASH_INTENT, PortfolioIntent
+    from src.strategies.registry import STRATEGIES as BASELINES
+    from src.tournament.objective.cutoff_auc import CUTOFF_AUC_IS_PRODUCTION_GATE
+    from src.universe.tournament import TournamentRules
+
+
+    assert CUTOFF_AUC_IS_PRODUCTION_GATE is True
+    snap = pl.DataFrame(
+        {
+            "ticker": ["122630"],
+            "name": ["KODEX 레버리지"],
+            "mom_60": [0.20],
+            "mom_20": [0.10],
+            "mom_5": [0.0],
+            "volume_expansion": [0.1],
+            "drawdown_20": [0.0],
+            "trading_value": [1.0e11],
+        }
+    )
+    rules = TournamentRules(
+        name="t",
+        start_date=date(2026, 9, 21),
+        end_date=date(2026, 11, 13),
+        initial_capital=1_000_000_000,
+        category="autonomous",
+        leverage_allowed=True,
+        inverse_allowed=True,
+        max_weight=1.0,
+        cash_allowed=True,
+        sponsor_etf_only=True,
+        manifest_path=None,
+        issuer_whitelist=None,
+        commission_bps=3.0,
+        slippage_bps=5.0,
+        max_order_to_adv=0.01,
+        stress_grid=(0.01, 0.02, 0.05),
+    )
+    model = BASELINES["sticky.mom60_raw"]()
+    ctx = DecisionContext(
+        decision_date=date(2026, 1, 2),
+        regime=None,
+        capital=1.0e9,
+        held={},
+        rules=rules,
+        championship_sleeve=None,
+    )
+    out = model.score(snap, ctx)
+    assert isinstance(out, PortfolioIntent)
+    assert out.kind == CASH_INTENT.kind
