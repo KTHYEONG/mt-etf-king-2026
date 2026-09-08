@@ -31,10 +31,16 @@ from src.research.feasibility_metrics import (
 from src.tournament.championship_regime import (
     CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE as CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE,
 )
+from src.tournament.championship_regime import (
+    P27_REGIME_IS_PRODUCTION_GATE as P27_REGIME_IS_PRODUCTION_GATE,
+)
 from src.tournament.championship_regime import ChampionshipSleeve as ChampionshipSleeve
+from src.tournament.championship_regime import P27RegimeInputs as P27RegimeInputs
 from src.tournament.championship_regime import (
     classify_championship_sleeve_series as classify_championship_sleeve_series,
 )
+from src.tournament.championship_regime import classify_p27_regime as classify_p27_regime
+from src.tournament.championship_regime import p27_regime_conditional_table as p27_regime_conditional_table
 from src.tournament.championship_regime import sleeve_conditional_table as sleeve_conditional_table
 from src.universe.manifest_validate import validate_deployment_manifest
 
@@ -57,6 +63,7 @@ def run_feasibility_audit(
     kospi_mom60_by_date: Mapping[date, float | None] | None = None,
     kospi_mom20_by_date: Mapping[date, float | None] | None = None,
     kospi_rv20_daily_by_date: Mapping[date, float | None] | None = None,
+    p27_regime_inputs_by_date: Mapping[date, P27RegimeInputs] | None = None,
 ) -> dict[str, object]:
     if enforce_horizon_36 and horizon != 36:
         raise PopulationError(f"feasibility audit requires horizon=36, got {horizon}")
@@ -116,7 +123,7 @@ def run_feasibility_audit(
         md_lines.append(f"| {policy_name} | {len(calendar_sessions)} | {pop.n_windows} | {excluded} | {reason} |")
     (output_dir / "window_population_reconciliation.md").write_text("\n".join(md_lines) + "\n", encoding="utf-8")
     championship_sleeve_is_production_gate = CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE
-    metrics = {"horizon": horizon, "b1_role": b1_role, "p38_status": p38_status, "p38_mean_terminal": p38_mean, "manifest_status": manifest_result.status, "audit_regime_is_activation_gate": AUDIT_REGIME_IS_ACTIVATION_GATE, "activation_state_is_production_gate": ACTIVATION_STATE_IS_PRODUCTION_GATE, "championship_sleeve_is_production_gate": championship_sleeve_is_production_gate, "activation_as_of": None, "audit_regime_unlabeled_fallback": audit_regime_label(mom60=None, mom20=None, rv20=None, dd60=None), "strategies": strategies, "populations": {k: {"eligible_windows": v.n_windows, "excluded": len(v.exclusions)} for k, v in populations.items()}}
+    metrics = {"horizon": horizon, "b1_role": b1_role, "p38_status": p38_status, "p38_mean_terminal": p38_mean, "manifest_status": manifest_result.status, "audit_regime_is_activation_gate": AUDIT_REGIME_IS_ACTIVATION_GATE, "activation_state_is_production_gate": ACTIVATION_STATE_IS_PRODUCTION_GATE, "championship_sleeve_is_production_gate": championship_sleeve_is_production_gate, "p27_regime_is_production_gate": P27_REGIME_IS_PRODUCTION_GATE, "p27_regime_as_of": None, "activation_as_of": None, "audit_regime_unlabeled_fallback": audit_regime_label(mom60=None, mom20=None, rv20=None, dd60=None), "strategies": strategies, "populations": {k: {"eligible_windows": v.n_windows, "excluded": len(v.exclusions)} for k, v in populations.items()}}
     if kospi_mom60_by_date is not None and len(executable_pop.windows) > 0:
         last_decision = executable_pop.windows[-1].decision_date
         pit_map = {day: value for day, value in kospi_mom60_by_date.items() if day <= last_decision}
@@ -134,6 +141,17 @@ def run_feasibility_audit(
         sleeve_states = [sleeve_by_decision.get(w.decision_date, ChampionshipSleeve.UNCERTAIN) for w in executable_pop.windows]
         championship_table = sleeve_conditional_table(sleeves=sleeve_states, terminal_returns=sticky_aligned, oracle_returns=oracle_seq)
         championship_table.write_csv(output_dir / "championship_sleeve_table.csv")
+    if p27_regime_inputs_by_date is not None and sticky_aligned is not None and len(executable_pop.windows) > 0:
+        p27_snaps = []
+        for window in executable_pop.windows:
+            p27_snap = classify_p27_regime(decision_date=window.decision_date, inputs=p27_regime_inputs_by_date.get(window.decision_date))
+            p27_snaps.append(p27_snap)
+        p27_states = [p27_snap.state for p27_snap in p27_snaps]
+        p27_confidences = [float(item.confidence) for item in p27_snaps]
+        p27_table = p27_regime_conditional_table(states=p27_states, confidences=p27_confidences, terminal_returns=sticky_aligned, overlap_horizon=horizon)
+        p27_table.write_csv(output_dir / "p27_regime_confidence_table.csv")
+        last = p27_snaps[-1]
+        metrics["p27_regime_as_of"] = {"date": last.as_of.isoformat(), "state": last.state.value, "confidence": float(last.confidence), "components": dict(last.components)}
     (output_dir / "2026_championship_feasibility_metrics.json").write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
     table_rows = [{"strategy": name, "metric": metric, "value": str(value)} for name, vals in strategies.items() for metric, value in vals.items()]
     pl.DataFrame(table_rows, schema={"strategy": pl.String, "metric": pl.String, "value": pl.String}, strict=False).write_csv(output_dir / "2026_championship_feasibility_tables.csv")

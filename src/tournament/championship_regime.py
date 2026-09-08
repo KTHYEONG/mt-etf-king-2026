@@ -23,6 +23,7 @@ class ChampionshipSleeve(StrEnum):
 
 
 CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE: Final[bool] = False
+P27_REGIME_IS_PRODUCTION_GATE: Final[bool] = False
 CRASH_REBOUND_RV_ANNUALIZED_MIN: Final[float] = 0.25
 CRASH_REBOUND_MOM20_MIN: Final[float] = 0.03
 LOTTERY_ON_MOM60_MIN: Final[float] = 0.08
@@ -145,5 +146,134 @@ def sleeve_conditional_table(
     return pl.DataFrame(
         rows,
         schema={"sleeve": pl.String, "n_windows": pl.Int64, "n_effective": pl.Float64, "p27_p30": pl.Float64, "p27_p40": pl.Float64, "p27_p45": pl.Float64, "p27_p50": pl.Float64, "p27_ruin25": pl.Float64, "executable_oracle_p50": pl.Float64, "capture_50": pl.Float64},
+        strict=False,
+    )
+
+
+class P27RegimeState(StrEnum):
+    ON = "ON"
+    UNCERTAIN = "UNCERTAIN"
+    OFF = "OFF"
+
+
+@dataclass(frozen=True, slots=True)
+class P27RegimeInputs:
+    kospi_mom20: float | None
+    kospi_mom60: float | None
+    kosdaq_mom20: float | None
+    kosdaq_mom60: float | None
+    kospi_eff60: float | None
+    kosdaq_eff60: float | None
+    kospi_eff60_prior_median: float | None
+    kosdaq_eff60_prior_median: float | None
+    leader_mom20: float | None
+    leader_mom60: float | None
+    breadth20: float | None
+    breadth60: float | None
+    kospi_dd60: float | None
+    kospi_rv20_daily: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class P27RegimeSnapshot:
+    as_of: date
+    state: P27RegimeState
+    confidence: float
+    components: Mapping[str, float]
+
+
+def _zero_components() -> dict[str, float]:
+    return {"beta_direction": 0.0, "trend_quality": 0.0, "opportunity": 0.0, "risk_stability": 0.0}
+
+
+def classify_p27_regime(*, decision_date: date, inputs: P27RegimeInputs | None) -> P27RegimeSnapshot:
+    if inputs is None:
+        return P27RegimeSnapshot(as_of=decision_date, state=P27RegimeState.UNCERTAIN, confidence=0.0, components=_zero_components())
+    kospi_mom20 = _finite_or_none(inputs.kospi_mom20)
+    kospi_mom60 = _finite_or_none(inputs.kospi_mom60)
+    kosdaq_mom20 = _finite_or_none(inputs.kosdaq_mom20)
+    kosdaq_mom60 = _finite_or_none(inputs.kosdaq_mom60)
+    kospi_eff60 = _finite_or_none(inputs.kospi_eff60)
+    kosdaq_eff60 = _finite_or_none(inputs.kosdaq_eff60)
+    kospi_prior = _finite_or_none(inputs.kospi_eff60_prior_median)
+    kosdaq_prior = _finite_or_none(inputs.kosdaq_eff60_prior_median)
+    leader_mom20 = _finite_or_none(inputs.leader_mom20)
+    leader_mom60 = _finite_or_none(inputs.leader_mom60)
+    breadth20 = _finite_or_none(inputs.breadth20)
+    breadth60 = _finite_or_none(inputs.breadth60)
+    kospi_dd60 = _finite_or_none(inputs.kospi_dd60)
+    kospi_rv20_daily = _finite_or_none(inputs.kospi_rv20_daily)
+    values = (kospi_mom20, kospi_mom60, kosdaq_mom20, kosdaq_mom60, kospi_eff60, kosdaq_eff60, kospi_prior, kosdaq_prior, leader_mom20, leader_mom60, breadth20, breadth60, kospi_dd60, kospi_rv20_daily)
+    if any(v is None for v in values):
+        return P27RegimeSnapshot(as_of=decision_date, state=P27RegimeState.UNCERTAIN, confidence=0.0, components=_zero_components())
+    assert breadth20 is not None
+    assert breadth60 is not None
+    assert kospi_rv20_daily is not None
+    if not (0.0 <= breadth20 <= 1.0 and 0.0 <= breadth60 <= 1.0 and kospi_rv20_daily >= 0.0):
+        return P27RegimeSnapshot(as_of=decision_date, state=P27RegimeState.UNCERTAIN, confidence=0.0, components=_zero_components())
+    assert kospi_mom20 is not None
+    assert kospi_mom60 is not None
+    assert kosdaq_mom20 is not None
+    assert kosdaq_mom60 is not None
+    assert kospi_eff60 is not None
+    assert kosdaq_eff60 is not None
+    assert kospi_prior is not None
+    assert kosdaq_prior is not None
+    assert leader_mom20 is not None
+    assert leader_mom60 is not None
+    assert kospi_dd60 is not None
+    beta_direction = sum(1 for v in (kospi_mom20, kospi_mom60, kosdaq_mom20, kosdaq_mom60) if v > 0.0) / 4.0
+    trend_quality = sum(1 for v, m in ((kospi_eff60, kospi_prior), (kosdaq_eff60, kosdaq_prior)) if v > m) / 2.0
+    opportunity = sum(1 for ok in (leader_mom20 > 0.0, leader_mom60 > 0.0, breadth20 > 0.5, breadth60 > 0.5) if ok) / 4.0
+    rv_ann = annualize_daily_realized_vol(kospi_rv20_daily)
+    assert rv_ann is not None
+    risk_stability = sum(1 for ok in (kospi_dd60 > -0.15, rv_ann < 0.32) if ok) / 2.0
+    confidence = float((beta_direction + trend_quality + opportunity + risk_stability) / 4.0)
+    if beta_direction == 1.0 and trend_quality == 1.0 and opportunity == 1.0:
+        state = P27RegimeState.ON
+    elif kospi_mom60 <= 0.0 and kosdaq_mom60 <= 0.0:
+        state = P27RegimeState.OFF
+    else:
+        state = P27RegimeState.UNCERTAIN
+    components: dict[str, float] = {"beta_direction": float(beta_direction), "trend_quality": float(trend_quality), "opportunity": float(opportunity), "risk_stability": float(risk_stability)}
+    return P27RegimeSnapshot(as_of=decision_date, state=state, confidence=confidence, components=components)
+
+
+def p27_regime_conditional_table(*, states: Sequence[P27RegimeState | str], confidences: Sequence[float], terminal_returns: Sequence[float], overlap_horizon: int = 36) -> pl.DataFrame:
+    state_list = list(states)
+    conf_list = [float(v) for v in confidences]
+    term_list = [float(v) for v in terminal_returns]
+    if len(state_list) == 0 or not (len(state_list) == len(conf_list) == len(term_list)):
+        raise ValueError(f"length mismatch or empty: states={len(state_list)} confidences={len(conf_list)} terminals={len(term_list)}")
+    if not isinstance(overlap_horizon, int) or isinstance(overlap_horizon, bool) or overlap_horizon < 1:
+        raise ValueError(f"invalid overlap_horizon {overlap_horizon!r}: must be integer >= 1")
+    for v in term_list:
+        if not math.isfinite(v):
+            raise ValueError(f"non-finite terminal return {v!r}")
+    for v in conf_list:
+        if not math.isfinite(v) or not (0.0 <= v <= 1.0):
+            raise ValueError(f"invalid confidence {v!r}: must be finite in [0,1]")
+    normalized = [item.value if isinstance(item, P27RegimeState) else str(item) for item in state_list]
+    order = (P27RegimeState.ON, P27RegimeState.UNCERTAIN, P27RegimeState.OFF)
+    rows: list[dict[str, object]] = []
+    for bucket in order:
+        idx = [i for i, name in enumerate(normalized) if name == bucket.value]
+        n_windows = len(idx)
+        n_effective = float(n_windows) / float(overlap_horizon)
+        if n_windows == 0:
+            rows.append({"state": bucket.value, "n_windows": 0, "n_effective": 0.0, "mean_confidence": 0.0, "p30": 0.0, "p40": 0.0, "p50": 0.0, "p60": 0.0, "ruin25": 0.0})
+            continue
+        bucket_conf = [conf_list[i] for i in idx]
+        bucket_term = [term_list[i] for i in idx]
+        mean_confidence = float(sum(bucket_conf) / n_windows)
+        p30 = sum(1 for v in bucket_term if v > 0.30) / n_windows
+        p40 = sum(1 for v in bucket_term if v > 0.40) / n_windows
+        p50 = sum(1 for v in bucket_term if v > 0.50) / n_windows
+        p60 = sum(1 for v in bucket_term if v > 0.60) / n_windows
+        ruin25 = sum(1 for v in bucket_term if v < -0.25) / n_windows
+        rows.append({"state": bucket.value, "n_windows": n_windows, "n_effective": float(n_effective), "mean_confidence": float(mean_confidence), "p30": float(p30), "p40": float(p40), "p50": float(p50), "p60": float(p60), "ruin25": float(ruin25)})
+    return pl.DataFrame(
+        rows,
+        schema={"state": pl.String, "n_windows": pl.Int64, "n_effective": pl.Float64, "mean_confidence": pl.Float64, "p30": pl.Float64, "p40": pl.Float64, "p50": pl.Float64, "p60": pl.Float64, "ruin25": pl.Float64},
         strict=False,
     )
