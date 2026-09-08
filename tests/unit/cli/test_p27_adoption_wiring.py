@@ -143,4 +143,136 @@ def test_p27_hook_executes_cutoff_auc_summary_fields() -> None:
     _hook_mom60_raw(cell)
     assert "cutoff_auc_score" in summary
     assert "cutoff_auc_smooth_mean" in summary
-    assert summary["cutoff_auc_is_production_gate"] is False
+    assert summary["cutoff_auc_is_production_gate"] is True
+
+
+def test_prep_wires_kospi_championship_sleeve_map() -> None:
+    import inspect
+
+    from src.cli.commands.backtest import _prep
+
+
+    src = inspect.getsource(_prep)
+    assert "kospi_sleeve_feature_maps" in src
+    assert "build_championship_sleeve_map" in src
+    assert "championship_sleeves" in src
+    assert "prep_championship_sleeves_on_engine" in src
+    from datetime import date, timedelta
+    from types import SimpleNamespace
+
+    import polars as pl
+
+    base = date(2026, 1, 2)
+    idx = pl.DataFrame(
+        {
+            "index_name": ["KOSPI"] * 70,
+            "date": [base + timedelta(days=i) for i in range(70)],
+            "close": [100.0 + float(i) for i in range(70)],
+        }
+    )
+    engine = SimpleNamespace()
+    out = _prep.prep_championship_sleeves_on_engine(engine, idx)
+    assert isinstance(out, dict)
+    assert engine.championship_sleeves == out
+
+
+def test_prep_championship_sleeves_on_engine_skips_when_index_none() -> None:
+    from types import SimpleNamespace
+
+    from src.cli.commands.backtest import _prep
+
+    engine = SimpleNamespace()
+    assert _prep.prep_championship_sleeves_on_engine(engine, None) is None
+    assert not hasattr(engine, "championship_sleeves")
+
+
+def test_load_index_daily_panel_missing_returns_none(tmp_path) -> None:
+    from src.cli.commands.backtest import _prep
+    from src.core.paths import DataPaths
+
+    paths = DataPaths(root=tmp_path)
+    assert _prep.load_index_daily_panel(paths) is None
+
+
+def test_load_index_daily_panel_read_failure_returns_none(tmp_path) -> None:
+    from src.cli.commands.backtest import _prep
+    from src.core.paths import DataPaths
+
+    bad = tmp_path / "normalized" / "index_daily.parquet"
+    bad.parent.mkdir(parents=True)
+    bad.write_text("not-parquet", encoding="utf-8")
+    paths = DataPaths(root=tmp_path)
+    assert _prep.load_index_daily_panel(paths) is None
+
+
+def test_prepare_run_when_index_daily_missing(tmp_path) -> None:
+    import argparse
+    from dataclasses import replace
+
+    from src.cli.commands.backtest._prep import prepare_run
+    from src.cli.context import build_backtest_context
+    from src.core.paths import DataPaths
+
+    args = argparse.Namespace(
+        model="sticky.mom60_raw",
+        start="2026-01-02",
+        end="2026-01-09",
+        leverage_scenario="aggressive",
+        eval_mode="adoption",
+        protocol="single",
+        stress_grid=False,
+    )
+    ctx = build_backtest_context(args)
+    ctx = replace(ctx, paths=DataPaths(root=tmp_path))
+    prep = prepare_run(ctx)
+    assert getattr(prep.engine, "championship_sleeves", None) is None
+
+
+def test_prepare_run_regime_build_failure_still_wires_sleeves(monkeypatch) -> None:
+    import argparse
+
+    from src.cli.commands.backtest._prep import prepare_run
+    from src.cli.context import build_backtest_context
+    from src.features.builder import FeatureBuilder
+
+    def _boom(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("regime-fail")
+
+    monkeypatch.setattr(FeatureBuilder, "build_regime_series", _boom)
+    args = argparse.Namespace(
+        model="sticky.mom60_raw",
+        start="2026-01-02",
+        end="2026-01-09",
+        leverage_scenario="aggressive",
+        eval_mode="adoption",
+        protocol="single",
+        stress_grid=False,
+    )
+    ctx = build_backtest_context(args)
+    prep = prepare_run(ctx)
+    sleeves = getattr(prep.engine, "championship_sleeves", None)
+    assert isinstance(sleeves, dict)
+    assert len(sleeves) > 0
+    assert prep.regimes is None
+
+
+def test_prepare_run_wires_championship_sleeves_from_index_daily() -> None:
+    import argparse
+
+    from src.cli.commands.backtest._prep import prepare_run
+    from src.cli.context import build_backtest_context
+
+    args = argparse.Namespace(
+        model="sticky.mom60_raw",
+        start="2026-01-02",
+        end="2026-01-09",
+        leverage_scenario="aggressive",
+        eval_mode="adoption",
+        protocol="single",
+        stress_grid=False,
+    )
+    ctx = build_backtest_context(args)
+    prep = prepare_run(ctx)
+    sleeves = getattr(prep.engine, "championship_sleeves", None)
+    assert isinstance(sleeves, dict)
+    assert len(sleeves) > 0

@@ -118,3 +118,36 @@ def test_build_session_cache_returns_empty_when_calendar_unavailable() -> None:
 def test_SCENARIO_PERF_wrapper_cache(scenario_id: str) -> None:  # noqa: N802
     if scenario_id == "SCENARIO-PERF-02":
         test_SCENARIO_PERF_02_close_map_once()
+
+
+def test_session_inputs_propagates_engine_championship_sleeves() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.backtest.costs import CostConfig
+    from src.backtest.engine import BacktestConfig
+    from src.backtest.session_cache import build_session_cache
+    from src.portfolio.sizing import SizingScheme
+    from tests.unit.backtest.conftest import build_engine, panel_row
+
+
+    from src.core.calendar import TradingCalendar
+
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 1, 9))
+    panel = pl.DataFrame([panel_row(day=d, ticker="069500", close=30000.0) for d in sessions])
+    engine, _, filt = build_engine(panel)
+    engine.championship_sleeves = {sessions[0]: "LOTTERY_ON"}  # type: ignore[attr-defined]
+    config = BacktestConfig(
+        start=sessions[0],
+        end=sessions[-1],
+        capital=1_000_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filt,
+        costs=CostConfig(0.0, 0.0, 0.0),
+    )
+    model = type("M", (), {"name": "m", "scores_path_independent": True})()
+    cache = build_session_cache(engine, model, panel, config)
+    assert cache.championship_sleeves == {sessions[0]: "LOTTERY_ON"}
