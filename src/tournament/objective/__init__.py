@@ -9,6 +9,12 @@ Config-backed gate constants remain assigned in src.tournament.objective_core
 from __future__ import annotations
 
 from src.tournament.objective.adoption import evaluate_championship_adoption
+from src.tournament.objective.cutoff_auc import CUTOFF_AUC_IS_PRODUCTION_GATE
+from src.tournament.objective.cutoff_auc import apply_attack_sleeve_route
+from src.tournament.objective.cutoff_auc import cutoff_auc_score
+from src.tournament.objective.cutoff_auc import evaluate_attack_policy
+from src.tournament.objective.cutoff_auc import mean_smooth_cutoff_utility
+from src.tournament.objective.cutoff_auc import resolve_attack_sleeve
 from src.tournament.objective.core import ObjectiveGateConfig
 from src.tournament.objective.core import ObjectiveGateResult
 from src.tournament.objective.core import P15AdoptionReport
@@ -27,6 +33,7 @@ from src.tournament.objective.reports import field_relative_report
 from src.tournament.objective.reports import paired_scenario_delta_ci
 
 __all__ = [
+    "CUTOFF_AUC_IS_PRODUCTION_GATE",
     "ChampionshipAdoptionResult",
     "ChampionshipObjectiveConfig",
     "ChampionshipTailReport",
@@ -36,12 +43,17 @@ __all__ = [
     "ObjectiveGateResult",
     "P15AdoptionReport",
     "P16AdoptionReport",
+    "apply_attack_sleeve_route",
     "championship_tail_report",
+    "cutoff_auc_score",
+    "evaluate_attack_policy",
     "evaluate_championship_adoption",
     "evaluate_objective_gates",
     "evaluate_p15_adoption_report",
     "evaluate_p16_adoption_report",
     "field_relative_report",
+    "mean_smooth_cutoff_utility",
     "paired_scenario_delta_ci",
     "paired_tail_delta_ci",
+    "resolve_attack_sleeve",
 ]

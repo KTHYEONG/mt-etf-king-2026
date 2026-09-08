@@ -219,6 +219,12 @@ class StickyLeaderModel:
         _bypass = abs_mom_rebound_bypass_allowed(sleeve=_sleeve, config_enabled=bool(getattr(self.config, "crash_rebound_abs_mom_bypass", False)))
         abs_gated = apply_abs_mom_cash(crashed, self.config, held=held, rebound_bypass=_bypass)
         out = apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
+        from src.strategies.sticky.model_scores import rebound_leader_scores
+        from src.tournament.objective.cutoff_auc import CUTOFF_AUC_IS_PRODUCTION_GATE
+        from src.tournament.objective.cutoff_auc import apply_attack_sleeve_route
+
+        _rebound_scores = rebound_leader_scores(snapshot)
+        out = apply_attack_sleeve_route(sleeve=_sleeve, mom60_scores=out, rebound_scores=_rebound_scores, production_gate=CUTOFF_AUC_IS_PRODUCTION_GATE)
         if _runner_exit and held is not None and _runner_cap is not None and _runner_mom is not None:
             try:
                 _pf = float(getattr(self, "_runner_peak_capital", float("nan")))

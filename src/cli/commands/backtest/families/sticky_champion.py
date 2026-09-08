@@ -224,6 +224,15 @@ def _hook_mom60_raw(cell: _Cell) -> None:
         )
         except Exception as _exc_p27:
             logger.warning(f"[EVAL] P27 championship gate failed {_exc_p27!r}")
+    from src.tournament.objective.cutoff_auc import (
+        CUTOFF_AUC_IS_PRODUCTION_GATE,
+        cutoff_auc_score,
+        mean_smooth_cutoff_utility,
+    )
+
+    summary["cutoff_auc_score"] = float(cutoff_auc_score(candidate_p27))
+    summary["cutoff_auc_smooth_mean"] = float(mean_smooth_cutoff_utility(candidate_p27))
+    summary["cutoff_auc_is_production_gate"] = bool(CUTOFF_AUC_IS_PRODUCTION_GATE)
 
 
 CHAMPION_HOOKS: Final[dict[str, _Hook]] = {

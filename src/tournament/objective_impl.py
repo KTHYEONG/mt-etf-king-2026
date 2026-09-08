@@ -19,6 +19,7 @@ from src.tournament.objective import ObjectiveGateResult
 from src.tournament.objective import P15AdoptionReport
 from src.tournament.objective import P16AdoptionReport
 from src.tournament.objective import championship_tail_report
+from src.tournament.objective import cutoff_auc_score
 from src.tournament.objective import evaluate_championship_adoption
 from src.tournament.objective import evaluate_objective_gates
 from src.tournament.objective import evaluate_p15_adoption_report
@@ -43,6 +44,7 @@ __all__ = [
     "ChampionshipAdoptionResult",
     "GROSS_METRIC_UNAVAILABLE",
     "championship_tail_report",
+    "cutoff_auc_score",
     "paired_scenario_delta_ci",
     "FieldRelativeReport",
     "field_relative_report",
