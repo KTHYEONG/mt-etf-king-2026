@@ -1,6 +1,26 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_MOM20_GATE_BACKTEST_VALIDATION",
+      "date": "2026-09-08",
+      "adr_id": "ADR_20260908_MOM20_GATE_BACKTEST_VALIDATION",
+      "domain": "selection",
+      "title": "Mom20 gate ON — full-span P27 backtest validation",
+      "why": "Production gate flip required full-span confirmation that P>50 tail and ruin bounds hold under live attack-sleeve routing.",
+      "resolution": "Ran 2018-2026 P27 backtest (run 20260908T135054Z): gate ON, championship/adoption PASS, gross_viol=0.",
+      "impact": "P>50=4.98% unchanged (104 windows); ruin 2.68%→1.10%; P>10–40 down; 2025 oneshot +54.7%; crash_swap A/B remains probe-only."
+    },
+    {
+      "task_id": "TASK_HIGH_VOL_REVERSAL_MOM20_GATE",
+      "date": "2026-09-08",
+      "adr_id": "ADR_20260908_HIGH_VOL_REVERSAL_MOM20_GATE",
+      "domain": "selection",
+      "title": "High-vol reversal mom20 gate — attack-sleeve routing production",
+      "why": "Probe showed CRASH_REBOUND mom20+2x beats mom60 on crash windows; routing stayed off without PIT championship_sleeve injection.",
+      "resolution": "Flipped CUTOFF_AUC_IS_PRODUCTION_GATE True; added KOSPI sleeve maps, session-cache/simulator/_prep wiring, and fail-closed index load tests.",
+      "impact": "P27 now routes LOTTERY→mom60, CRASH_REBOUND→rebound_leader_scores, else CASH when sleeve is injected; lean_check PASS 100% diff-coverage."
+    },
+    {
       "task_id": "TASK_CHAMPIONSHIP_OBJECTIVE",
       "date": "2026-09-08",
       "adr_id": "ADR_20260908_CHAMPIONSHIP_OBJECTIVE",
