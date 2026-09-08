@@ -10,7 +10,7 @@ from typing import Final
 import polars as pl
 
 from src.alpha.base import DecisionContext
-from src.strategies.sticky.capacity import apply_capacity_filter
+from src.strategies.sticky.capacity import apply_capacity_filter, resolve_capacity_capital
 from src.strategies.sticky.model import DEFAULT_EXCLUDE_NAME_TOKENS, name_excluded
 from src.universe.instruments import resolve_leverage
 
@@ -363,10 +363,7 @@ class ConvexImpulseModel:
             _mfr = 0.0
         eligible = list(rows)
         if math.isfinite(_mfr) and _mfr > 0 and eligible:
-            try:
-                _cap = float(getattr(context, "capital", float("nan")))
-            except Exception:
-                _cap = float("nan")
+            _cap = resolve_capacity_capital(context)
             try:
                 _rules = getattr(context, "rules", None)
                 _phi = float(getattr(_rules, "max_order_to_adv", 0.01))

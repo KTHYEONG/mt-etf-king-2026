@@ -12,7 +12,7 @@ from typing import Final
 import polars as pl
 
 from src.alpha.base import DecisionContext
-from src.strategies.sticky.capacity import apply_capacity_filter, cached_filtered_scores
+from src.strategies.sticky.capacity import apply_capacity_filter, cached_filtered_scores, resolve_capacity_capital
 from src.universe.instruments import resolve_leverage
 
 from src.strategies.sticky.model_config import (
@@ -81,10 +81,7 @@ class StickyLeaderModel:
         except Exception:
             _mfr = 0.0
         if math.isfinite(_mfr) and _mfr > 0 and filtered:
-            try:
-                _cap = float(getattr(context, "capital", float("nan")))
-            except Exception:
-                _cap = float("nan")
+            _cap = resolve_capacity_capital(context)
             try:
                 _rules = getattr(context, "rules", None)
                 _phi = float(getattr(_rules, "max_order_to_adv", 0.01))
