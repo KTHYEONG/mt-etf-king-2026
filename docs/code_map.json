@@ -234,6 +234,7 @@
     "testing": [
       "tests/unit/cli/test__impl.py",
       "tests/unit/cli/test_cli_context.py",
+      "tests/unit/cli/test_p27_adoption_wiring.py",
       "tests/unit/cli/test_r3_cli_split.py"
     ]
   },
@@ -640,5 +641,6 @@
   },
   "src/universe/tournament.py": {
     "testing": "tests/unit/universe/test_tournament.py"
-  }
+  },
+  "docs/results/runs_registry.jsonl": {}
 }
