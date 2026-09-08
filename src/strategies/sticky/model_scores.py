@@ -251,3 +251,43 @@ def apply_sticky_leader(
         max_sc = max(held_score, top_score)
         out[held] = float(max_sc) + 1e-6
     return out
+
+
+def rebound_leader_scores(snapshot: pl.DataFrame) -> dict[str, float]:
+    if not isinstance(snapshot, pl.DataFrame):
+        return {}
+    if snapshot.height == 0:
+        return {}
+    cols = snapshot.columns
+    if "ticker" not in cols or "name" not in cols or "mom_20" not in cols:
+        return {}
+    has_vol = "volume_expansion" in cols
+    out: dict[str, float] = {}
+    for row in snapshot.iter_rows(named=True):
+        ticker = row.get("ticker")
+        name = row.get("name")
+        mom20 = row.get("mom_20")
+        if ticker is None or name is None or mom20 is None:
+            continue
+        t = str(ticker)
+        n = str(name)
+        if not n:
+            continue
+        if "(합성" in n:
+            continue
+        if not isinstance(mom20, (int, float)):
+            continue
+        if not math.isfinite(float(mom20)):
+            continue
+        lev, _conf = resolve_leverage(n)
+        if lev != 2:
+            continue
+        score = float(mom20)
+        if has_vol:
+            vol = row.get("volume_expansion")
+            if isinstance(vol, (int, float)) and math.isfinite(float(vol)):
+                score = float(mom20) + 1e-6 * float(vol)
+        if not t:
+            continue
+        out[t] = float(score)
+    return out
