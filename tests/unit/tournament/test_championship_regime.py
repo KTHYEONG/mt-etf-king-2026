@@ -196,3 +196,97 @@ def test_championship_sleeve_not_regime_state_and_gate_false() -> None:
     )
     ctx = DecisionContext(decision_date=date(2026, 8, 27), regime=None, capital=1.0e9, held={}, rules=rules)
     assert ctx.championship_sleeve is None
+
+
+def test_classify_p27_regime_missing_or_invalid_is_uncertain() -> None:
+    from dataclasses import replace
+    from datetime import date
+
+    from src.tournament.championship_regime import P27RegimeInputs, P27RegimeState, classify_p27_regime
+
+    decision = date(2026, 8, 27)
+    missing = classify_p27_regime(decision_date=decision, inputs=None)
+    assert missing.state is P27RegimeState.UNCERTAIN
+    assert missing.confidence == 0.0
+    assert missing.components == {"beta_direction": 0.0, "trend_quality": 0.0, "opportunity": 0.0, "risk_stability": 0.0}
+    complete = P27RegimeInputs(
+        kospi_mom20=0.1, kospi_mom60=0.2, kosdaq_mom20=0.1, kosdaq_mom60=0.2,
+        kospi_eff60=0.5, kosdaq_eff60=0.5, kospi_eff60_prior_median=0.1, kosdaq_eff60_prior_median=0.1,
+        leader_mom20=0.2, leader_mom60=0.3, breadth20=0.8, breadth60=0.8,
+        kospi_dd60=-0.02, kospi_rv20_daily=0.01,
+    )
+    for invalid in (replace(complete, leader_mom60=None), replace(complete, breadth20=1.1), replace(complete, kospi_rv20_daily=-0.01)):
+        snap = classify_p27_regime(decision_date=decision, inputs=invalid)
+        assert snap.state is P27RegimeState.UNCERTAIN
+        assert snap.confidence == 0.0
+
+
+def test_classify_p27_regime_on_components_and_confidence() -> None:
+    from datetime import date
+
+    import pytest
+
+    from src.tournament.championship_regime import P27RegimeInputs, P27RegimeState, classify_p27_regime
+
+    inputs = P27RegimeInputs(
+        kospi_mom20=0.1, kospi_mom60=0.2, kosdaq_mom20=0.1, kosdaq_mom60=0.2,
+        kospi_eff60=0.5, kosdaq_eff60=0.3, kospi_eff60_prior_median=0.1, kosdaq_eff60_prior_median=0.0,
+        leader_mom20=0.2, leader_mom60=0.3, breadth20=0.8, breadth60=0.7,
+        kospi_dd60=-0.20, kospi_rv20_daily=0.01,
+    )
+    snap = classify_p27_regime(decision_date=date(2026, 1, 2), inputs=inputs)
+    assert snap.state is P27RegimeState.ON
+    assert snap.components == {"beta_direction": 1.0, "trend_quality": 1.0, "opportunity": 1.0, "risk_stability": 0.5}
+    assert snap.confidence == pytest.approx(0.875)
+
+
+def test_p27_regime_off_uncertain_and_conditional_table() -> None:
+    from dataclasses import replace
+    from datetime import date
+
+    import polars as pl
+    import pytest
+
+    from src.tournament.championship_regime import (
+        P27RegimeInputs,
+        P27RegimeState,
+        classify_p27_regime,
+        p27_regime_conditional_table,
+    )
+
+    base = P27RegimeInputs(
+        kospi_mom20=-0.1, kospi_mom60=-0.2, kosdaq_mom20=-0.1, kosdaq_mom60=-0.2,
+        kospi_eff60=-0.5, kosdaq_eff60=-0.3, kospi_eff60_prior_median=0.1, kosdaq_eff60_prior_median=0.0,
+        leader_mom20=-0.2, leader_mom60=-0.3, breadth20=0.2, breadth60=0.3,
+        kospi_dd60=-0.20, kospi_rv20_daily=0.03,
+    )
+    off = classify_p27_regime(decision_date=date(2026, 1, 2), inputs=base)
+    mixed = classify_p27_regime(decision_date=date(2026, 1, 2), inputs=replace(base, kospi_mom60=0.2))
+    assert off.state is P27RegimeState.OFF
+    assert mixed.state is P27RegimeState.UNCERTAIN
+    table = p27_regime_conditional_table(
+        states=(P27RegimeState.ON, P27RegimeState.ON, P27RegimeState.OFF),
+        confidences=(1.0, 0.5, 0.0),
+        terminal_returns=(0.60, -0.30, 0.30),
+        overlap_horizon=2,
+    )
+    on = table.filter(pl.col("state") == "ON")
+    off_row = table.filter(pl.col("state") == "OFF")
+    assert table["state"].to_list() == ["ON", "UNCERTAIN", "OFF"]
+    assert on["n_effective"][0] == pytest.approx(1.0)
+    assert on["mean_confidence"][0] == pytest.approx(0.75)
+    assert on["p50"][0] == pytest.approx(0.5)
+    assert on["ruin25"][0] == pytest.approx(0.5)
+    assert off_row["p30"][0] == 0.0
+    with pytest.raises(ValueError, match="length"):
+        p27_regime_conditional_table(states=(P27RegimeState.ON,), confidences=(), terminal_returns=(0.1,))
+
+def test_p27_regime_conditional_table_rejects_bad_overlap_and_values() -> None:
+    import pytest
+    from src.tournament.championship_regime import P27RegimeState, p27_regime_conditional_table
+    with pytest.raises(ValueError, match="overlap"):
+        p27_regime_conditional_table(states=(P27RegimeState.ON,), confidences=(0.5,), terminal_returns=(0.1,), overlap_horizon=0)
+    with pytest.raises(ValueError, match="finite"):
+        p27_regime_conditional_table(states=(P27RegimeState.ON,), confidences=(0.5,), terminal_returns=(float("nan"),), overlap_horizon=2)
+    with pytest.raises(ValueError, match="confidence"):
+        p27_regime_conditional_table(states=(P27RegimeState.ON,), confidences=(1.5,), terminal_returns=(0.1,), overlap_horizon=2)
