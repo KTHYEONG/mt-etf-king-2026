@@ -4,8 +4,27 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Hashable, Mapping
+from typing import Final
 
 import polars as pl
+
+TOURNAMENT_INITIAL_CAPITAL_DEFAULT: Final[float] = 1_000_000_000.0
+
+
+def resolve_capacity_capital(context: object, *, default: float = TOURNAMENT_INITIAL_CAPITAL_DEFAULT) -> float:
+    if isinstance(default, (int, float)) and math.isfinite(float(default)) and float(default) > 0:
+        fallback = float(default)
+    else:
+        fallback = TOURNAMENT_INITIAL_CAPITAL_DEFAULT
+    rules = getattr(context, "rules", None)
+    raw = getattr(rules, "initial_capital", None)
+    try:
+        value = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return fallback
+    if not math.isfinite(value) or value <= 0:
+        return fallback
+    return value
 
 
 def cached_filtered_scores(
