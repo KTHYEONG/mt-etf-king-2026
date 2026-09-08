@@ -223,3 +223,47 @@ def test_run_feasibility_audit_writes_championship_sleeve_table(tmp_path) -> Non
     assert table.height == 4
     assert set(table["sleeve"].to_list()) == {"CRASH_REBOUND", "LOTTERY_ON", "INACTIVE", "UNCERTAIN"}
     assert int(table["n_windows"].sum()) == 2
+
+
+def test_run_feasibility_audit_wires_p27_regime_on_decision_dates(tmp_path) -> None:
+    import json
+    from dataclasses import replace
+    from datetime import date
+
+    import polars as pl
+
+    from src.research.feasibility_audit import run_feasibility_audit
+    from src.tournament.championship_regime import P27RegimeInputs
+
+    sessions = [date(2026, 1, d) for d in (2, 5, 6, 7, 8)]
+    panel = pl.DataFrame({"date": sessions, "ticker": ["A"] * 5, "open": [100.0, 100.0, 110.0, 120.0, 130.0], "close": [100.0, 101.0, 111.0, 121.0, 131.0]})
+    opens = pl.DataFrame({"date": sessions, "ticker": ["A"] * 5, "open": [100.0, 100.0, 110.0, 120.0, 130.0], "eligible": [True] * 5})
+    p27 = pl.DataFrame({"window_start": [sessions[1], sessions[2]], "terminal_return": [0.60, -0.30]})
+    b1 = pl.DataFrame({"window_start": [sessions[1], sessions[2]], "terminal_return": [0.01, 0.02]})
+    on = P27RegimeInputs(
+        kospi_mom20=0.1, kospi_mom60=0.2, kosdaq_mom20=0.1, kosdaq_mom60=0.2,
+        kospi_eff60=0.5, kosdaq_eff60=0.5, kospi_eff60_prior_median=0.1, kosdaq_eff60_prior_median=0.1,
+        leader_mom20=0.2, leader_mom60=0.3, breadth20=0.8, breadth60=0.8,
+        kospi_dd60=-0.02, kospi_rv20_daily=0.01,
+    )
+    off = replace(on, kospi_mom20=-0.1, kospi_mom60=-0.2, kosdaq_mom20=-0.1, kosdaq_mom60=-0.2)
+    out = tmp_path / "research"
+    run_feasibility_audit(
+        calendar_sessions=sessions,
+        panel=panel,
+        horizon=2,
+        output_dir=out,
+        oracle_opens=opens,
+        strategy_windows={"sticky.mom60_raw": p27, "baseline.mom20_top1": b1},
+        comparator_gross={"baseline.mom20_top1": {"effective_gross_max": 2.0, "gross_violation_count": 1}, "sticky.mom60_raw": {"effective_gross_max": 1.9, "gross_violation_count": 0}},
+        champion_gross_max=1.9,
+        enforce_horizon_36=False,
+        p27_regime_inputs_by_date={sessions[0]: off, sessions[1]: on, sessions[2]: on},
+    )
+    table = pl.read_csv(out / "p27_regime_confidence_table.csv")
+    assert table.filter(pl.col("state") == "OFF")["n_windows"][0] == 1
+    assert table.filter(pl.col("state") == "ON")["n_windows"][0] == 1
+    metrics = json.loads((out / "2026_championship_feasibility_metrics.json").read_text(encoding="utf-8"))
+    assert metrics["p27_regime_is_production_gate"] is False
+    assert metrics["p27_regime_as_of"]["date"] == sessions[1].isoformat()
+    assert metrics["p27_regime_as_of"]["state"] == "ON"

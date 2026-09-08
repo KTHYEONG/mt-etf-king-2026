@@ -97,3 +97,51 @@ def test_scenario_05_09_shift_invariance(feature_builder: FeatureBuilder, offset
             if fv is None and tv is None:
                 continue
             assert fv == pytest.approx(tv, abs=1e-12, rel=1e-12)
+
+
+def test_feature_builder_momentum_excludes_aligned_phantom() -> None:
+    from datetime import date
+
+    import polars as pl
+    import pytest
+
+    from src.features.builder import FeatureBuilder, FeatureConfig
+    from src.features.regime import RegimeConfig
+
+    days = [date(2026, 6, d) for d in (1, 2, 3, 4, 5)]
+
+    class Calendar:
+        def sessions(self, start: date, end: date) -> list[date]:
+            assert start == days[0]
+            assert end == days[-1]
+            return days
+
+    rows: list[dict[str, object]] = []
+    for ticker, scale in (("A", 1.0), ("B", 2.0)):
+        for day, close in zip((days[0], days[1], days[3], days[4]), (100.0, 110.0, 121.0, 133.1), strict=True):
+            price = close * scale
+            rows.append(
+                {
+                    "date": day,
+                    "ticker": ticker,
+                    "close": price,
+                    "open": price,
+                    "high": price,
+                    "low": price,
+                    "nav": price,
+                    "shares_outstanding": 1_000_000,
+                    "net_assets": 1_000_000_000,
+                    "trading_value": 1_000_000_000,
+                }
+            )
+    config = FeatureConfig(
+        momentum_horizons=(2,),
+        ma_windows=(2,),
+        breakout_windows=(2,),
+        volatility_windows=(2,),
+        flow_windows=(2,),
+        regime=RegimeConfig(weights={}, thresholds=(0.25, 0.45, 0.65, 0.85), breadth_floor=0.5, volatility_ceiling=0.025),
+    )
+    built = FeatureBuilder(Calendar(), config).build_panel(pl.DataFrame(rows), days[-1])  # type: ignore[arg-type]
+    assert built.filter((pl.col("date") == days[2]) & (pl.col("ticker") == "A"))["mom_2"][0] is None
+    assert built.filter((pl.col("date") == days[3]) & (pl.col("ticker") == "A"))["mom_2"][0] == pytest.approx(0.21)
