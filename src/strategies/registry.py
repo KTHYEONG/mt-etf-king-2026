@@ -40,6 +40,7 @@ from src.strategies.ids import (
     STICKY_MOM60_PEAK_LOCK,
     STICKY_MOM60_RAW,
     STICKY_MOM60_RUNNER_REVERSAL,
+    STICKY_P27_COMPLEMENT_SWITCH,
     STICKY_SPLIT_FILL_LOCK,
 )
 from src.strategies.protocol import StrategyProtocol
@@ -73,6 +74,7 @@ _ALL_SEMANTIC: Final[frozenset[str]] = frozenset(
         STICKY_HOUSE_MONEY,
         STICKY_MOM60_CONCENTRATED,
         STICKY_MOM60_RAW,
+        STICKY_P27_COMPLEMENT_SWITCH,
         STICKY_MOM60_HOLD,
         STICKY_MOM60_ABS_CASH,
         STICKY_EQUITY_MOM60,
@@ -150,8 +152,9 @@ def build_strategy_registry() -> Mapping[str, Callable[[], StrategyProtocol]]:
         make_sticky_mom60_runner_reversal,
         make_sticky_split_fill_lock,
     )
+    from src.tournament.p27_complement_sleeve import make_p27_complement_switch
 
-    raw: Mapping[str, Callable[[], Any]] = {
+    raw: dict[str, Callable[[], Any]] = {
         BASELINE_BUY_HOLD: make_baseline_buy_hold,
         BASELINE_MOM20_TOP1: make_baseline_mom20_top1,
         BASELINE_MOM20_EQUAL3: make_baseline_mom20_equal3,
@@ -188,6 +191,7 @@ def build_strategy_registry() -> Mapping[str, Callable[[], StrategyProtocol]]:
         CONVEX_LOTTERY_IMPULSE: make_convex_lottery_impulse,
         CHAMPION_TAIL_RANKER: lambda: ChampionTailPolicy(),
     }
+    raw[STICKY_P27_COMPLEMENT_SWITCH] = make_p27_complement_switch
 
     def _wrap(semantic: str, factory: Callable[[], Any]) -> Callable[[], StrategyProtocol]:
         def _factory() -> StrategyProtocol:
