@@ -23,6 +23,7 @@ from src.portfolio.policy import PortfolioPolicy
 from src.portfolio.sizing import ConfidenceSizingConfig
 from src.strategies.ids import STICKY_FAMILY_PEAK_LOCK
 from src.strategies.sticky.overlays import overlay_param
+from src.tournament.live_decision import estimate_live_order_quantities
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,34 @@ def cmd_decide(args: argparse.Namespace) -> int:
             _overlay_hook(state)
         state.peak_is_locked = state.peak_is_locked or _peak_is_locked
         state.house_money_is_locked = state.house_money_is_locked or _house_money_is_locked
+        import math as _math_oe
+
+        cap_val = 1_000_000_000.0
+        try:
+            _cap_arg = getattr(args, "capital", None)
+            if _cap_arg is not None:
+                _cap_f = float(_cap_arg)
+                if _math_oe.isfinite(_cap_f) and _cap_f > 0:
+                    cap_val = _cap_f
+                else:
+                    raise ValueError("fallback to rules")
+            else:
+                raise ValueError("fallback to rules")
+        except (TypeError, ValueError):
+            try:
+                _rules_cap = float(getattr(_rules, "initial_capital", 1_000_000_000.0))
+                if _math_oe.isfinite(_rules_cap) and _rules_cap > 0:
+                    cap_val = _rules_cap
+            except (TypeError, ValueError, AttributeError):
+                cap_val = 1_000_000_000.0
+        if getattr(state, "model_arg", None) == "sticky.mom60_raw":
+            try:
+                order_estimates = estimate_live_order_quantities(state.weights, state.panel_loaded, decision_date=decision_date, capital=cap_val) if state.panel_loaded is not None and state.weights else {}
+            except ValueError as exc:
+                logger.error(f"[SYS] decide status=fail error={exc!r}")
+                return 1
+        else:
+            order_estimates = {}
         return render_decision(
             weights=dict(state.weights),
             decision_weights=state.decision_weights,
@@ -229,6 +258,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
             args=args,
             peak_is_locked=bool(state.peak_is_locked),
             house_money_is_locked=bool(state.house_money_is_locked),
+            order_estimates=order_estimates,  # type: ignore[arg-type]
         )
     except Exception as exc:
         logger.error(f"[SYS] decide status=fail error={exc!r}")

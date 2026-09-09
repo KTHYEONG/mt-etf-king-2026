@@ -473,8 +473,63 @@ def _hook_equity_group(state: _DecideState) -> None:
         pass
 
 
+def _hook_mom60_raw_allocate(state: _DecideState) -> None:
+    from pathlib import Path
+
+    import polars as pl
+
+    from src.core.paths import DataPaths
+    from src.core.settings import get_settings
+    from src.portfolio.sizing import SizingScheme
+    from src.tournament.live_decision import (
+        build_live_eligible_snapshot,
+        compute_live_target_weights,
+        resolve_live_championship_sleeve,
+    )
+
+    panel = state.panel_loaded
+    if panel is None or getattr(panel, "height", 0) == 0:
+        state.weights = {}
+        state.decision_weights = None
+        return
+    snapshot = build_live_eligible_snapshot(panel, decision_date=state.decision_date)
+    try:
+        data_root = get_settings().data_root
+        idx_path = DataPaths(root=Path(str(data_root))).silver("index_daily")
+        index_daily = pl.read_parquet(str(idx_path))
+    except (OSError, FileNotFoundError):
+        index_daily = pl.DataFrame()
+    sleeve = resolve_live_championship_sleeve(index_daily, state.decision_date)
+    from src.strategies.registry import STRATEGIES as _REG_P27
+
+    model: Any = _REG_P27["sticky.mom60_raw"]()
+    model.reset_trackers()
+    rules = state.rules
+    try:
+        capital = float(getattr(rules, "initial_capital", 1_000_000_000))
+    except (TypeError, ValueError):
+        capital = 1_000_000_000.0
+    intent = compute_live_target_weights(
+        model,
+        snapshot,
+        decision_date=state.decision_date,
+        held={},
+        capital=capital,
+        rules=rules,
+        championship_sleeve=sleeve,
+        scheme=SizingScheme.TOP1,
+        k=1,
+    )
+    state.decision_weights = intent
+    state.weights = dict(intent.weights)
+    if intent.kind == "cash":
+        state.weights = {}
+        state.peak_is_locked = True
+
+
 _ALLOCATE_HOOKS: Final[dict[str, Any]] = {
     "sticky.split_fill_lock": _hook_split_fill_allocate,
+    "sticky.mom60_raw": _hook_mom60_raw_allocate,
 }
 
 _OVERLAY_HOOKS: Final[dict[str, Any]] = {

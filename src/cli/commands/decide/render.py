@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import logging
 import sys
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 
@@ -23,6 +24,7 @@ def render_decision(
     args: argparse.Namespace,
     peak_is_locked: bool,
     house_money_is_locked: bool,
+    order_estimates: Mapping[object, object] | None = None,
 ) -> int:
     """Format rationales, render the dashboard, write artifacts. Returns the exit code."""
     # use rationales from policy if available
@@ -57,6 +59,13 @@ def render_decision(
         weights = {}
     daily = DailyDecision(decision_date=decision_date, weights=weights, rationales=rationales)
     out = render_dashboard(daily)
+    if order_estimates:
+        est_lines = ["추정 주문 수량 (decision_date 종가 기준, 실제 체결가와 다를 수 있음)"]
+        for _tkr, _est in order_estimates.items():
+            _shares = getattr(_est, "est_shares", None)
+            _krw = getattr(_est, "est_krw", None)
+            est_lines.append(f"{_tkr}: {_shares}주 {_krw}원")
+        out = out + "\n" + "\n".join(est_lines)
     sys.stdout.write(out + "\n")
     logger.info(out)
     # also log ALGO style for uniformity
