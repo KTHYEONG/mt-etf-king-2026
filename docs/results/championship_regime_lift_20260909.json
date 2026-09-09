@@ -1,0 +1,109 @@
+{
+  "analysis_id": "championship_regime_lift_20260909_v2",
+  "created_at": "2026-09-09T10:13:52.468844+00:00",
+  "feature": "championship_regime_lift",
+  "supersedes": "championship_regime_lift_20260908",
+  "correction_note": "20260908 산출물은 executable_oracle_p50/capture_50 계산에 P27 자신의 스코어 후보(모델조건부)를 오라클로 오인해 기록함(INACTIVE 오라클=0.0, LOTTERY_ON capture=1.0으로 나타난 원인). 본 v2는 production src.research.executable_oracle + src.tournament.championship_regime.sleeve_conditional_table 을 사용한 진짜 시장전체(배치가능 유니버스) 오라클로 재계산함.",
+  "production_gate": false,
+  "p27_run": "20260908T112031Z_sticky.mom60_raw_20180102_20260827_0300_0500_0010",
+  "n_windows": 2086,
+  "p50_hits": 104,
+  "p50_rate": 0.04985618408437201,
+  "sleeve_table": [
+    {
+      "sleeve": "CRASH_REBOUND",
+      "n_windows": 17,
+      "n_effective": 0.4722222222222222,
+      "p27_p30": 0.0,
+      "p27_p40": 0.0,
+      "p27_p45": 0.0,
+      "p27_p50": 0.0,
+      "p27_ruin25": 0.0,
+      "executable_oracle_p50": 0.29411764705882354,
+      "capture_50": 0.0
+    },
+    {
+      "sleeve": "LOTTERY_ON",
+      "n_windows": 544,
+      "n_effective": 15.11111111111111,
+      "p27_p30": 0.25735294117647056,
+      "p27_p40": 0.22426470588235295,
+      "p27_p45": 0.20036764705882354,
+      "p27_p50": 0.19117647058823528,
+      "p27_ruin25": 0.05330882352941176,
+      "executable_oracle_p50": 0.34191176470588236,
+      "capture_50": 0.5053763440860215
+    },
+    {
+      "sleeve": "INACTIVE",
+      "n_windows": 1465,
+      "n_effective": 40.69444444444444,
+      "p27_p30": 0.028668941979522185,
+      "p27_p40": 0.008873720136518772,
+      "p27_p45": 0.0013651877133105802,
+      "p27_p50": 0.0,
+      "p27_ruin25": 0.017747440273037544,
+      "executable_oracle_p50": 0.08259385665529011,
+      "capture_50": 0.0
+    },
+    {
+      "sleeve": "UNCERTAIN",
+      "n_windows": 60,
+      "n_effective": 1.6666666666666667,
+      "p27_p30": 0.0,
+      "p27_p40": 0.0,
+      "p27_p45": 0.0,
+      "p27_p50": 0.0,
+      "p27_ruin25": 0.0,
+      "executable_oracle_p50": 0.0,
+      "capture_50": 0.0
+    }
+  ],
+  "p50_by_year": {
+    "2018": {
+      "n": 244,
+      "p50": 0,
+      "rate": 0.0
+    },
+    "2019": {
+      "n": 246,
+      "p50": 0,
+      "rate": 0.0
+    },
+    "2020": {
+      "n": 248,
+      "p50": 4,
+      "rate": 0.016129032258064516
+    },
+    "2021": {
+      "n": 248,
+      "p50": 0,
+      "rate": 0.0
+    },
+    "2022": {
+      "n": 246,
+      "p50": 0,
+      "rate": 0.0
+    },
+    "2023": {
+      "n": 245,
+      "p50": 0,
+      "rate": 0.0
+    },
+    "2024": {
+      "n": 244,
+      "p50": 0,
+      "rate": 0.0
+    },
+    "2025": {
+      "n": 242,
+      "p50": 49,
+      "rate": 0.2024793388429752
+    },
+    "2026": {
+      "n": 123,
+      "p50": 51,
+      "rate": 0.4146341463414634
+    }
+  }
+}

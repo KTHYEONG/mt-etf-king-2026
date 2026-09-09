@@ -628,6 +628,9 @@
   "src/tournament/simulator_windows.py": {
     "testing": "tests/unit/tournament/test_simulator_windows.py"
   },
+  "src/tournament/winbar.py": {
+    "testing": "tests/unit/tournament/test_winbar.py"
+  },
   "src/universe/families.py": {
     "testing": "tests/unit/universe/test_families.py"
   },

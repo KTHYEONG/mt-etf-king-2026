@@ -1,3 +1,5 @@
+> ⚠️ **DEPRECATED (2026-09-09)**: 이 산출물의 `executable_oracle_p50`/`capture_50` 컬럼은 P27 자신의 스코어 후보(모델조건부)를 시장오라클로 오인해 계산된 결함이 있습니다 (INACTIVE 오라클=0.0, LOTTERY_ON capture=1.0으로 나타난 원인). 정정본은 [championship_regime_lift_20260909.md](./championship_regime_lift_20260909.md) 를 참조하세요. 본 파일은 감사 이력 보존을 위해 삭제하지 않고 유지합니다.
+
 # Championship Regime Lift — Sleeve Diagnostic (2026-09-08)
 
 **Analysis ID:** `championship_regime_lift_20260908`  
