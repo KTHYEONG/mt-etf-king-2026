@@ -8,6 +8,8 @@ priority: 10
 
 # Tournament Quant & ETF Engineering Directives
 
+> **Never leak future information, preserve the reality of capital flows and execution viability, guard against validation leakage and overfitting, and prioritize economic correctness over specific implementation mechanics.**
+
 This document defines quantitative and financial directives for the **36-session ETF Tournament Research & Trading System** (Money Today ETF King 2026).
 
 ## 0. Tournament Objective & Decision Philosophy
@@ -53,8 +55,10 @@ This document defines quantitative and financial directives for the **36-session
    - Cross-sectional ranking, z-scores, and normalizations must strictly use cross-sectional data available at date $t$.
 
 ## 4. Deterministic & Safe Numerical Computation
-- **Safe Vectorized Operations:**
-   - Guard against zero-division and empty arrays using `np.divide(..., where=...)` with explicit zero-fill.
+- **Numerical Edge Cases & Invariants:**
+   - Handle zero-division, empty series, and infinite returns according to genuine financial/auction reality rather than masking with arbitrary normal defaults.
 - **Distribution Stability & Non-Stationarity:**
    - Calculate rolling 36-session statistics using overlapping window corrections ($n_{\text{effective}}$).
    - Track giveback metrics (median & q90) and drawdown profiles for every strategy evaluation.
+- **Principles Over Mechanics:**
+   - Prioritize sound tournament mechanics and structural invariance over rigid dogma around specific function recipes.
