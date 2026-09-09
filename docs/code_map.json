@@ -222,6 +222,13 @@
   "src/cli/commands/loyo.py": {
     "testing": "tests/unit/cli/test_loyo.py"
   },
+  "src/cli/commands/pipeline.py": {
+    "testing": [
+      "tests/unit/cli/test_main.py",
+      "tests/unit/cli/test_parser.py",
+      "tests/unit/cli/test_pipeline.py"
+    ]
+  },
   "src/cli/commands/replay.py": {},
   "src/cli/commands/storage.py": {
     "testing": "tests/unit/cli/test_storage.py"
@@ -241,12 +248,7 @@
     ]
   },
   "src/cli/main.py": {
-    "testing": [
-      "tests/unit/cli/test_cli_main.py",
-      "tests/unit/cli/test_cli_parser.py",
-      "tests/unit/cli/test_feasibility_audit.py",
-      "tests/unit/test_cli.py"
-    ]
+    "testing": "tests/unit/cli/test_main.py"
   },
   "src/cli/parser.py": {
     "testing": "tests/unit/cli/test_parser.py"

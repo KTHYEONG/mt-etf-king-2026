@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "ADR_20260909_DAILY_PIPELINE_AUTOMATION",
+      "date": "2026-09-09",
+      "adr_id": "ADR_20260909_ADR_20260909_DAILY_PIPELINE_AUTOMATION",
+      "domain": "cli",
+      "title": "대회기간 데이터 파이프라인 일일 자동화",
+      "why": "패널이 2026-08-27 이후 갱신되지 않아 대회기간 중 decide가 fail-closed(CASH)로 되돌아갈 위험; 옛 로드맵의 09:00 ingest→11:00 decide 당일 흐름은 INV-10(close(t)->open(t+1))과 불일치",
+      "resolution": "cmd_daily_refresh 신설: ingest→normalize→features(실리버 전체범위 강제 재빌드)를 재사용 조합, --decide 옵션으로 챔피언 전략 추천을 저장; 실제 체결은 사용자 수동",
+      "impact": "systemd timer 등으로 저녁 배치 자동화 가능해짐, features 부분윈도우 호출 시 gold 패널이 절단되는 실결함을 재현/차단"
+    },
+    {
       "task_id": "TASK_LIVE_DECISION_PIPELINE",
       "date": "2026-09-09",
       "adr_id": "ADR_20260909_LIVE_DECISION_PIPELINE",
