@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WINBAR_OBJECTIVE",
+      "date": "2026-09-09",
+      "adr_id": "ADR_20260909_WINBAR_OBJECTIVE",
+      "domain": "tournament",
+      "title": "챔피언십 우승바 진단지표 도입",
+      "why": "절대임계 theta=50%만으로 채택판정 시 저기회 레짐(우승바 중앙 +20%대)의 우승가능 후보가 구조적으로 기각됨",
+      "resolution": "src/tournament/winbar.py 신설(rank/ratio 시나리오쌍), attainability/results 파이프라인에 연구전용 지표로 배선",
+      "impact": "P27 동결·채택게이트 불변, 레짐조건부 우승바 초과율이 runs_registry에 병기 기록됨"
+    },
+    {
       "task_id": "TASK_P27_REGIME_COMPLEMENTS_PROBE",
       "date": "2026-09-09",
       "adr_id": "ADR_20260909_P27_REGIME_COMPLEMENTS_PROBE",
