@@ -50,16 +50,34 @@ def resolve_live_championship_sleeve(index_daily: pl.DataFrame, decision_date: d
 
 
 def build_live_eligible_snapshot(panel: pl.DataFrame, *, decision_date: date) -> pl.DataFrame:
+    from src.backtest.session_grid import resolve_session_grid
+    from src.core.calendar import get_calendar
     from src.tournament.attainability import market_candidates_by_session
 
-    candidates = market_candidates_by_session(sessions=[decision_date], panel=panel)
+    if not isinstance(panel, pl.DataFrame) or panel.height == 0 or "date" not in panel.columns:
+        return panel.head(0) if isinstance(panel, pl.DataFrame) else panel
+    # market_candidates_by_session's underlying eligibility check derives history
+    # length from session-index arithmetic across the WHOLE session list -- a
+    # single-session list always yields (session_idx - first_seen_idx) == 0,
+    # silently failing every ticker's history requirement. The full session
+    # range up to decision_date must be passed, mirroring how
+    # backtest_attainability_payload builds att_sessions.
+    earliest_raw = panel.get_column("date").min()
+    if not isinstance(earliest_raw, date):
+        return panel.head(0)
+    if earliest_raw > decision_date:
+        return panel.head(0)
+    calendar_sessions = get_calendar().sessions(earliest_raw, decision_date)
+    sessions = list(resolve_session_grid(calendar_sessions, panel).sessions)
+    if not sessions:
+        return panel.head(0)
+    candidates = market_candidates_by_session(sessions=sessions, panel=panel)
     eligible = candidates.get(decision_date)
     if not eligible:
         return panel.head(0)
     tickers = list(eligible)
     out = panel.filter(pl.col("ticker").is_in(tickers))
-    if "date" in panel.columns:
-        out = out.filter(pl.col("date") == decision_date)
+    out = out.filter(pl.col("date") == decision_date)
     return out
 
 
