@@ -249,7 +249,7 @@ def cmd_champion_research(args: argparse.Namespace) -> int:
     try:
         writer = getattr(result, "write", None)
         if callable(writer):
-            writer("results/champion/promotion.json")
+            writer("docs/results/champion_promotion.json")
     except Exception:
         pass
     return 0
