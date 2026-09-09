@@ -1,6 +1,26 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P27_COMPLEMENT_BACKTEST_VALIDATION",
+      "date": "2026-09-09",
+      "adr_id": "ADR_20260909_P27_COMPLEMENT_BACKTEST_VALIDATION",
+      "domain": "tournament",
+      "title": "P27 complement switch full-span backtest validation",
+      "why": "Probe hard-switch thesis required full-span session simulation to confirm LOTTERY_ON tail preservation under path-dependent execution vs champion distribution hook.",
+      "resolution": "2018-2026 backtest: switch P>50=2.63% vs P27=4.98% vs B1=2.39%; LOTTERY tail 28/104 preserved; gross_viol=1428; adoption FAIL G1_TAIL.",
+      "impact": "P27_COMPLEMENT_IS_PRODUCTION_GATE stays False; next work is champion-hook parity on switch and non-B1 complement probe—not promotion."
+    },
+    {
+      "task_id": "TASK_P27_COMPLEMENT_SLEEVE",
+      "date": "2026-09-09",
+      "adr_id": "ADR_20260909_P27_COMPLEMENT_SLEEVE",
+      "domain": "tournament",
+      "title": "P27 hard-switch complement sleeve (research-only)",
+      "why": "Probe showed P27 P>50 is 100% LOTTERY_ON-only; split/blend/idle-fill destroy tail; only hard switch preserves 106 hits while B1 lifts inactive oracle P>50.",
+      "resolution": "Shipped P27ComplementHardSwitchModel (LOTTERY_ON→P27, else B1), registry/_prep wiring, 13 contract tests; P27_COMPLEMENT_IS_PRODUCTION_GATE=False; lean_check spec-scoped PASS.",
+      "impact": "Research-only sticky.p27_complement_switch registered with p27 exposure limits; promotion blocked until complement specialist spec; scratch/spec contracts purged."
+    },
+    {
       "task_id": "TASK_MOM20_GATE_BACKTEST_VALIDATION",
       "date": "2026-09-08",
       "adr_id": "ADR_20260908_MOM20_GATE_BACKTEST_VALIDATION",
