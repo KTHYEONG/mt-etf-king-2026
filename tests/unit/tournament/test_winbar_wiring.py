@@ -39,10 +39,12 @@ def test_backtest_attainability_payload_emits_winbar_keys() -> None:
     assert payload["breadth_mean"] == pytest.approx(2.0, abs=1e-12)
     assert payload["n_attainable"]["0.4"] == 1
 
-    # Then: winbar keys are merged in from the same session grid
+    # Then: winbar keys are merged in from the market-wide universe (R7).
+    # The minimal panel has no oracle-eligible column, so the market map is
+    # fail-closed to {} and no win-bar window clears the evidence floor.
     assert payload["win_bar_rank"] == WIN_BAR_RANK
     assert payload["win_bar_is_production_gate"] is False
-    assert payload["n_win_bar_windows"]["ratio"] == 1
+    assert payload["n_win_bar_windows"]["ratio"] == 0
     assert payload["n_win_bar_windows"]["rank"] == 0
     assert payload["win_bar_median"]["rank"] is None
-    assert payload["win_bar_median"]["ratio"] == pytest.approx(0.50 * WIN_BAR_ORACLE_RATIO, abs=1e-12)
+    assert payload["win_bar_median"]["ratio"] is None

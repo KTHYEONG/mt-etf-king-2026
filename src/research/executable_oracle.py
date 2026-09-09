@@ -57,6 +57,35 @@ def build_deployment_oracle_opens(
     return frame
 
 
+def market_wide_session_candidates(
+    panel: pl.DataFrame,
+    *,
+    sessions: Sequence[date],
+    sponsor_issuers: frozenset[str],
+    brand_map: Mapping[str, str],
+    min_adv: float = 100_000_000.0,
+    min_history_sessions: int = 60,
+) -> dict[date, tuple[str, ...]]:
+    if len(sessions) == 0:
+        return {}
+    frame = build_deployment_oracle_opens(
+        panel,
+        sessions=sessions,
+        sponsor_issuers=sponsor_issuers,
+        brand_map=brand_map,
+        min_adv=min_adv,
+        min_history_sessions=min_history_sessions,
+    )
+    eligible = frame.filter(pl.col("eligible").eq(True)).select(
+        pl.col("date").cast(pl.Date), pl.col("ticker").cast(pl.String)
+    )
+    out: dict[date, tuple[str, ...]] = dict.fromkeys(sessions, ())
+    grouped = eligible.group_by("date").agg(pl.col("ticker").unique().sort().alias("tickers"))
+    for row in grouped.iter_rows(named=True):
+        out[row["date"]] = tuple(str(t) for t in row["tickers"])
+    return out
+
+
 def executable_open_to_open_ceiling(
     opens: pl.DataFrame, windows: Sequence[DecisionWindow], cost_rate: float = 0.001
 ) -> pl.DataFrame:

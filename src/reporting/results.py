@@ -78,6 +78,9 @@ def _extract_summary_record(run_id: str, meta: Mapping[str, object], summary: Ma
     capture = summary.get("capture") or {}
     attainability = summary.get("attainability") or {}
     n_attainable = summary.get("n_attainable") or {}
+    capture_market = summary.get("capture_market") or {}
+    attainability_market = summary.get("attainability_market") or {}
+    n_attainable_market = summary.get("n_attainable_market") or {}
     win_bar_exc = summary.get("win_bar_exceedance") or {}
     win_bar_med = summary.get("win_bar_median") or {}
     win_bar_n = summary.get("n_win_bar_windows") or {}
@@ -157,6 +160,19 @@ def _extract_summary_record(run_id: str, meta: Mapping[str, object], summary: Ma
         "win_bar_median_ratio": _c(win_bar_med.get("ratio")),
         "n_win_bar_windows_rank": _i(win_bar_n.get("rank")),
         "n_win_bar_windows_ratio": _i(win_bar_n.get("ratio")),
+        "capture_market_30": _c(capture_market.get("0.3")),
+        "capture_market_40": _c(capture_market.get("0.4")),
+        "capture_market_50": _c(capture_market.get("0.5")),
+        "capture_market_60": _c(capture_market.get("0.6")),
+        "attainability_market_30": _c(attainability_market.get("0.3")),
+        "attainability_market_40": _c(attainability_market.get("0.4")),
+        "attainability_market_50": _c(attainability_market.get("0.5")),
+        "attainability_market_60": _c(attainability_market.get("0.6")),
+        "attainable_market_30": _i(n_attainable_market.get("0.3")),
+        "attainable_market_40": _i(n_attainable_market.get("0.4")),
+        "attainable_market_50": _i(n_attainable_market.get("0.5")),
+        "attainable_market_60": _i(n_attainable_market.get("0.6")),
+        "breadth_mean_market": _c(summary.get("breadth_mean_market")),
         "created_at": str(meta.get("created_at") or datetime.now(UTC).isoformat()),
     }
 

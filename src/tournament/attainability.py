@@ -7,8 +7,46 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from src.core.config import ConfigError, config_path, config_value
 from src.tournament.objective_core import ATTAINABILITY_THRESHOLDS
 from src.tournament.winbar import build_winbar_summary
+
+_MARKET_CANDIDATES_CACHE: dict[tuple[date, date, int, int], dict[date, tuple[str, ...]]] = {}
+
+
+def market_candidates_by_session(sessions: Sequence[date], panel: object) -> dict[date, tuple[str, ...]]:
+    from src.research.executable_oracle import market_wide_session_candidates
+
+    import polars as pl
+    from polars.exceptions import ColumnNotFoundError
+
+    if len(sessions) == 0:
+        return {}
+    if not isinstance(panel, pl.DataFrame):
+        return {}
+    key = (sessions[0], sessions[-1], len(sessions), panel.height)
+    if key in _MARKET_CANDIDATES_CACHE:
+        return _MARKET_CANDIDATES_CACHE[key]
+    try:
+        min_adv = float(config_value("universe", "universe", "min_adv_krw", default=100_000_000.0))
+        min_history_sessions = int(config_value("universe", "universe", "min_history_days", default=60))
+        sponsors_raw = config_value("tournament", "tournament", "sponsors", "asset_managers", default=[])
+        sponsor_issuers = frozenset(str(x) for x in sponsors_raw)
+        from src.universe.instruments import load_sponsor_brand_map
+
+        brand_map = load_sponsor_brand_map(config_path("sponsor_brands"))
+        result = market_wide_session_candidates(
+            panel,
+            sessions=list(sessions),
+            sponsor_issuers=sponsor_issuers,
+            brand_map=brand_map,
+            min_adv=min_adv,
+            min_history_sessions=min_history_sessions,
+        )
+    except (ColumnNotFoundError, ConfigError, TypeError, AttributeError):
+        return {}
+    _MARKET_CANDIDATES_CACHE[key] = result
+    return result
 
 
 @dataclass(frozen=True)
@@ -291,6 +329,7 @@ def backtest_attainability_payload(
         except Exception:
             open_map = {}
     cand_map = candidates_by_session_from_cache(att_sessions, cache_for_att)
+    market_map = market_candidates_by_session(att_sessions, panel)
     open_by_session = [dict(open_map.get(s, {})) if isinstance(open_map, dict) else {} for s in att_sessions]
     opps = window_opportunities(open_by_session, att_sessions, cand_map, int(horizon))
     att_curve = attainability_curve(opps, list(thresholds))
@@ -304,11 +343,24 @@ def backtest_attainability_payload(
         min_attainable_windows=int(min_att_win),
     )
     payload["attainability"] = {str(k): float(v) for k, v in sorted(att_curve.items())}
+    market_summary = build_attainability_summary(
+        sessions=att_sessions,
+        open_map=open_map,
+        candidates_by_session=market_map,
+        window_returns=list(getattr(rolling, "returns", ()) or ()),
+        horizon=int(horizon),
+        thresholds=list(thresholds),
+        min_attainable_windows=int(min_att_win),
+    )
+    payload["attainability_market"] = market_summary["attainability"]
+    payload["capture_market"] = market_summary["capture"]
+    payload["n_attainable_market"] = market_summary["n_attainable"]
+    payload["breadth_mean_market"] = market_summary["breadth_mean"]
     payload.update(
         build_winbar_summary(
             sessions=att_sessions,
             open_map=open_map,
-            candidates_by_session=cand_map,
+            candidates_by_session=market_map,
             window_returns=list(getattr(rolling, "returns", ()) or ()),
             horizon=int(horizon),
             min_bar_windows=int(min_att_win),
