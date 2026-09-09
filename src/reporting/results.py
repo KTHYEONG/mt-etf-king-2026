@@ -78,6 +78,9 @@ def _extract_summary_record(run_id: str, meta: Mapping[str, object], summary: Ma
     capture = summary.get("capture") or {}
     attainability = summary.get("attainability") or {}
     n_attainable = summary.get("n_attainable") or {}
+    win_bar_exc = summary.get("win_bar_exceedance") or {}
+    win_bar_med = summary.get("win_bar_median") or {}
+    win_bar_n = summary.get("n_win_bar_windows") or {}
 
     def _f(val: object) -> float | None:
         if val is None:
@@ -146,6 +149,14 @@ def _extract_summary_record(run_id: str, meta: Mapping[str, object], summary: Ma
         "attainability_50": _c(attainability.get("0.5")),
         "attainability_60": _c(attainability.get("0.6")),
         "breadth_mean": _c(summary.get("breadth_mean")),
+        "win_bar_rank": _i(summary.get("win_bar_rank")),
+        "win_bar_oracle_ratio": _c(summary.get("win_bar_oracle_ratio")),
+        "win_bar_exceedance_rank": _c(win_bar_exc.get("rank")),
+        "win_bar_exceedance_ratio": _c(win_bar_exc.get("ratio")),
+        "win_bar_median_rank": _c(win_bar_med.get("rank")),
+        "win_bar_median_ratio": _c(win_bar_med.get("ratio")),
+        "n_win_bar_windows_rank": _i(win_bar_n.get("rank")),
+        "n_win_bar_windows_ratio": _i(win_bar_n.get("ratio")),
         "created_at": str(meta.get("created_at") or datetime.now(UTC).isoformat()),
     }
 
