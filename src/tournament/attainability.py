@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from src.tournament.objective_core import ATTAINABILITY_THRESHOLDS
+from src.tournament.winbar import build_winbar_summary
 
 
 @dataclass(frozen=True)
@@ -303,6 +304,16 @@ def backtest_attainability_payload(
         min_attainable_windows=int(min_att_win),
     )
     payload["attainability"] = {str(k): float(v) for k, v in sorted(att_curve.items())}
+    payload.update(
+        build_winbar_summary(
+            sessions=att_sessions,
+            open_map=open_map,
+            candidates_by_session=cand_map,
+            window_returns=list(getattr(rolling, "returns", ()) or ()),
+            horizon=int(horizon),
+            min_bar_windows=int(min_att_win),
+        )
+    )
     return payload
 
 
