@@ -125,15 +125,17 @@ ML은 rule baseline 게이트 이전 착수 금지. P27 에서 새 알파를 넣
 
 ## 6. 일일 운영 절차 (대회 기간)
 
+INV-10(신호는 close(t) 확정, 체결은 open(t+1))을 지키려면 `decide` 계산은 세션 t 종가 이후에 끝나 있어야
+t+1 개장 직후 바로 체결할 수 있습니다. 과거 문서의 "09:00 ingest → 11:00 decide" 당일 흐름은 이 순서를
+지키지 못해(그날 아침에 그날 체결을 결정) 폐기하고, 장 마감 후 저녁 배치로 재구성합니다.
+
 ```
-09:00  전일 데이터 ingest 확인
-09:30  normalize + validation
-10:00  features + universe 빌드
-10:30  alpha score + portfolio weights
-11:00  decide → HTS 수동 입력
-15:30  장 마감 후 당일 데이터 ingest (익일 준비)
+16:00  (세션 t 마감 후, mt-etf daily-refresh --decide) ingest → normalize → features → decide 자동 실행
+       → t+1 개장 매수/매도 추천이 results/decide_daily/<t>.json 에 저장됨
+09:00  (세션 t+1 개장 직후) 저장된 추천을 확인하고 HTS에 수동 입력 ← 사람이 하는 유일한 실행 단계
 ```
 
+`mt-etf daily-refresh`는 WSL/호스트가 켜져 있어야 동작하는 로컬 스케줄(systemd user timer 권장)로 트리거합니다.
 모의투자 HTS 는 수동 체결이므로, 시스템은 **추천 + 근거** 를 제공하고 최종 실행은 사람이 합니다.
 
 ---
