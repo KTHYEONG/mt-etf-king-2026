@@ -1151,7 +1151,15 @@ def main() -> None:
         # pytest-cov's --cov silently collects nothing for a bare file path
         # (coverage.py resolves it as a source, not a measured module) --
         # the dotted module form is what actually attaches instrumentation.
-        cov_modules = [f[:-3].replace("/", ".") for f in src_files]
+        # An __init__.py must cov-target its *package* dotted name (strip the
+        # trailing ".__init__"), not "pkg.__init__" -- that malformed form
+        # makes coverage.py's import hook re-import the whole package chain
+        # mid-session, which crashes on any C-extension dependency already
+        # loaded once (numpy et al. cannot be re-initialized in one process).
+        cov_modules = [
+            f[: -len("/__init__.py")].replace("/", ".") if f.endswith("/__init__.py") else f[:-3].replace("/", ".")
+            for f in src_files
+        ]
         cov_args = [
             *[f"--cov={m}" for m in cov_modules],
             f"--cov-report=json:{cov_json_path}",
