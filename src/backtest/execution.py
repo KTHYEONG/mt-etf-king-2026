@@ -33,7 +33,8 @@ class Fill:
 class NextOpenExecution:
     def __init__(self, calendar: TradingCalendar) -> None:
         self.calendar = calendar
-        self._open_prices: dict[tuple[int, date], dict[str, float | None]] = {}
+        self._cache_panel: object | None = None
+        self._open_prices: dict[date, dict[str, float | None]] = {}
 
     def resolve(
         self,
@@ -43,13 +44,16 @@ class NextOpenExecution:
     ) -> tuple[list[Fill], tuple[str, ...]]:
         if not target:
             return [], ()
+        if panel is not self._cache_panel:
+            self._cache_panel = panel
+            self._open_prices = {}
         try:
             execution_date = self.calendar.next_session(decision_date)
         except Exception:
             return [], tuple(sorted(target.keys()))
         if panel.height == 0 or "date" not in panel.columns:
             return [], tuple(sorted(target.keys()))
-        cache_key = (id(panel), execution_date)
+        cache_key = execution_date
         open_map = self._open_prices.get(cache_key)
         if open_map is None:
             exec_rows = panel.filter(pl.col("date") == execution_date)
