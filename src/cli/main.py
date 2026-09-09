@@ -16,6 +16,7 @@ from src.cli.commands.feasibility_audit import cmd_feasibility_audit
 from src.cli.commands.features import cmd_features
 from src.cli.commands.forensics import cmd_forensics
 from src.cli.commands.loyo import cmd_loyo
+from src.cli.commands.pipeline import cmd_daily_refresh
 from src.cli.commands.replay import cmd_replay
 from src.cli.commands.storage import cmd_storage_migrate
 from src.cli.commands.universe import cmd_universe
@@ -36,6 +37,7 @@ SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "loyo": cmd_loyo,
     "replay": cmd_replay,
     "decide": cmd_decide,
+    "daily-refresh": cmd_daily_refresh,
     "storage-migrate": cmd_storage_migrate,
     "champion-research": cmd_champion_research,
     "feasibility-audit": cmd_feasibility_audit,

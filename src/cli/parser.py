@@ -14,6 +14,7 @@ from src.cli.commands.feasibility_audit import cmd_feasibility_audit
 from src.cli.commands.features import cmd_features
 from src.cli.commands.forensics import cmd_forensics
 from src.cli.commands.loyo import cmd_loyo
+from src.cli.commands.pipeline import cmd_daily_refresh
 from src.cli.commands.replay import cmd_replay
 from src.cli.commands.storage import cmd_storage_migrate
 from src.cli.commands.universe import cmd_universe
@@ -31,6 +32,7 @@ SUBCOMMANDS: Final[tuple[str, ...]] = (
     "loyo",
     "replay",
     "decide",
+    "daily-refresh",
     "storage-migrate",
     "champion-research",
     "feasibility-audit",
@@ -111,6 +113,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_dec.add_argument("--model", required=False, default=None, help="model key")
     p_dec.add_argument("--capital", type=float, default=None)
     p_dec.set_defaults(func=cmd_decide)
+    # daily-refresh
+    p_ref = sub.add_parser("daily-refresh", help="ingest+normalize+features (optional decide) daily batch")
+    p_ref.add_argument("--dataset", required=False, default="etf_daily", help="dataset alias")
+    p_ref.add_argument("--as-of", required=False, default=None, dest="as_of", help="as-of date YYYY-MM-DD (default: today)")
+    p_ref.add_argument("--lookback-days", type=int, default=10, dest="lookback_days", help="ingest re-fetch window in calendar days")
+    p_ref.add_argument("--decide", action="store_true", default=False, help="also compute+persist the champion-strategy order recommendation")
+    p_ref.add_argument("--output-dir", required=False, default="results/decide_daily", dest="output_dir", help="decide artifact output dir")
+    p_ref.set_defaults(func=cmd_daily_refresh)
     # storage-migrate
     p_mig = sub.add_parser("storage-migrate", help="migrate bronze plain JSON to gzip")
     p_mig.add_argument("--endpoint", required=False, default="etp/etf_bydd_trd", help="KRX endpoint to migrate")
