@@ -53,13 +53,18 @@ def test_resolve_live_championship_sleeve_fails_closed_on_empty_or_missing_histo
 
 
 def test_build_live_eligible_snapshot_reuses_market_candidates_and_filters_panel() -> None:
+    from datetime import timedelta
+
     from src.tournament.live_decision import build_live_eligible_snapshot
 
-    d = date(2026, 8, 27)
-    panel = pl.DataFrame(
-        {"date": [d, d, d], "ticker": ["111", "222", "333"], "mom_60": [0.1, 0.2, 0.3]},
-        schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64},
-    )
+    # Given: a panel spanning MULTIPLE sessions (not just decision_date). This is the
+    # regression guard for the bug where passing only [decision_date] silently broke
+    # market_candidates_by_session's session-index history arithmetic (every ticker's
+    # (session_idx - first_seen_idx) collapsed to 0, failing every history check).
+    sessions = [date(2026, 8, 24) + timedelta(days=i) for i in range(4)]
+    d = sessions[-1]
+    rows = [{"date": s, "ticker": t, "mom_60": 0.1} for s in sessions for t in ("111", "222", "333")]
+    panel = pl.DataFrame(rows, schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64})
 
     with patch(
         "src.tournament.attainability.market_candidates_by_session",
@@ -67,9 +72,15 @@ def test_build_live_eligible_snapshot_reuses_market_candidates_and_filters_panel
     ) as spy:
         snap = build_live_eligible_snapshot(panel, decision_date=d)
 
-    # Then: reused, called once with the exact session list and panel (R3)
-    spy.assert_called_once_with(sessions=[d], panel=panel)
+    # Then: reused with a session list spanning the panel's full history through
+    # decision_date - not a single-element [decision_date] list (R3 regression guard)
+    assert spy.call_count == 1
+    called_sessions = spy.call_args.kwargs["sessions"]
+    assert called_sessions[-1] == d
+    assert len(called_sessions) > 1
+    assert spy.call_args.kwargs["panel"] is panel
     assert sorted(snap["ticker"].to_list()) == ["111", "333"]
+    assert snap["date"].to_list() == [d, d]
 
 
 def test_build_live_eligible_snapshot_empty_when_no_candidates() -> None:
