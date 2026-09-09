@@ -6,6 +6,7 @@ def test_p4_main_subcommands_cover_all_commands() -> None:
     assert set(SUBCOMMANDS) == {
         "config-check", "calendar", "ingest", "normalize", "universe",
         "features", "backtest", "forensics", "loyo", "replay", "decide",
+        "daily-refresh",
         "storage-migrate", "champion-research", "feasibility-audit",
     }
 
