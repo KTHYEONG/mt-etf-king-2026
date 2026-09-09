@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_LIVE_DECISION_PIPELINE",
+      "date": "2026-09-09",
+      "adr_id": "ADR_20260909_LIVE_DECISION_PIPELINE",
+      "domain": "tournament",
+      "title": "실전 decide 파이프라인을 P27 실제 스코어링과 연결",
+      "why": "mt-etf decide가 P27의 실제 score/sizing 로직을 전혀 안 쓰고 범용 mom20 스코어러+가짜 폴백을 써서 대회 실전 매수/매도 판단과 백테스트 검증 전략이 완전히 어긋나 있었음",
+      "resolution": "src/tournament/live_decision.py 신설(championship_sleeve 결정/시장전체 후보풀/실제 model.score+TOP1사이징/주문수량 추정)로 backtest와 동일 레시피를 공유하고 decide의 sticky.mom60_raw 경로에 배선, 가격결측·자본이상 시 fail-closed",
+      "impact": "P27 한정 실전 추천이 백테스트와 동일 로직으로 계산되고 추정 주문수량(종가기준)이 대시보드에 표시됨, 레거시(--model 미지정) 경로는 기존 동작 그대로 보존"
+    },
+    {
       "task_id": "TASK_MARKET_WIDE_CANDIDATE_POOL",
       "date": "2026-09-09",
       "adr_id": "ADR_20260909_MARKET_WIDE_CANDIDATE_POOL",
