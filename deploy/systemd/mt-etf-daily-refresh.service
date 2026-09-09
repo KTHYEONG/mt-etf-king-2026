@@ -1,0 +1,7 @@
+[Unit]
+Description=mt-etf-king-2026 daily data pipeline (ingest+normalize+features+decide)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/mt-etf-king-2026
+ExecStart=%h/mt-etf-king-2026/scripts/daily_pipeline.sh
