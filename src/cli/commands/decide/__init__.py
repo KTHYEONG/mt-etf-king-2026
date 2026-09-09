@@ -258,7 +258,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
             args=args,
             peak_is_locked=bool(state.peak_is_locked),
             house_money_is_locked=bool(state.house_money_is_locked),
-            order_estimates=order_estimates,  # type: ignore[arg-type]
+            order_estimates=order_estimates,
         )
     except Exception as exc:
         logger.error(f"[SYS] decide status=fail error={exc!r}")

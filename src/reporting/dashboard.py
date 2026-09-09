@@ -79,7 +79,11 @@ def render_dashboard(decision: DailyDecision) -> str:
     return "\n".join(lines)
 
 
-def write_decision_artifact(decision: DailyDecision, path: Path) -> Path:
+def write_decision_artifact(
+    decision: DailyDecision,
+    path: Path,
+    order_estimates: Mapping[str, object] | None = None,
+) -> Path:
     # ensure parent
     try:
         path = Path(path)
@@ -107,7 +111,16 @@ def write_decision_artifact(decision: DailyDecision, path: Path) -> Path:
                 reason = reason + " state=HOLD"
             if "WHY" not in reason:
                 reason = f"WHY: {reason}"
-            selected.append({"ticker": ticker, "weight": float(w), "reason": reason})
+            item: dict[str, object] = {"ticker": ticker, "weight": float(w), "reason": reason}
+            if order_estimates and ticker in order_estimates:
+                est = order_estimates[ticker]
+                shares = getattr(est, "est_shares", None)
+                krw = getattr(est, "est_krw", None)
+                if shares is not None:
+                    item["est_shares"] = shares
+                if krw is not None:
+                    item["est_krw"] = krw
+            selected.append(item)
     except Exception:
         selected = []
     payload = {"as_of": as_of, "selected": selected}

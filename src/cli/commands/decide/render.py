@@ -24,7 +24,7 @@ def render_decision(
     args: argparse.Namespace,
     peak_is_locked: bool,
     house_money_is_locked: bool,
-    order_estimates: Mapping[object, object] | None = None,
+    order_estimates: Mapping[str, object] | None = None,
 ) -> int:
     """Format rationales, render the dashboard, write artifacts. Returns the exit code."""
     # use rationales from policy if available
@@ -79,7 +79,7 @@ def render_decision(
         out_p = getattr(args, "output", None)
         if out_p:
             art_path = Path(str(out_p))
-        write_decision_artifact(daily, art_path)
+        write_decision_artifact(daily, art_path, order_estimates=order_estimates)
     except Exception as e:
         logger.warning(f"[SYS] write_decision_artifact failed {e!r}")
     # trace artifacts for decide
