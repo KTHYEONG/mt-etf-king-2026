@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_MARKET_WIDE_CANDIDATE_POOL",
+      "date": "2026-09-09",
+      "adr_id": "ADR_20260909_MARKET_WIDE_CANDIDATE_POOL",
+      "domain": "tournament",
+      "title": "오라클/win_bar 시장전체 후보풀 근본수정",
+      "why": "backtest_attainability_payload가 모델조건부 후보풀(breadth 7.4)을 오라클/capture/win_bar에 재사용해 시장전체(269.4) 대비 지표를 최대 11.5배 부풀림",
+      "resolution": "market_wide_session_candidates 신설로 build_deployment_oracle_opens 재사용, win_bar는 시장전체로 전면교체, capture/attainability는 _market 필드 병기, NextOpenExecution의 id(panel) 캐시를 소유패널 강참조로 교체",
+      "impact": "runs_registry에 시장전체 기준 13개 컬럼 추가, 기존 필드값 불변으로 하위호환, 그리드셀당 +4.9s(메모이제이션 시 +0.83s)"
+    },
+    {
       "task_id": "TASK_WINBAR_OBJECTIVE",
       "date": "2026-09-09",
       "adr_id": "ADR_20260909_WINBAR_OBJECTIVE",
