@@ -71,6 +71,7 @@ def test_p26_score_ranks_mom60_and_keeps_crashed_leader() -> None:
         capital=1.0e9,
         held={"SLOW": 1.0},
         rules=rules,
+        championship_sleeve="LOTTERY_ON",
     )
     p26 = BASELINES["sticky.mom60_concentrated"]()
     scores = p26.score(snap, ctx)

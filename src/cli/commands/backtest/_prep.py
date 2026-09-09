@@ -30,6 +30,7 @@ _ENGINE_LIMIT_LOADERS: Final[dict[str, str]] = {
     "sticky.fillable_mom60": "p27",
     "convex.lottery_impulse": "p27",
     "sticky.mom60_runner_reversal": "p27",
+    "sticky.p27_complement_switch": "p27",
 }
 
 # Sizing scheme overrides; default is (TOP1, 1).
@@ -50,6 +51,7 @@ _EXPOSURE_LIMIT_IDS: Final[frozenset[str]] = frozenset(
         "convex.lottery_impulse",
         "sticky.mom60_runner_reversal",
         "sticky.mom60_abs_cash",
+        "sticky.p27_complement_switch",
     }
 )
 

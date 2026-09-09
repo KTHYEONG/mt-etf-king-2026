@@ -75,7 +75,8 @@ def test_SCENARIO_10_05_p10_score_and_allocate() -> None:
     raw = b1.score(snap, ctx)
     filtered = family_canonical_scores(raw, master2)
     assert "A2" not in filtered
-    pol = PortfolioPolicy(sizing_config=ConfidenceSizingConfig(), master=master2, state_enabled=False)
+    # Single-name confidence_weights keep w_top below vehicle_conf_min at default w_max=1.0.
+    pol = PortfolioPolicy(sizing_config=ConfidenceSizingConfig(w_max=0.3), master=master2, state_enabled=False)
     dec = pol.allocate({"A1": 0.9}, regime="RISK_ON", leverage_allowed=True)
     assert dec.vehicles.get("A1") == "A2"
     assert "A2" in dec.weights
