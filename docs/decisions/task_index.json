@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P27_REGIME_COMPLEMENTS_PROBE",
+      "date": "2026-09-09",
+      "adr_id": "ADR_20260909_P27_REGIME_COMPLEMENTS_PROBE",
+      "domain": "tournament",
+      "title": "P27 regime complement architecture probe",
+      "why": "Daily hard-switch to B1 destroyed LOTTERY_ON tails; need campaign-start latch plus a non-lottery specialist that lifts inactive sleeves without sacrificing P27.",
+      "resolution": "Probe 8 complements x 4 latch modes on 2088 windows: latch-B1 full-sample P>50 5.99% but all +21 hits are 2020-overlap; zero promotable candidates under multi-year+gross=0 gates.",
+      "impact": "Keep production gate False; next work is new inactive-specialist alpha under campaign latch, not another daily B1 switch or existing sticky variant."
+    },
+    {
       "task_id": "TASK_P27_COMPLEMENT_BACKTEST_VALIDATION",
       "date": "2026-09-09",
       "adr_id": "ADR_20260909_P27_COMPLEMENT_BACKTEST_VALIDATION",
