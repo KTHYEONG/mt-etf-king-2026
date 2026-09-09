@@ -229,3 +229,7 @@ tmp/
 # Results large binary artifacts (Parquet time-series)
 docs/results/**/*.parquet
 
+# Operational/ephemeral run output (decide_daily recommendations, champion-research
+# frontier scratch runs). Reviewable analysis artifacts live in docs/results/ instead.
+/results/
+

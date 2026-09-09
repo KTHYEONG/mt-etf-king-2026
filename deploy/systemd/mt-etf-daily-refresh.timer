@@ -1,0 +1,13 @@
+[Unit]
+Description=Run mt-etf-daily-refresh every trading weekday evening (KST)
+
+[Timer]
+# 세션 마감(15:30 KST) 이후 데이터 확정을 기다리는 여유를 둔 시각.
+# KRX 휴장일(주말/공휴일)에도 매번 실행되지만, daily-refresh 자체가
+# get_calendar()로 최근 거래일이 없으면 fail-closed(rc=1)하므로 무해하다.
+OnCalendar=Mon..Fri *-*-* 16:00:00
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target
