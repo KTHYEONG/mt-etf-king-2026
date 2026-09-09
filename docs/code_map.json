@@ -202,12 +202,12 @@
     ]
   },
   "src/cli/commands/decide/render.py": {
-    "testing": "tests/unit/cli/test_decide_render.py"
+    "testing": "tests/unit/cli/test_render.py"
   },
   "src/cli/commands/decide/scoring.py": {
     "testing": [
-      "tests/unit/cli/test_decide_render.py",
-      "tests/unit/cli/test_decide_scoring.py"
+      "tests/unit/cli/test_decide_scoring.py",
+      "tests/unit/cli/test_render.py"
     ]
   },
   "src/cli/commands/feasibility_audit.py": {
