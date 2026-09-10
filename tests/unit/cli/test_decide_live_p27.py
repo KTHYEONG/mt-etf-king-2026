@@ -1,3 +1,4 @@
+import argparse
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,6 +13,11 @@ def test_hook_mom60_raw_allocate_wires_real_scoring_into_decide_state() -> None:
 
     d = date(2026, 8, 27)
     panel = pl.DataFrame({"date": [d], "ticker": ["999"], "mom_60": [0.05]}, schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64})
+    # Given: a valid index row AT the decision date so assert_sleeve_inputs_fresh passes (R14)
+    index_frame = pl.DataFrame(
+        {"date": [d], "index_name": ["코스피"], "close": [7051.64]},
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
     state = _DecideState(
         args=SimpleNamespace(capital=None),
         model_arg="sticky.mom60_raw",
@@ -35,7 +41,7 @@ def test_hook_mom60_raw_allocate_wires_real_scoring_into_decide_state() -> None:
     with (
         patch("src.strategies.registry.STRATEGIES", {"sticky.mom60_raw": lambda: fake_model}),
         patch("src.core.settings.get_settings", return_value=SimpleNamespace(data_root="data")),
-        patch("polars.read_parquet", side_effect=OSError("no index file in test")),
+        patch("polars.read_parquet", return_value=index_frame),
     ):
         _ALLOCATE_HOOKS["sticky.mom60_raw"](state)
 
@@ -66,11 +72,15 @@ def test_hook_mom60_raw_allocate_surfaces_explicit_cash_intent() -> None:
         inv_allowed=None,
     )
     cash_model = SimpleNamespace(reset_trackers=lambda: None, score=lambda snapshot, ctx: CASH_INTENT)
+    index_frame = pl.DataFrame(
+        {"date": [d], "index_name": ["코스피"], "close": [7051.64]},
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
 
     with (
         patch("src.strategies.registry.STRATEGIES", {"sticky.mom60_raw": lambda: cash_model}),
         patch("src.core.settings.get_settings", return_value=SimpleNamespace(data_root="data")),
-        patch("polars.read_parquet", side_effect=OSError("no index file in test")),
+        patch("polars.read_parquet", return_value=index_frame),
     ):
         _ALLOCATE_HOOKS["sticky.mom60_raw"](state)
 
@@ -148,11 +158,15 @@ def test_hook_mom60_raw_allocate_falls_back_to_default_capital_on_bad_rules() ->
         return {"999": 0.5}
 
     fake_model = SimpleNamespace(reset_trackers=lambda: None, score=_score)
+    index_frame = pl.DataFrame(
+        {"date": [d], "index_name": ["코스피"], "close": [7051.64]},
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
 
     with (
         patch("src.strategies.registry.STRATEGIES", {"sticky.mom60_raw": lambda: fake_model}),
         patch("src.core.settings.get_settings", return_value=SimpleNamespace(data_root="data")),
-        patch("polars.read_parquet", side_effect=OSError("no index file in test")),
+        patch("polars.read_parquet", return_value=index_frame),
     ):
         _ALLOCATE_HOOKS["sticky.mom60_raw"](state)
 
@@ -241,3 +255,64 @@ def test_cmd_decide_legacy_path_skips_order_estimate_and_stays_green(capsys) -> 
     assert rc == 0
     out = capsys.readouterr().out
     assert "PORTFOLIO" in out
+
+
+def test_hook_mom60_raw_allocate_fails_closed_on_stale_index() -> None:
+    from src.cli.commands.decide.models import _ALLOCATE_HOOKS, _DecideState
+    from src.tournament.live_decision import StaleSleeveInputError
+
+    d = date(2026, 9, 21)
+    panel = pl.DataFrame(
+        {"date": [d], "ticker": ["999"], "mom_60": [0.05]},
+        schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64},
+    )
+    state = _DecideState(
+        args=SimpleNamespace(capital=None),
+        model_arg="sticky.mom60_raw",
+        decision_date=d,
+        panel_loaded=panel,
+        policy=SimpleNamespace(),
+        master=None,
+        rules=SimpleNamespace(initial_capital=1_000_000_000),
+        regime_str=None,
+        lev_allowed=None,
+        inv_allowed=None,
+    )
+    fake_model = SimpleNamespace(reset_trackers=lambda: None, score=lambda snapshot, ctx: {"999": 0.5})
+
+    # When: the index parquet is unreadable -> empty frame -> gate must fire (R11)
+    with (
+        patch("src.strategies.registry.STRATEGIES", {"sticky.mom60_raw": lambda: fake_model}),
+        patch("src.core.settings.get_settings", return_value=SimpleNamespace(data_root="data")),
+        patch("polars.read_parquet", side_effect=OSError("no index file")),
+        pytest.raises(StaleSleeveInputError),
+    ):
+        _ALLOCATE_HOOKS["sticky.mom60_raw"](state)
+
+
+def test_cmd_decide_returns_1_on_stale_sleeve_input(capsys) -> None:
+    from src.cli import cmd_decide
+    from src.cli.commands.decide import models as decide_models
+    from src.tournament.live_decision import StaleSleeveInputError
+
+    d = date(2026, 9, 21)
+    panel = pl.DataFrame(
+        {"date": [d], "ticker": ["412570"], "close": [1191.0]},
+        schema={"date": pl.Date, "ticker": pl.String, "close": pl.Float64},
+    )
+
+    def _stale_hook(state):
+        raise StaleSleeveInputError("sleeve inputs missing at 2026-09-21")
+
+    args = argparse.Namespace(model="sticky.mom60_raw", date="2026-09-21", panel=None, capital=None, output=None, trace=False)
+
+    with (
+        patch.dict(decide_models._ALLOCATE_HOOKS, {"sticky.mom60_raw": _stale_hook}),
+        patch("src.cli.commands.decide._load_panel_for_backtest", return_value=panel),
+        patch("src.cli.commands.decide._scores_from_deployment_universe", return_value={"412570": 0.5}),
+    ):
+        rc = cmd_decide(args)
+
+    # Then: loud failure, not a silent CASH dashboard (R12)
+    assert rc == 1
+    assert "PORTFOLIO" not in capsys.readouterr().out

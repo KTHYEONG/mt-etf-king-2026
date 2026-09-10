@@ -482,6 +482,7 @@ def _hook_mom60_raw_allocate(state: _DecideState) -> None:
     from src.core.settings import get_settings
     from src.portfolio.sizing import SizingScheme
     from src.tournament.live_decision import (
+        assert_sleeve_inputs_fresh,
         build_live_eligible_snapshot,
         compute_live_target_weights,
         resolve_live_championship_sleeve,
@@ -499,6 +500,7 @@ def _hook_mom60_raw_allocate(state: _DecideState) -> None:
         index_daily = pl.read_parquet(str(idx_path))
     except (OSError, FileNotFoundError):
         index_daily = pl.DataFrame()
+    assert_sleeve_inputs_fresh(index_daily, decision_date=state.decision_date)
     sleeve = resolve_live_championship_sleeve(index_daily, state.decision_date)
     from src.strategies.registry import STRATEGIES as _REG_P27
 

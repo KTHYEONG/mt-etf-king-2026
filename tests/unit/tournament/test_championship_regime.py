@@ -348,3 +348,105 @@ def test_simulator_windows_injects_championship_sleeve_into_context() -> None:
     src = inspect.getsource(sw)
     assert "championship_sleeve_from_cache" in src
     assert src.count("championship_sleeve=championship_sleeve_from_cache(cache,") >= 2
+
+
+def test_select_kospi_headline_series_prefers_real_korean_name_and_never_unions() -> None:
+    from datetime import date
+
+    from src.tournament.championship_regime import select_kospi_headline_series
+
+    # Given: the real series and the incompatible ~6.4x-level legacy series in one table
+    frame = pl.DataFrame(
+        {
+            "date": [date(2026, 8, 27), date(2026, 8, 28), date(2026, 8, 27), date(2026, 8, 28)],
+            "index_name": ["코스피", "코스피", "KOSPI", "KOSPI"],
+            "close": [7000.0, 7051.64, 1088.61, 1090.0],
+        },
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
+
+    # When
+    out = select_kospi_headline_series(frame)
+
+    # Then: exactly one series, the real one, in date order
+    assert out.height == 2
+    assert set(out.get_column("index_name").to_list()) == {"코스피"}
+    assert out.get_column("date").to_list() == [date(2026, 8, 27), date(2026, 8, 28)]
+    assert 1088.61 not in out.get_column("close").to_list()
+
+
+def test_select_kospi_headline_series_falls_back_to_legacy_name_and_excludes_subindices() -> None:
+    from datetime import date
+
+    from src.tournament.championship_regime import select_kospi_headline_series
+
+    # Given: only the legacy name plus a sub-index that must NOT be matched
+    legacy = pl.DataFrame(
+        {
+            "date": [date(2026, 8, 27), date(2026, 8, 27)],
+            "index_name": ["KOSPI", "코스피 200"],
+            "close": [1088.61, 900.0],
+        },
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
+
+    # When
+    out = select_kospi_headline_series(legacy)
+
+    # Then: legacy fallback only, sub-index excluded (no str.contains matching)
+    assert out.height == 1
+    assert out.get_column("index_name").to_list() == ["KOSPI"]
+
+    # Then: a frame with no configured headline name yields empty
+    only_sub = pl.DataFrame(
+        {"date": [date(2026, 8, 27)], "index_name": ["코스피 200"], "close": [900.0]},
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
+    assert select_kospi_headline_series(only_sub).height == 0
+
+    # Then: empty frame yields empty
+    assert select_kospi_headline_series(pl.DataFrame()).height == 0
+
+    # Then: non-empty frame MISSING the index_name column yields empty (must be
+    # non-empty, or the height==0 guard would short-circuit before the column check)
+    no_name_col = pl.DataFrame(
+        {"date": [date(2026, 8, 27)], "close": [7000.0]},
+        schema={"date": pl.Date, "close": pl.Float64},
+    )
+    assert no_name_col.height > 0
+    assert select_kospi_headline_series(no_name_col).height == 0
+
+    # Then: a non-DataFrame input fails closed to empty rather than raising
+    assert select_kospi_headline_series(object()).height == 0  # type: ignore[arg-type]
+
+
+def test_kospi_sleeve_feature_maps_uses_real_series_and_ignores_legacy_levels() -> None:
+    from datetime import date, timedelta
+
+    from src.tournament.championship_regime import kospi_sleeve_feature_maps
+
+    # Given: 80 sessions of a clean +0.1%/session real series, plus legacy rows at a
+    # ~6.4x different level on the SAME dates (the corruption source being guarded against)
+    start = date(2026, 1, 5)
+    dates = [start + timedelta(days=i) for i in range(80)]
+    real_closes = [7000.0 * (1.001 ** i) for i in range(80)]
+    rows_date = dates + dates
+    rows_name = ["코스피"] * 80 + ["KOSPI"] * 80
+    rows_close = real_closes + [1088.61] * 80
+    frame = pl.DataFrame(
+        {"date": rows_date, "index_name": rows_name, "close": rows_close},
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
+
+    # When
+    mom60, mom20, rv20 = kospi_sleeve_feature_maps(frame)
+
+    # Then: computed from the real series only -> mom60 at index 60 is ~ (1.001**60 - 1)
+    d60 = dates[60]
+    assert mom60[d60] is not None
+    assert abs(mom60[d60] - (1.001 ** 60 - 1.0)) < 1e-9
+    # Then: leading window still None, and rv is finite/non-negative once defined
+    assert mom60[dates[0]] is None
+    assert mom20[dates[0]] is None
+    assert rv20[dates[40]] is not None
+    assert rv20[dates[40]] >= 0.0
