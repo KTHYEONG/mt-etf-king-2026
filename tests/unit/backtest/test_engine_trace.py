@@ -135,3 +135,178 @@ def test_engine_score_exception_emits_gate_fail_closed() -> None:
     # boom message not in json dumps
     dumped = json.dumps([{"exc_type": g.exc_type, "gate": g.gate} for g in sink.gates])
     assert "boom" not in dumped
+
+
+from unittest.mock import patch
+
+
+from src.backtest.engine_session import emit_session_trace
+from src.universe.provider import UniverseFilters, UniverseMode, UniverseSnapshot
+
+
+def test_emit_session_trace_diagnostics_single_snapshot_pass() -> None:
+    decision_date = date(2026, 1, 5)
+    # Given: a snapshot much wider than the candidate list (STRUCTURAL-like shape)
+    tickers = [f"T{i:04d}" for i in range(300)]
+    snapshot = pl.DataFrame(
+        {
+            "date": [decision_date] * len(tickers),
+            "ticker": tickers,
+            "mom_20": [0.01 * i for i in range(len(tickers))],
+            "mom_60": [0.02 * i for i in range(len(tickers))],
+        }
+    )
+    scores = {t: float(len(tickers) - i) for i, t in enumerate(tickers[:50])}
+    target = {tickers[0]: 0.95}
+    filters = UniverseFilters(mode=UniverseMode.STRUCTURAL)
+    snap_universe = UniverseSnapshot(as_of=decision_date, mode=UniverseMode.STRUCTURAL,
+                                     tickers=tuple(tickers), dropped={}, filters=filters)
+    sink = InMemoryTraceSink()
+
+    class _Universe:
+        master = None
+
+    original_filter = pl.DataFrame.filter
+    original_getcol = pl.DataFrame.get_column
+
+    # When: the session trace is emitted
+    with (
+        patch.object(pl.DataFrame, "filter", autospec=True, side_effect=original_filter) as filter_spy,
+        patch.object(pl.DataFrame, "get_column", autospec=True, side_effect=original_getcol) as getcol_spy,
+    ):
+        emit_session_trace(
+            sink=sink,
+            decision_date=decision_date,
+            snap_universe=snap_universe,
+            scores=scores,
+            target=target,
+            target_before_adv=dict(target),
+            raw_weights=dict(target),
+            fills=[],
+            unfilled=[],
+            new_weights={},
+            current_weights={},
+            snapshot=snapshot,
+            used_allocate_path=False,
+            portfolio_vehicles=None,
+            model=object(),
+            universe=_Universe(),
+            regime_snap=None,
+            equity=1_000_000_000.0,
+        )
+
+    # Then: diagnostics are still attached, with the snapshot's values
+    candidates = list(sink.candidates)
+    assert len(candidates) == len(scores)
+    by_ticker = {c.ticker: c for c in candidates}
+    first = by_ticker[tickers[0]]
+    assert first.diagnostics is not None
+    assert first.diagnostics["mom_20"] == 0.0
+    assert first.diagnostics["mom_60"] == 0.0
+    second = by_ticker[tickers[1]]
+    assert second.diagnostics is not None
+    assert abs(second.diagnostics["mom_20"] - 0.01) < 1e-12
+    assert abs(second.diagnostics["mom_60"] - 0.02) < 1e-12
+    # And: the snapshot was not rescanned per candidate
+    assert filter_spy.call_count == 0
+    assert getcol_spy.call_count == 0
+
+
+
+
+
+
+
+def test_emit_session_trace_diagnostics_none_without_ticker_column() -> None:
+    decision_date = date(2026, 1, 5)
+    filters = UniverseFilters(mode=UniverseMode.DEPLOYMENT)
+    snap_universe = UniverseSnapshot(as_of=decision_date, mode=UniverseMode.DEPLOYMENT,
+                                     tickers=("A", "B"), dropped={}, filters=filters)
+
+    class _Universe:
+        master = None
+
+    def _emit(snapshot: pl.DataFrame) -> list:
+        sink = InMemoryTraceSink()
+        emit_session_trace(
+            sink=sink,
+            decision_date=decision_date,
+            snap_universe=snap_universe,
+            scores={"A": 2.0, "B": 1.0},
+            target={"A": 0.95},
+            target_before_adv={"A": 0.95},
+            raw_weights={"A": 0.95},
+            fills=[],
+            unfilled=[],
+            new_weights={},
+            current_weights={},
+            snapshot=snapshot,
+            used_allocate_path=False,
+            portfolio_vehicles=None,
+            model=object(),
+            universe=_Universe(),
+            regime_snap=None,
+            equity=1_000_000_000.0,
+        )
+        return list(sink.candidates)
+
+    # When: the snapshot has no 'ticker' column at all
+    no_ticker = _emit(pl.DataFrame({"mom_20": [0.1, 0.2]}))
+    # And: when it has tickers but no diagnostic feature columns
+    no_diag_cols = _emit(pl.DataFrame({"ticker": ["A", "B"], "close": [100.0, 200.0]}))
+    # And: when the diagnostic value is null
+    null_diag = _emit(pl.DataFrame({"ticker": ["A", "B"], "mom_20": [None, None]}))
+
+    # Then: diagnostics fail closed to None instead of raising
+    assert no_ticker and all(c.diagnostics is None for c in no_ticker)
+    assert no_diag_cols and all(c.diagnostics is None for c in no_diag_cols)
+    assert null_diag and all(c.diagnostics is None for c in null_diag)
+
+
+
+def test_emit_session_trace_diagnostics_skips_non_numeric_values() -> None:
+    """A non-numeric diagnostic value is skipped, not fatal (narrow TypeError/ValueError guard)."""
+    decision_date = date(2026, 1, 5)
+    # Given: mom_20 holds an unconvertible string while mom_60 is a usable float
+    snapshot = pl.DataFrame(
+        {
+            "ticker": ["A", "B"],
+            "mom_20": ["not-a-number", "also-bad"],
+            "mom_60": [0.5, 0.25],
+        }
+    )
+    filters = UniverseFilters(mode=UniverseMode.DEPLOYMENT)
+    snap_universe = UniverseSnapshot(
+        as_of=decision_date, mode=UniverseMode.DEPLOYMENT, tickers=("A", "B"), dropped={}, filters=filters
+    )
+    sink = InMemoryTraceSink()
+
+    class _Universe:
+        master = None
+
+    # When
+    emit_session_trace(
+        sink=sink,
+        decision_date=decision_date,
+        snap_universe=snap_universe,
+        scores={"A": 2.0, "B": 1.0},
+        target={"A": 0.95},
+        target_before_adv={"A": 0.95},
+        raw_weights={"A": 0.95},
+        fills=[],
+        unfilled=[],
+        new_weights={},
+        current_weights={},
+        snapshot=snapshot,
+        used_allocate_path=False,
+        portfolio_vehicles=None,
+        model=object(),
+        universe=_Universe(),
+        regime_snap=None,
+        equity=1_000_000_000.0,
+    )
+
+    # Then: the unconvertible column is dropped while the numeric one survives
+    by_ticker = {c.ticker: c for c in sink.candidates}
+    assert by_ticker["A"].diagnostics == {"mom_60": 0.5}
+    assert by_ticker["B"].diagnostics == {"mom_60": 0.25}

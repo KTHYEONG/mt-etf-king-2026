@@ -21,7 +21,11 @@ def build_deployment_oracle_opens(
     min_history_sessions: int = 60,
 ) -> pl.DataFrame:
     sessions_df = pl.DataFrame({"date": list(sessions), "session_idx": list(range(len(sessions)))}, schema={"date": pl.Date, "session_idx": pl.Int64})
-    names = panel.group_by("ticker").agg(pl.col("name").last().alias("name"))
+    # first_seen을 티커별 filter 대신 기존 group_by 집계에 합침 (전체 패널 스캔 1383회 제거)
+    names = panel.group_by("ticker").agg(
+        pl.col("name").last().alias("name"),
+        pl.col("date").min().alias("first_seen"),
+    )
     attrs: list[dict[str, object]] = []
     for row in names.iter_rows(named=True):
         ticker = str(row["ticker"])
@@ -32,7 +36,7 @@ def build_deployment_oracle_opens(
                 "ticker": ticker,
                 "is_sponsor": issuer in sponsor_issuers,
                 "is_synth": "합성" in name,
-                "first_seen": panel.filter(pl.col("ticker") == ticker)["date"].min(),
+                "first_seen": row["first_seen"],
             }
         )
     attr_df = pl.DataFrame(attrs, schema={"ticker": pl.String, "is_sponsor": pl.Boolean, "is_synth": pl.Boolean, "first_seen": pl.Date})

@@ -11,7 +11,7 @@ from typing import Any, Final
 import polars as pl
 
 from src.backtest.costs import CostConfig
-from src.cli.commands.backtest._core import _SPLIT_FILL_IDS
+from src.backtest.session_cache import SessionCacheRegistry
 from src.cli.context import BacktestContext
 from src.core.config import config_path
 from src.core.paths import DataPaths
@@ -76,7 +76,9 @@ class _Prep:
     path_mode: Any = None
     regimes: Any = None
     close_map: Any = None
+    open_map: Any = None
     shared_cache: Any = None
+    cache_registry: Any = None
     b1_anchor_cache: dict[str, tuple[float, float, float]] = field(default_factory=dict)
     b1_dist_cache_p16: dict[str, Any] = field(default_factory=dict)
     b1_dist_cache_p24: dict[str, Any] = field(default_factory=dict)
@@ -108,7 +110,7 @@ def prepare_run(ctx: BacktestContext) -> _Prep:
     """Assemble engine, simulator, cases and caches for a backtest run."""
     from src.backtest.engine import BacktestConfig, BacktestEngine
     from src.backtest.execution import NextOpenExecution
-    from src.backtest.session_cache import build_close_map, build_session_cache
+    from src.backtest.session_cache import _build_open_map, build_close_map
     from src.features.builder import FeatureBuilder, FeatureConfig
     from src.portfolio.sizing import SizingScheme
     from src.tournament.eval_cache import ControlRollingCache, plan_control_evaluations
@@ -356,22 +358,12 @@ def prepare_run(ctx: BacktestContext) -> _Prep:
             prep.rolling_exposure_limits = None
     else:
         prep.rolling_exposure_limits = None
-    shared_cache = None
-    if is_pd:
-        try:
-            from dataclasses import replace as _replace
-
-            _first_cost, _first_part = cases[0] if cases else (CostConfig(), 0.01)
-            if model_key in _SPLIT_FILL_IDS:
-                _filt_base = _replace(filt, max_order_to_adv=float(_first_part), score_max_order_to_adv=0.05)
-            else:
-                _filt_base = _replace(filt, max_order_to_adv=float(_first_part))
-            _bconfig_base = _replace(bconfig, filters=_filt_base, costs=_first_cost)
-            shared_cache = build_session_cache(engine, model, panel, _bconfig_base, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)
-        except Exception:
-            shared_cache = None
-    prep.shared_cache = shared_cache
+    # cases[0] 참여율로 미리 구축해 전 셀에 재사용하던 캐시를 삭제한다 (셀별 참여율이 다르므로 오답)
+    prep.cache_registry = SessionCacheRegistry()
+    prep.shared_cache = None
     prep.close_map = build_close_map(panel)
+    # 전체 패널 오픈맵을 1회만 구축한다 (모든 engine.run이 동일 맵을 재사용하므로 재계산과 동일)
+    prep.open_map = _build_open_map(panel)
     prep.control_cache = ControlRollingCache()
     prep.control_flags = plan_control_evaluations(protocol, cases)
     prep.panel = panel

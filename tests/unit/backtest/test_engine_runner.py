@@ -81,3 +81,87 @@ def test_backtest_engine_declares_championship_sleeves_default_none() -> None:
 
     assert hasattr(engine, "championship_sleeves")
     assert engine.championship_sleeves is None
+
+
+from datetime import date
+from unittest.mock import patch
+
+import polars as pl
+
+from src.backtest.costs import CostConfig
+from src.backtest.engine import BacktestConfig
+from src.backtest.session_cache import _build_open_map, build_close_map
+from src.core.calendar import TradingCalendar
+from src.portfolio.sizing import SizingScheme
+from tests.unit.backtest.conftest import build_engine, panel_row
+
+
+def test_engine_run_accepts_open_map_and_matches_builtin_build() -> None:
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 2, 13))
+    panel = pl.DataFrame([panel_row(day=d, ticker="069500", close=30000.0 + 100 * i)
+                          for i, d in enumerate(sessions)])
+    engine, _cal, filt = build_engine(panel)
+
+    class _Model:
+        name = "unit.openmap"
+
+        def score(self, snapshot, ctx):
+            return {"069500": 1.0}
+
+    config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1_000_000_000.0,
+                            scheme=SizingScheme.TOP1, k=1, filters=filt,
+                            costs=CostConfig(0.0, 0.0, 0.0))
+    close_map = build_close_map(panel)
+    open_map = _build_open_map(panel)
+
+    # When: the engine builds the open map itself
+    baseline = engine.run(_Model(), panel, config, close_map=close_map)
+
+    # When: the open map is supplied by the caller
+    with patch("src.backtest.session_cache._build_open_map", wraps=_build_open_map) as builder:
+        supplied = engine.run(_Model(), panel, config, close_map=close_map, open_map=open_map)
+
+    # Then: the internal build was skipped and the result is unchanged
+    assert builder.call_count == 0
+    assert supplied.daily.to_dicts() == baseline.daily.to_dicts()
+    assert supplied.trades.to_dicts() == baseline.trades.to_dicts()
+    assert supplied.unfilled == baseline.unfilled
+
+
+
+import copy
+
+
+
+
+def test_engine_run_open_map_argument_is_not_mutated() -> None:
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 2, 13))
+    panel = pl.DataFrame([panel_row(day=d, ticker="069500", close=30000.0 + 100 * i)
+                          for i, d in enumerate(sessions)])
+    engine, _cal, filt = build_engine(panel)
+
+    class _Model:
+        name = "unit.openmap.mutate"
+
+        def score(self, snapshot, ctx):
+            return {"069500": 1.0}
+
+    config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1_000_000_000.0,
+                            scheme=SizingScheme.TOP1, k=1, filters=filt,
+                            costs=CostConfig(0.0, 0.0, 0.0))
+    open_map = _build_open_map(panel)
+    snapshot_before = copy.deepcopy(open_map)
+
+    # When: the same map is handed to two consecutive runs
+    engine.run(_Model(), panel, config, close_map=build_close_map(panel), open_map=open_map)
+    engine.run(_Model(), panel, config, close_map=build_close_map(panel), open_map=open_map)
+
+    # Then: the caller's map is untouched
+    assert open_map == snapshot_before
+
+    # And: a panel with no 'open' column still yields an empty map rather than raising
+    no_open = panel.drop("open")
+    assert _build_open_map(no_open) == {}
+

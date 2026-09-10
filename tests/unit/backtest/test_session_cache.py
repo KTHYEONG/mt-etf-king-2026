@@ -185,3 +185,150 @@ def test_build_open_map_empty_panel_returns_empty_dict() -> None:
     assert _build_open_map(pl.DataFrame({"date": [], "ticker": [], "open": []})) == {}
     assert _build_open_map(pl.DataFrame({"date": [], "ticker": []})) == {}
 
+
+
+from dataclasses import replace
+
+from src.backtest.session_cache import session_cache_key
+from src.universe.provider import UniverseFilters, UniverseMode
+
+
+class _Model:
+    name = "unit.model"
+
+
+def _config(filters: UniverseFilters, costs: CostConfig) -> BacktestConfig:
+    return BacktestConfig(
+        start=date(2024, 1, 2),
+        end=date(2024, 3, 29),
+        capital=1_000_000_000.0,
+        scheme=SizingScheme.TOP1,
+        k=1,
+        filters=filters,
+        costs=costs,
+    )
+
+
+def test_session_cache_key_excludes_costs_and_includes_filters() -> None:
+    model = _Model()
+    filt = UniverseFilters(mode=UniverseMode.DEPLOYMENT, capital=1_000_000_000,
+                           max_position_weight=1.0, max_order_to_adv=0.01)
+
+    # Given/When: only the cost parameters differ
+    key_cheap = session_cache_key(model, _config(filt, CostConfig(0.0, 0.0, 0.0)))
+    key_pricey = session_cache_key(model, _config(filt, CostConfig(15.0, 20.0, 0.0)))
+
+    # Then: the cache is reusable across the whole cost axis
+    assert key_cheap == key_pricey
+
+    # And: every participation-relevant filter field changes the key
+    base = _config(filt, CostConfig(3.0, 5.0, 0.0))
+    key_base = session_cache_key(model, base)
+    for changed in (
+        replace(filt, max_order_to_adv=0.05),
+        replace(filt, score_max_order_to_adv=0.05),
+        replace(filt, capital=500_000_000),
+        replace(filt, max_position_weight=0.8),
+        replace(filt, warmup_sessions=40),
+        replace(filt, adv_window=60),
+        replace(filt, mode=UniverseMode.STRUCTURAL),
+    ):
+        assert session_cache_key(model, _config(changed, CostConfig(3.0, 5.0, 0.0))) != key_base
+
+    # And: leverage scenario and model identity are part of the key
+    assert session_cache_key(model, base, leverage_allowed=True) != session_cache_key(model, base, leverage_allowed=False)
+
+    class _Other:
+        name = "unit.other"
+
+    assert session_cache_key(_Other(), base) != key_base
+    # And: the key must be hashable (it is used as a dict key)
+    assert isinstance(hash(key_base), int)
+
+
+
+
+
+from src.backtest.session_cache import SessionCacheRegistry
+
+
+def test_session_cache_registry_reuses_across_cost_axis_only() -> None:
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 2, 13))
+    panel = pl.DataFrame([panel_row(day=d, ticker="069500", close=30000.0 + i)
+                          for i, d in enumerate(sessions)])
+    engine, _cal, filt = build_engine(panel)
+
+    class _Model:
+        name = "unit.registry"
+
+        def score(self, snapshot, ctx):
+            return {"069500": 1.0}
+
+    model = _Model()
+    registry = SessionCacheRegistry()
+
+    def _cfg(participation: float, commission: float) -> BacktestConfig:
+        return BacktestConfig(
+            start=sessions[0], end=sessions[-1], capital=1_000_000_000.0,
+            scheme=SizingScheme.TOP1, k=1,
+            filters=replace(filt, max_order_to_adv=participation),
+            costs=CostConfig(commission, 5.0, 0.0),
+        )
+
+    # When: a 2-participation x 3-cost grid is walked cell by cell
+    results = {}
+    for participation in (0.01, 0.05):
+        for commission in (0.0, 3.0, 15.0):
+            results[(participation, commission)] = registry.get_or_build(
+                engine, model, panel, _cfg(participation, commission)
+            )
+
+    # Then: one build per participation, every cost variant a hit
+    assert registry.builds == 2
+    assert registry.hits == 4
+    assert all(isinstance(v, SessionInputs) for v in results.values())
+    # And: same-participation cells share the identical object...
+    assert results[(0.01, 0.0)] is results[(0.01, 3.0)]
+    assert results[(0.01, 0.0)] is results[(0.01, 15.0)]
+    # ...while a different participation never reuses it
+    assert results[(0.05, 0.0)] is not results[(0.01, 0.0)]
+    assert results[(0.05, 0.0)] is results[(0.05, 15.0)]
+
+
+
+
+import pytest
+
+
+
+def test_session_cache_registry_propagates_build_failure() -> None:
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 1, 30))
+    panel = pl.DataFrame([panel_row(day=d, ticker="069500", close=30000.0) for d in sessions])
+    engine, _cal, filt = build_engine(panel)
+
+    class _Model:
+        name = "unit.fail"
+
+        def score(self, snapshot, ctx):
+            return {}
+
+    config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1_000_000_000.0,
+                            scheme=SizingScheme.TOP1, k=1, filters=filt, costs=CostConfig(0.0, 0.0, 0.0))
+    registry = SessionCacheRegistry()
+
+    # Given: the underlying builder blows up
+    with patch("src.backtest.session_cache.build_session_cache", side_effect=RuntimeError("panel broken")):  # noqa: SIM117
+        with pytest.raises(RuntimeError, match="panel broken"):
+            registry.get_or_build(engine, _Model(), panel, config)
+
+    # Then: nothing was cached and no counter was credited
+    assert registry.builds == 0
+    assert registry.hits == 0
+
+    # And: a subsequent healthy call still builds
+    cache = registry.get_or_build(engine, _Model(), panel, config)
+    assert cache is not None
+    assert registry.builds == 1
+

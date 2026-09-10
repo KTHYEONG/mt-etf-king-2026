@@ -218,13 +218,7 @@ def _run_common_tail(
         _bt_trades = _bt.trades
     elif model_key in _FULLSPAN_FALLBACK_IDS:
         try:
-            _artifact_bt = engine.run(
-                model,
-                panel,
-                case_config,
-                trace=None,
-                close_map=prep.close_map,
-            )
+            _artifact_bt = engine.run(model, panel, case_config, trace=None, close_map=prep.close_map, open_map=prep.open_map)
             _bt_daily = _artifact_bt.daily
             _bt_trades = _artifact_bt.trades
         except Exception as _exc_artifact_bt:
@@ -296,6 +290,7 @@ def _run_common_tail(
                         horizon=horizon,
                         path_dependent=False,
                         close_map=prep.close_map,
+                        open_map=prep.open_map,
                     )
                     return ReturnDistribution.summarise(
                         name="baseline.buy_hold",
@@ -317,6 +312,7 @@ def _run_common_tail(
                         horizon=horizon,
                         path_dependent=False,
                         close_map=prep.close_map,
+                        open_map=prep.open_map,
                     )
                     _b0_dist = ReturnDistribution.summarise(
                         name="baseline.buy_hold",
@@ -368,7 +364,7 @@ def run_cells(
     inv_allowed = prep.inv_allowed
     regimes = prep.regimes
     close_map = prep.close_map
-    shared_cache = prep.shared_cache
+    open_map = prep.open_map
     rolling_exposure_limits = prep.rolling_exposure_limits
     is_pd = prep.is_pd
     path_mode = prep.path_mode
@@ -419,6 +415,20 @@ def run_cells(
                 trace_sink = _TraceSinkCls()
             except Exception:
                 trace_sink = None
+        # 각 셀은 자신의 case_config에서 캐시를 해소한다 (비용 축은 키에서 제외되므로 동일 참여율은 적중)
+        cell_cache = None
+        if prep.cache_registry is not None:
+            try:
+                cell_cache = prep.cache_registry.get_or_build(
+                    engine,
+                    model,
+                    panel,
+                    case_config,
+                    leverage_allowed=lev_allowed,
+                    inverse_allowed=inv_allowed,
+                )
+            except Exception:
+                cell_cache = None
         if is_pd:
             rolling = simulator.run_rolling(
                 model,
@@ -427,11 +437,12 @@ def run_cells(
                 horizon=horizon,
                 path_dependent=True,
                 path_dependent_mode=path_mode,
-                session_cache=shared_cache,
+                session_cache=cell_cache,
                 leverage_allowed=lev_allowed,
                 inverse_allowed=inv_allowed,
                 trace=None,
                 close_map=close_map,
+                open_map=open_map,
                 exposure_limits=rolling_exposure_limits,
             )
         else:
@@ -445,6 +456,7 @@ def run_cells(
                 inverse_allowed=inv_allowed,
                 trace=trace_sink,
                 close_map=close_map,
+                open_map=open_map,
             )
         dist = ReturnDistribution.summarise(
             name=model_key,
@@ -508,7 +520,7 @@ def run_cells(
             inv_allowed=inv_allowed,
             regimes=regimes,
             close_map=close_map,
-            shared_cache=shared_cache,
+            shared_cache=cell_cache,
             rolling_exposure_limits=prep.rolling_exposure_limits,
             path_mode=path_mode,
             master=prep.master,
@@ -544,7 +556,7 @@ def run_cells(
                 engine=engine,
                 model=model,
                 panel=panel,
-                shared_cache=shared_cache,
+                shared_cache=cell_cache,
                 horizon=int(horizon),
                 leverage_allowed=lev_allowed,
                 inverse_allowed=inv_allowed,

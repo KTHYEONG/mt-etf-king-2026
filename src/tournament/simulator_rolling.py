@@ -83,6 +83,7 @@ class TournamentSimulator:
         inverse_allowed: bool | None = None,
         trace: object | None = None,
         close_map: dict | None = None,
+        open_map: dict | None = None,
         exposure_limits: tuple[float, float, float] | None = None,
         return_window_daily_paths: bool = False,
     ) -> RollingResult:
@@ -100,7 +101,7 @@ class TournamentSimulator:
             starts = sessions[:n_windows]
 
         if not path_dependent:
-            result = self.engine.run(model, panel, config, trace=trace, close_map=close_map)
+            result = self.engine.run(model, panel, config, trace=trace, close_map=close_map, open_map=open_map)
             daily = result.daily
             ret_col = "ret" if "ret" in daily.columns else ("return" if "return" in daily.columns else None)
             if ret_col is None:
@@ -162,7 +163,7 @@ class TournamentSimulator:
                         filters=config.filters,
                         costs=config.costs,
                     )
-                    res = self.engine.run(model, panel, win_config, trace=None)
+                    res = self.engine.run(model, panel, win_config, trace=None, open_map=open_map)
                     daily = res.daily
                     ret_col = "ret" if "ret" in daily.columns else ("return" if "return" in daily.columns else None)
                     if ret_col is None:

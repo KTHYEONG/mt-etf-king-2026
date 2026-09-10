@@ -441,3 +441,61 @@ def test_backtest_payload_falls_back_when_open_map_build_fails() -> None:
             shared_cache=None,
         )
     assert payload["breadth_mean"] == 0.0
+
+
+from unittest.mock import patch
+
+import polars as pl
+
+from src.backtest.costs import CostConfig
+from src.backtest.engine import BacktestConfig
+from src.backtest.session_cache import build_session_cache
+from src.core.calendar import TradingCalendar
+from src.portfolio.sizing import SizingScheme
+from src.tournament.attainability import backtest_attainability_payload
+from src.tournament.simulator import TournamentSimulator
+from tests.unit.backtest.conftest import build_engine, panel_row
+
+
+def test_attainability_reuses_supplied_cache_instead_of_rebuilding() -> None:
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 1, 2), date(2026, 3, 13))
+    panel = pl.DataFrame([panel_row(day=d, ticker="069500", close=30000.0 + 100 * i)
+                          for i, d in enumerate(sessions)])
+    engine, _cal, filt = build_engine(panel)
+
+    class _Model:
+        name = "unit.attain"
+        path_dependent = False
+
+        def score(self, snapshot, ctx):
+            return {"069500": 1.0}
+
+    model = _Model()
+    case_config = BacktestConfig(start=sessions[0], end=sessions[-1], capital=1_000_000_000.0,
+                                 scheme=SizingScheme.TOP1, k=1, filters=filt,
+                                 costs=CostConfig(3.0, 5.0, 0.0))
+    rolling = TournamentSimulator(engine, cal).run_rolling(
+        model, panel, case_config, horizon=5, path_dependent=False
+    )
+    cache = build_session_cache(engine, model, panel, case_config)
+
+    # When: a cache is supplied for this cell
+    with patch("src.backtest.session_cache.build_session_cache", wraps=build_session_cache) as builder:
+        payload = backtest_attainability_payload(
+            calendar=cal, panel=panel, engine=engine, model=model,
+            case_config=case_config, rolling=rolling, horizon=5, shared_cache=cache,
+        )
+
+    # Then: it is reused, not rebuilt
+    assert builder.call_count == 0
+    assert isinstance(payload, dict)
+
+    # And: with no cache supplied the pre-existing self-build fallback still runs
+    with patch("src.backtest.session_cache.build_session_cache", wraps=build_session_cache) as builder2:
+        backtest_attainability_payload(
+            calendar=cal, panel=panel, engine=engine, model=model,
+            case_config=case_config, rolling=rolling, horizon=5, shared_cache=None,
+        )
+    assert builder2.call_count == 1
+

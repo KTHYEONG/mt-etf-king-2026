@@ -161,6 +161,7 @@ class BacktestEngine:
         config: BacktestConfig,
         *,
         close_map: dict[date, dict[str, float]] | None = None,
+        open_map: dict[date, dict[str, float]] | None = None,
         trace: TraceSink | None = None,
     ) -> BacktestResult:
         # INV-B2-4: reset trackers at start to prevent cross-window leak
@@ -195,24 +196,16 @@ class BacktestEngine:
             close_map_local = build_close_map(panel)
         close_map = close_map_local
         # build open map for NextOpen semantics
-        try:
+        if open_map is not None:
+            # 호출자가 같은 패널에서 미리 구축한 맵을 재사용한다 (동일 입력이므로 재계산과 동일)
+            open_map_local = dict(open_map)
+        else:
             from src.backtest.session_cache import _build_open_map as _bom
 
-            open_map = _bom(panel)
-        except Exception:
-            open_map: dict[date, dict[str, float]] = {}
-            if "open" in panel.columns and "date" in panel.columns and "ticker" in panel.columns:
-                for row in panel.iter_rows(named=True):
-                    d = row.get("date")
-                    t = row.get("ticker")
-                    o = row.get("open")
-                    if d is None or t is None or o is None:
-                        continue
-                    try:
-                        of = float(o)
-                    except Exception:
-                        continue
-                    open_map.setdefault(d, {})[str(t)] = of
+            # _build_open_map은 컬럼/높이를 자체 가드하고 행 변환 실패를 개별 skip하므로
+            # DataFrame 입력에서는 예외를 던지지 않는다 (기존 중복 폴백은 도달 불가였음)
+            open_map_local = _bom(panel)
+        open_map = open_map_local
 
         equity = float(config.capital)
         prev_equity = equity
