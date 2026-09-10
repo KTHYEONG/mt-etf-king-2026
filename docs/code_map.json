@@ -473,8 +473,10 @@
     "testing": [
       "tests/unit/strategies/test_capacity.py",
       "tests/unit/strategies/test_capacity_initial_capital.py",
-      "tests/unit/strategies/test_p30_fillable_sticky.py"
-    ]
+      "tests/unit/strategies/test_p30_fillable_sticky.py",
+      "tests/unit/strategies/test_model_runner.py"
+    ],
+    "architecture": "docs/architecture/07-alpha-and-portfolio.md"
   },
   "src/strategies/sticky/config.py": {
     "testing": [
@@ -507,7 +509,8 @@
   "src/strategies/sticky/model_config.py": {
     "testing": [
       "tests/unit/alpha/test_p27.py",
-      "tests/unit/strategies/test_model_config.py"
+      "tests/unit/strategies/test_model_config.py",
+      "tests/unit/strategies/test_model_runner.py"
     ]
   },
   "src/strategies/sticky/model_runner.py": {
@@ -598,11 +601,15 @@
   "src/tournament/objective/cutoff_auc.py": {
     "testing": [
       "tests/unit/alpha/test_p27.py",
+      "tests/unit/strategies/test_model_runner.py",
       "tests/unit/tournament/test_cutoff_auc.py"
     ]
   },
   "src/tournament/objective/reports.py": {
-    "testing": "tests/unit/tournament/test_cutoff_auc.py"
+    "testing": [
+      "tests/unit/tournament/test_champion_eval.py",
+      "tests/unit/tournament/test_cutoff_auc.py"
+    ]
   },
   "src/tournament/objective_core.py": {
     "testing": "tests/unit/tournament/test_objective_core.py"
