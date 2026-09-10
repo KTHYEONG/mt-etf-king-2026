@@ -276,3 +276,21 @@ def test_prepare_run_wires_championship_sleeves_from_index_daily() -> None:
     sleeves = getattr(prep.engine, "championship_sleeves", None)
     assert isinstance(sleeves, dict)
     assert len(sleeves) > 0
+
+
+def test_p27_cli_gross_metrics_are_null_safe() -> None:
+    import inspect
+
+    from src.cli.commands.backtest import _core
+    from src.cli.commands.backtest.families.sticky_champion import _hook_mom60_raw
+
+    hook_src = inspect.getsource(_hook_mom60_raw)
+    # The unavailable marker must survive to the artifact, never be coerced to 0
+    assert "gross_viol_p27 is not None" in hook_src
+    assert "effective_gross_max_p27 is not None" in hook_src
+    assert "int(_exp_p27.gross_violation_count)" not in hook_src
+
+    core_src = inspect.getsource(_core)
+    assert "prefer_execution_gross_count" in core_src
+    assert "_resolved_gvc is not None" in core_src
+    assert "_exposure.effective_gross_max is not None" in core_src

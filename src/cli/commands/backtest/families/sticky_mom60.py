@@ -410,10 +410,10 @@ def _hook_mom60_concentrated(cell: _Cell) -> None:
                         epsilon=1e-9,
                         max_gross=_mg26_bt,
                     )
-                    gross_viol_p26 = int(_exp_p26.gross_violation_count)
-                    effective_gross_max_p26 = float(_exp_p26.effective_gross_max)
-                    summary["gross_violation_count"] = gross_viol_p26
-                    summary["effective_gross_max"] = effective_gross_max_p26
+                    gross_viol_p26 = _exp_p26.gross_violation_count
+                    effective_gross_max_p26 = _exp_p26.effective_gross_max
+                    summary["gross_violation_count"] = int(gross_viol_p26) if gross_viol_p26 is not None else None
+                    summary["effective_gross_max"] = float(effective_gross_max_p26) if effective_gross_max_p26 is not None else None
                 else:
                     gross_viol_p26 = None
                     summary["gross_violation_count"] = None

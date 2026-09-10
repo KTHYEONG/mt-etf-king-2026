@@ -93,8 +93,8 @@ def _plus2_snapshot() -> pl.DataFrame:
 
 def test_sticky_model_score_passes_decision_date_as_cache_key() -> None:
     model = StickyLeaderModel(name="sticky.leader_base")
-    ctx_day1 = DecisionContext(decision_date=date(2020, 1, 2), regime=None, capital=1_000_000_000.0, held={}, rules=None)  # type: ignore[arg-type]
-    ctx_day2 = DecisionContext(decision_date=date(2020, 1, 3), regime=None, capital=1_000_000_000.0, held={}, rules=None)  # type: ignore[arg-type]
+    ctx_day1 = DecisionContext(decision_date=date(2020, 1, 2), regime=None, capital=1_000_000_000.0, held={}, rules=None, championship_sleeve="LOTTERY_ON")  # type: ignore[arg-type]
+    ctx_day2 = DecisionContext(decision_date=date(2020, 1, 3), regime=None, capital=1_000_000_000.0, held={}, rules=None, championship_sleeve="LOTTERY_ON")  # type: ignore[arg-type]
 
     scores_day1 = model.score(_plus2_snapshot(), ctx_day1)
     assert scores_day1 == {"B": 0.18}
@@ -130,3 +130,51 @@ def test_reset_trackers_clears_filtered_scores_cache() -> None:
     assert model._filtered_scores_by_snapshot == {}
     assert model._held is None
     assert model._hold_len == 0
+
+
+def test_resolve_capacity_params_returns_none_when_filter_disabled() -> None:
+    from types import SimpleNamespace
+
+    from src.strategies.sticky.capacity import resolve_capacity_params
+
+    # Given: a context whose rules are well-formed, so only min_fill_ratio decides
+    ctx = SimpleNamespace(rules=SimpleNamespace(initial_capital=1_000_000_000.0, max_order_to_adv=0.01))
+
+    # When / Then: every disabled shape resolves to None, never to a substituted tuple
+    assert resolve_capacity_params(ctx, SimpleNamespace()) is None
+    assert resolve_capacity_params(ctx, SimpleNamespace(min_fill_ratio=0.0)) is None
+    assert resolve_capacity_params(ctx, SimpleNamespace(min_fill_ratio=-0.25)) is None
+    assert resolve_capacity_params(ctx, SimpleNamespace(min_fill_ratio=float("nan"))) is None
+    assert resolve_capacity_params(ctx, SimpleNamespace(min_fill_ratio=float("inf"))) is None
+    assert resolve_capacity_params(ctx, SimpleNamespace(min_fill_ratio="x")) is None
+    assert resolve_capacity_params(ctx, SimpleNamespace(min_fill_ratio=None)) is None
+
+
+def test_resolve_capacity_params_resolves_capital_and_participation() -> None:
+    from types import SimpleNamespace
+
+    from src.strategies.sticky.capacity import TOURNAMENT_INITIAL_CAPITAL_DEFAULT, resolve_capacity_params
+
+    cfg = SimpleNamespace(min_fill_ratio=0.25)
+
+    # Given: fully specified rules -> values are taken verbatim
+    ctx = SimpleNamespace(rules=SimpleNamespace(initial_capital=2_000_000_000.0, max_order_to_adv=0.02))
+    params = resolve_capacity_params(ctx, cfg)
+    assert params is not None
+    capital, phi, mfr = params
+    assert capital == 2_000_000_000.0
+    assert phi == 0.02
+    assert mfr == 0.25
+
+    # When: participation is missing / non-finite / non-positive -> fixed 0.01 fallback
+    for bad in (None, 0.0, -0.5, float("nan"), float("inf"), "x"):
+        ctx_bad = SimpleNamespace(rules=SimpleNamespace(initial_capital=2_000_000_000.0, max_order_to_adv=bad))
+        got = resolve_capacity_params(ctx_bad, cfg)
+        assert got is not None
+        assert got[1] == 0.01, bad
+
+    # And: capital falls back to the tournament default when rules cannot supply one
+    ctx_nocap = SimpleNamespace(rules=SimpleNamespace(max_order_to_adv=0.01))
+    got_nocap = resolve_capacity_params(ctx_nocap, cfg)
+    assert got_nocap is not None
+    assert got_nocap[0] == TOURNAMENT_INITIAL_CAPITAL_DEFAULT
