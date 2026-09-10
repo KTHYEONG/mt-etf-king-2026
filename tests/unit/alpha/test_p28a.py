@@ -130,6 +130,7 @@ def test_p28a_score_emits_hold_intent_when_sticky_stays() -> None:
         capital=1.0e9,
         held={"FAST": 0.95},
         rules=rules,
+        championship_sleeve="LOTTERY_ON",
     )
     p28 = BASELINES["sticky.mom60_hold"]()
     out = p28.score(snap, ctx)
@@ -183,6 +184,7 @@ def test_p28a_score_emits_scores_when_sticky_switches() -> None:
         capital=1.0e9,
         held={"SLOW": 0.95},
         rules=rules,
+        championship_sleeve="LOTTERY_ON",
     )
     p28 = BASELINES["sticky.mom60_hold"]()
     p28.restore_state("SLOW", 10)

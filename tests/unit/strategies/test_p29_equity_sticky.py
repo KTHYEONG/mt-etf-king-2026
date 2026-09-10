@@ -112,7 +112,7 @@ def test_p29_score_prefers_equity_over_higher_mom_bond() -> None:
         max_order_to_adv=0.01,
         stress_grid=(0.01, 0.02, 0.05),
     )
-    ctx = DecisionContext(decision_date=date(2024, 6, 3), regime=None, capital=1.0e9, held={}, rules=rules)
+    ctx = DecisionContext(decision_date=date(2024, 6, 3), regime=None, capital=1.0e9, held={}, rules=rules, championship_sleeve="LOTTERY_ON")
     p27 = BASELINES["sticky.mom60_raw"]()
     p29 = BASELINES["sticky.equity_mom60"]()
     s27 = p27.score(snap, ctx)
@@ -163,7 +163,7 @@ def test_p29v_blend_changes_leader_vs_p29() -> None:
         max_order_to_adv=0.01,
         stress_grid=(0.01, 0.02, 0.05),
     )
-    ctx = DecisionContext(decision_date=date(2025, 3, 3), regime=None, capital=1.0e9, held={}, rules=rules)
+    ctx = DecisionContext(decision_date=date(2025, 3, 3), regime=None, capital=1.0e9, held={}, rules=rules, championship_sleeve="LOTTERY_ON")
     p29 = BASELINES["sticky.equity_mom60"]()
     p29v = BASELINES["sticky.equity_mom60_vol"]()
     s29 = p29.score(snap, ctx)

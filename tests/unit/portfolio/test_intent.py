@@ -6,7 +6,7 @@ def test_cash_intent_liquidates_positions() -> None:
     from src.backtest.costs import CostConfig
     from src.backtest.engine import BacktestConfig
     from src.core.calendar import TradingCalendar
-    from src.portfolio.intent import CASH_INTENT
+    from src.portfolio.intent import CASH_INTENT, PortfolioIntent
     from src.portfolio.sizing import SizingScheme
     from tests.unit.backtest.conftest import build_engine
 
@@ -14,7 +14,14 @@ def test_cash_intent_liquidates_positions() -> None:
     sessions = cal.sessions(date(2026, 8, 14), date(2026, 8, 21))
     panel = pl.DataFrame(
         [
-            {"date": d, "ticker": "A", "close": 100.0, "open": 100.0, "is_tradable": True}
+            {
+                "date": d,
+                "ticker": "A",
+                "close": 100.0,
+                "open": 100.0,
+                "is_tradable": True,
+                "trading_value": 5_000_000_000.0,
+            }
             for d in sessions
         ]
     )
@@ -23,10 +30,16 @@ def test_cash_intent_liquidates_positions() -> None:
     class _CashModel:
         name = "cash_model"
 
+        def __init__(self) -> None:
+            self._calls = 0
+
         def score(self, snapshot: object, context: object) -> dict[str, float]:
             return {"A": 1.0}
 
         def allocate(self, scores: dict[str, float], **kwargs: object) -> object:
+            self._calls += 1
+            if self._calls <= 1:
+                return PortfolioIntent(kind="target", weights={"A": 0.95})
             return CASH_INTENT
 
     config = BacktestConfig(

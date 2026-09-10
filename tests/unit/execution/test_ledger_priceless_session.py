@@ -99,6 +99,11 @@ def test_priceless_session_equity_prev_fallback_when_prev_closes_invalid() -> No
         panel=None,
     )
     assert result.equity_close == 25_000_000.0
+    assert result.state.cash == 25_000_000.0
+    assert result.state.shares == {"X": 100.0}
+    assert result.session_return == 0.0
+    assert result.fills == ()
+    assert result.unfilled == ()
 
 
 class _BadOpens:
@@ -226,3 +231,38 @@ def test_priceless_session_skips_bad_weight_entries() -> None:
     )
     assert result.equity_close == 70.0
     assert result.weights_after_close == {}
+
+
+def test_transition_normal_session_still_routes_to_cash_order_transition() -> None:
+    from src.backtest.costs import CostConfig, CostModel
+    from src.execution.cash_accounting import cash_order_transition
+    from src.execution.ledger import PortfolioLedgerState, transition_portfolio_state
+    from src.portfolio.intent import PortfolioIntent
+
+    prior = PortfolioLedgerState(cash=1_000_000.0, shares={})
+    intent = PortfolioIntent(kind="target", weights={"X": 0.5})
+    kwargs = {
+        "prior_state": prior,
+        "intent": intent,
+        "decision_date": date(2026, 6, 2),
+        "prev_closes": {"X": 100.0},
+        "opens": {"X": 100.0},
+        "closes": {"X": 100.0},
+        "cost_model": CostModel(CostConfig(commission_bps=0.0, slippage_bps=0.0)),
+        "adv_by_ticker": {"X": 1e12},
+        "max_order_to_adv": 0.01,
+        "exposure_limits": (0.95, 1.90, 0.05),
+        "leverage_multiples": {"X": 1},
+        "execution": None,
+        "panel": None,
+    }
+
+    # When: called through the public wrapper vs the underlying implementation directly
+    via_wrapper = transition_portfolio_state(**kwargs)
+    direct = cash_order_transition(**kwargs)
+
+    # Then: identical outcome -- the wrapper is a pure passthrough for a non-priceless session
+    assert via_wrapper.equity_close == direct.equity_close
+    assert via_wrapper.state.shares == direct.state.shares
+    assert via_wrapper.fills == direct.fills
+    assert len(via_wrapper.fills) >= 1
