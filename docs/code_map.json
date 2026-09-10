@@ -302,7 +302,11 @@
     "testing": "tests/unit/data/test_validation.py"
   },
   "src/execution/cash_accounting.py": {
-    "testing": "tests/unit/execution/test_cash_accounting.py"
+    "testing": [
+      "tests/unit/execution/test_cash_accounting.py",
+      "tests/unit/strategies/test_inactive_participation_sleeve.py"
+    ],
+    "architecture": "docs/architecture/07-alpha-and-portfolio.md"
   },
   "src/execution/ledger.py": {
     "testing": "tests/unit/execution/test_ledger.py"
@@ -458,10 +462,14 @@
   "src/strategies/factories/baselines.py": {},
   "src/strategies/factories/convex.py": {},
   "src/strategies/factories/portfolio.py": {},
-  "src/strategies/factories/sticky.py": {},
+  "src/strategies/factories/sticky.py": {
+    "testing": "tests/unit/strategies/test_sticky_factories.py"
+  },
   "src/strategies/factories/sticky_core.py": {},
   "src/strategies/factories/sticky_locks.py": {},
-  "src/strategies/factories/sticky_mom60.py": {},
+  "src/strategies/factories/sticky_mom60.py": {
+    "testing": "tests/unit/strategies/test_sticky_factories.py"
+  },
   "src/strategies/ids.py": {
     "testing": "tests/unit/strategies/test_ids.py"
   },
@@ -473,10 +481,8 @@
     "testing": [
       "tests/unit/strategies/test_capacity.py",
       "tests/unit/strategies/test_capacity_initial_capital.py",
-      "tests/unit/strategies/test_p30_fillable_sticky.py",
-      "tests/unit/strategies/test_model_runner.py"
-    ],
-    "architecture": "docs/architecture/07-alpha-and-portfolio.md"
+      "tests/unit/strategies/test_p30_fillable_sticky.py"
+    ]
   },
   "src/strategies/sticky/config.py": {
     "testing": [
@@ -509,6 +515,7 @@
   "src/strategies/sticky/model_config.py": {
     "testing": [
       "tests/unit/alpha/test_p27.py",
+      "tests/unit/strategies/test_inactive_participation_sleeve.py",
       "tests/unit/strategies/test_model_config.py",
       "tests/unit/strategies/test_model_runner.py"
     ]
@@ -517,11 +524,13 @@
     "testing": [
       "tests/unit/alpha/test_p27.py",
       "tests/unit/strategies/test_capacity.py",
+      "tests/unit/strategies/test_inactive_participation_sleeve.py",
       "tests/unit/strategies/test_model_runner.py"
     ]
   },
   "src/strategies/sticky/model_scores.py": {
     "testing": [
+      "tests/unit/strategies/test_inactive_leader_scores.py",
       "tests/unit/strategies/test_model_scores.py",
       "tests/unit/strategies/test_rebound_leader_scores.py"
     ]
@@ -601,6 +610,7 @@
   "src/tournament/objective/cutoff_auc.py": {
     "testing": [
       "tests/unit/alpha/test_p27.py",
+      "tests/unit/strategies/test_inactive_participation_sleeve.py",
       "tests/unit/strategies/test_model_runner.py",
       "tests/unit/tournament/test_cutoff_auc.py"
     ]
