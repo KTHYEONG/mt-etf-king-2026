@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "P27_LIVE_ROBUSTNESS_STAGE2",
+      "date": "2026-09-10",
+      "adr_id": "ADR_20260910_P27_LIVE_ROBUSTNESS_STAGE2",
+      "domain": "tournament",
+      "title": "P27 라이브 상태승계·익스포저·패널신선도 복구",
+      "why": "라이브가 매번 상태 없이 재시작해 sticky 고정효과가 무력화되고, 백테스트가 쓰는 레버리지/그로스/ADV 캡이 라이브엔 전혀 없었으며, ETF 패널 결측도 인덱스처럼 조용히 CASH로 위장됨",
+      "resolution": "data/state/sticky_mom60_raw_position.json으로 held/hold_len 영속화(연속성 깨지면 fail-closed), apply_portfolio_exposure_limits+cap_target_weights_by_adv+resolve_leverage 재사용해 라이브 캡 적용, assert_panel_input_fresh로 패널 결측 fail-closed, --held 수동 오버라이드 추가",
+      "impact": "라이브가 채택된 백테스트 레시피(상태·익스포저·용량)를 충실히 재현하게 됨; 감사 중 hold_len 소수점검증 죽은코드와 ADV 도달불가 분기 2건 발견해 직접 수정"
+    },
+    {
       "task_id": "P27_LIVE_ROBUSTNESS_STAGE1",
       "date": "2026-09-10",
       "adr_id": "ADR_20260910_P27_LIVE_ROBUSTNESS_STAGE1",
