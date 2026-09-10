@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_BACKTEST_PERF_ROUND2",
+      "date": "2026-09-10",
+      "adr_id": "ADR_20260910_BACKTEST_PERF_ROUND2",
+      "domain": "backtest_engine",
+      "title": "백테스트 그리드 캐시 정확성 + 중복 제거",
+      "why": "--protocol grid 36셀이 cases[0] 참여율로 만든 세션캐시를 전 셀에 재사용해 非fillable 모델 24셀이 잘못된 유니버스로 평가되고(scores 61/61 상이), 동시에 동일 캐시를 12번씩 중복 재구축해 그리드 실행시간의 49.5%를 낭비함",
+      "resolution": "SessionCacheRegistry로 비용축만 제외한 필터 전체 키잉(36→3 빌드), engine.run에 open_map 파라미터 신설로 전체패널 open map 재구축 73→1, executable_oracle의 티커별 1383회 filter를 기존 group_by에 흡수, trace 진단을 세션당 1회 인덱싱",
+      "impact": "非fillable path-dependent 모델의 그리드 2~36번째 셀 수치가 이동(이전에 명백히 틀렸던 셀 수정); --protocol single은 셀 1개(=cases[0])라 기존 ADR/runs_registry 수치 전부 비트 동일; 158/158 영향범위 테스트 통과, diff coverage 100%; 패널 날짜범위 절단(측정된 최대 이득 1.66배)은 PIT identity 도출을 건드리므로 별도 spec으로 이연"
+    },
+    {
       "task_id": "TASK_BACKTEST_PERF_HOTPATH",
       "date": "2026-09-10",
       "adr_id": "ADR_20260910_BACKTEST_PERF_HOTPATH",
