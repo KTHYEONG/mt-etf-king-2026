@@ -112,6 +112,10 @@ class StickyLeaderConfig:
     min_fill_ratio: float = 0.0
     runner_reversal_exit: bool = False
     runner_mom_col: str = "mom_5"
+    inactive_participation: bool = False
+    inactive_score_col: str = "rv_20"
+    inactive_min_weight: float = 0.30
+    inactive_stop_drawdown: float = 0.15
     crash_rebound_abs_mom_bypass: bool = crash_rebound_abs_mom_bypass
     @classmethod
     def from_yaml(cls, raw: Mapping[str, object]) -> StickyLeaderConfig:
@@ -304,6 +308,37 @@ class StickyLeaderConfig:
                 runner_mom_col = value.strip()
         except Exception:
             runner_mom_col = defaults.runner_mom_col
+        inactive_participation = defaults.inactive_participation
+        try:
+            if "inactive_participation" in raw:
+                v = raw["inactive_participation"]
+                if isinstance(v, bool):
+                    inactive_participation = bool(v)
+        except (TypeError, ValueError):
+            inactive_participation = defaults.inactive_participation
+        inactive_score_col = defaults.inactive_score_col
+        try:
+            v = raw.get("inactive_score_col")
+            if isinstance(v, str) and v:
+                inactive_score_col = str(v)
+        except (TypeError, ValueError):
+            inactive_score_col = defaults.inactive_score_col
+        inactive_min_weight = defaults.inactive_min_weight
+        try:
+            if "inactive_min_weight" in raw:
+                vv = float(raw["inactive_min_weight"])  # type: ignore[arg-type]
+                if math.isfinite(vv) and 0 < vv <= 1.0:
+                    inactive_min_weight = float(vv)
+        except (TypeError, ValueError):
+            inactive_min_weight = defaults.inactive_min_weight
+        inactive_stop_drawdown = defaults.inactive_stop_drawdown
+        try:
+            if "inactive_stop_drawdown" in raw:
+                vv = float(raw["inactive_stop_drawdown"])  # type: ignore[arg-type]
+                if math.isfinite(vv) and 0 < vv < 1.0:
+                    inactive_stop_drawdown = float(vv)
+        except (TypeError, ValueError):
+            inactive_stop_drawdown = defaults.inactive_stop_drawdown
         return cls(
             mom_col=str(mom_col),
             only_plus_2=bool(only_plus_2),
@@ -326,5 +361,9 @@ class StickyLeaderConfig:
             abs_mom_exit=float(abs_mom_exit),
             runner_reversal_exit=bool(runner_reversal_exit),
             runner_mom_col=str(runner_mom_col),
+            inactive_participation=bool(inactive_participation),
+            inactive_score_col=str(inactive_score_col),
+            inactive_min_weight=float(inactive_min_weight),
+            inactive_stop_drawdown=float(inactive_stop_drawdown),
             crash_rebound_abs_mom_bypass=bool(defaults.crash_rebound_abs_mom_bypass),
         )
