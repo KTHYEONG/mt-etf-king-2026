@@ -1,7 +1,7 @@
 # ruff: noqa
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import polars as pl
 
@@ -145,3 +145,114 @@ def test_load_backtest_panel_validates_before_projection(tmp_path) -> None:
     gold.with_columns(pl.lit(99.0).alias("close")).write_parquet(paths.gold("etf_features"))
     with pytest.raises(ValueError):
         load_backtest_panel(paths,columns=["date","ticker","mom_60"])
+
+
+def test_bound_backtest_panel_walks_back_adv_window_qualifying_observations() -> None:
+    from src.data.panel import bound_backtest_panel
+
+    # Given: ticker A trades every day for 60 consecutive sessions, all qualifying
+    sessions = [date(2024, 1, 1) + timedelta(days=i) for i in range(60)]
+    rows = [
+        {"date": d, "ticker": "A", "is_tradable": True, "trading_value": 1_000_000.0}
+        for d in sessions
+    ]
+    panel = pl.DataFrame(rows)
+    start, end = sessions[49], sessions[59]
+
+    # When: bounding with adv_window=20
+    bounded = bound_backtest_panel(panel, start, end, adv_window=20)
+
+    # Then: the earliest retained date is the 20th most recent qualifying obs at/before start
+    # (start is index 49; the last 20 qualifying obs at/before it are indices 30..49)
+    assert bounded["date"].min() == sessions[30]
+    assert bounded["date"].max() == sessions[59]
+    assert bounded.height == 30
+    assert bounded.height < panel.height
+
+
+def test_bound_backtest_panel_excludes_delisted_ticker_from_scope() -> None:
+    from src.data.panel import bound_backtest_panel
+
+    sessions = [date(2024, 1, 1) + timedelta(days=i) for i in range(60)]
+    rows = [
+        {"date": d, "ticker": "LIVE", "is_tradable": True, "trading_value": 1_000_000.0}
+        for d in sessions
+    ]
+    # Given: OLD trades only in the first 5 sessions then is delisted (last_seen far before start)
+    rows += [
+        {"date": d, "ticker": "OLD", "is_tradable": True, "trading_value": 1_000_000.0}
+        for d in sessions[:5]
+    ]
+    panel = pl.DataFrame(rows)
+    start, end = sessions[49], sessions[59]
+
+    # When
+    bounded = bound_backtest_panel(panel, start, end, adv_window=20)
+
+    # Then: the bound is exactly what LIVE alone would require (OLD did not pull it to session 0)
+    assert bounded["date"].min() == sessions[30]
+    # And: OLD's rows are correctly absent from the bounded result (they predate the bound)
+    assert "OLD" not in set(bounded["ticker"].unique().to_list())
+
+
+def test_bound_backtest_panel_falls_back_to_full_panel_when_no_live_ticker() -> None:
+    from src.data.panel import bound_backtest_panel
+
+    # Given: all data is in the past; the request is for a future window no ticker ever reaches
+    sessions = [date(2024, 1, 1) + timedelta(days=i) for i in range(10)]
+    panel = pl.DataFrame(
+        [{"date": d, "ticker": "A", "is_tradable": True, "trading_value": 1_000_000.0} for d in sessions]
+    )
+    start, end = date(2027, 1, 5), date(2027, 3, 1)
+
+    # When
+    bounded = bound_backtest_panel(panel, start, end, adv_window=20)
+
+    # Then: falls back to the original panel, never an empty DataFrame
+    assert bounded.height == panel.height
+    assert bounded.equals(panel)
+
+
+def test_bound_backtest_panel_falls_back_to_full_panel_when_live_ticker_has_no_row_in_window() -> None:
+    from src.data.panel import bound_backtest_panel
+
+    # Given: GAPPED has exactly two rows -- one non-qualifying before `start`, one after `end` --
+    # with nothing in between, so it is 'live' (first_seen<=end, last_seen>=start) but has no
+    # row of any kind inside [start, end] itself.
+    day0 = date(2024, 1, 1)
+    start = day0 + timedelta(days=500)
+    end = day0 + timedelta(days=600)
+    day_last = day0 + timedelta(days=1000)
+    panel = pl.DataFrame(
+        [
+            {"date": day0, "ticker": "GAPPED", "is_tradable": False, "trading_value": 1_000_000.0},
+            {"date": day_last, "ticker": "GAPPED", "is_tradable": True, "trading_value": 1_000_000.0},
+        ]
+    )
+
+    # When
+    bounded = bound_backtest_panel(panel, start, end, adv_window=20)
+
+    # Then: falls back to the original panel (both rows), never an empty DataFrame
+    assert bounded.height == 2
+    assert bounded.equals(panel)
+
+
+def test_bound_backtest_panel_missing_trading_value_column_returns_unchanged() -> None:
+    from src.data.panel import bound_backtest_panel
+
+    panel = pl.DataFrame({"date": [date(2024, 1, 2)], "ticker": ["A"]})
+
+    bounded = bound_backtest_panel(panel, date(2024, 1, 2), date(2024, 1, 3), adv_window=20)
+
+    assert bounded.equals(panel)
+
+
+def test_bound_backtest_panel_empty_input_returns_as_is() -> None:
+    from src.data.panel import bound_backtest_panel
+
+    panel = pl.DataFrame({"date": [], "ticker": [], "trading_value": []})
+
+    bounded = bound_backtest_panel(panel, date(2024, 1, 2), date(2024, 1, 3), adv_window=20)
+
+    assert bounded.height == 0

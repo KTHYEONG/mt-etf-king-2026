@@ -130,3 +130,56 @@ def load_backtest_panel(
         # Never mutate on-disk; projection already enforced
         return df
     return None
+
+
+def bound_backtest_panel(
+    panel: pl.DataFrame,
+    start: date,
+    end: date,
+    *,
+    adv_window: int,
+) -> pl.DataFrame:
+    if panel.height == 0 or "date" not in panel.columns:
+        return panel
+    if not {"ticker", "date", "trading_value"} <= set(panel.columns):
+        return panel
+    # live: 티커가 [start, end] 어느 시점에라도 존재했을 가능성(last_seen>=start AND
+    # first_seen<=end) -- 이 범위 밖의 폐지 종목은 경계 계산에서 완전히 배제한다
+    # (배제하지 않으면 전역 최솟값이 데이터셋 시작점까지 붕괴함, probe 실증됨).
+    live = (
+        panel.group_by("ticker")
+        .agg(pl.col("date").min().alias("_first_seen"), pl.col("date").max().alias("_last_seen"))
+        .filter((pl.col("_last_seen") >= start) & (pl.col("_first_seen") <= end))
+        .select("ticker")
+    )
+    if live.height == 0:
+        return panel
+    # qualifying 정의는 PointInTimeUniverse._build_adv와 완전히 동일해야 한다
+    # (INV-PANEL-QUALIFYING-PARITY) -- 정의가 어긋나면 경계가 조용히 부족해진다.
+    is_trad_expr = (
+        pl.col("is_tradable").cast(pl.Boolean, strict=False).fill_null(True)
+        if "is_tradable" in panel.columns
+        else pl.lit(True)
+    )
+    tv_expr = pl.col("trading_value").cast(pl.Float64, strict=False)
+    qualifying = (
+        panel.select([pl.col("ticker"), pl.col("date"), is_trad_expr.alias("_t"), tv_expr.alias("_v")])
+        .join(live, on="ticker", how="semi")
+        .filter(pl.col("_t") & pl.col("_v").is_not_null())
+        .filter(pl.col("date") <= start)
+        .sort(["ticker", "date"])
+    )
+    if qualifying.height == 0:
+        lookback_start = start
+    else:
+        tail = qualifying.group_by("ticker", maintain_order=True).agg(
+            pl.col("date").tail(adv_window).min().alias("_bound")
+        )
+        lookback_start = tail["_bound"].min()  # type: ignore[assignment]
+    bounded = panel.filter((pl.col("date") >= lookback_start) & (pl.col("date") <= end))
+    # 요청 구간에 실데이터가 전혀 없으면(예: 아직 수집되지 않은 미래 구간) 빈 패널을
+    # 반환하지 않는다 -- context.py의 synthetic-panel 테스트 폴백을 잘못 유발하지 않도록
+    # 전체 패널로 안전하게 되돌아간다 (INV-PANEL-NONEMPTY).
+    if bounded.height == 0:
+        return panel
+    return bounded
