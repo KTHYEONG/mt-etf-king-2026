@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_PRE_EXISTING_TEST_DEBT",
+      "date": "2026-09-11",
+      "adr_id": "ADR_20260911_PRE_EXISTING_TEST_DEBT",
+      "domain": "testing",
+      "title": "기존 테스트 부채 13+1건 수정",
+      "why": "championship_sleeve 프로덕션 게이트(CUTOFF_AUC_IS_PRODUCTION_GATE=True) 도입 이전 작성된 낡은 픽스처 9건, PortfolioIntent 계약 이전 assertion 1건, 결함 있는 fixture 1건, ledger_transition.py의 무조건 조기 return으로 P36 priceless-session 폴백이 영구 도달불가 코드가 된 실제 회귀 1건, lean_check.py에 테스트만 있고 구현이 없던 verify_wiring 함수 1건",
+      "resolution": "9개 테스트에 championship_sleeve=LOTTERY_ON 추가, p21 assertion을 CASH_INTENT 기준 갱신, cash_intent_liquidates 픽스처에 trading_value+매수후청산 모델 적용, transition_portfolio_state의 priceless-session 체크를 위임 이전으로 이동 후 도달불가 구코드 삭제, lean_check.py에 AST 기반 verify_wiring 신규 구현",
+      "impact": "13개 원본 실패 전부 해결 + /spec 드라이런 중 발견한 부작용 1건(exposure-limit 검증 위치 오류) 동시 수정; 전체 스위트 재검증에서 새 회귀 0건, 의도적으로 이연한 architecture-lint 부채 4건(400문장 예산 초과 파일 2개·과밀 라인 42곳·파라미터 별칭 1건·하드코딩 임계값 41곳, 8개+ 무관 파일에 걸친 대규모 리팩토링)만 잔존 — 별도 과제로 남김"
+    },
+    {
       "task_id": "TASK_BACKTEST_PANEL_BOUNDING",
       "date": "2026-09-11",
       "adr_id": "ADR_20260911_BACKTEST_PANEL_BOUNDING",
