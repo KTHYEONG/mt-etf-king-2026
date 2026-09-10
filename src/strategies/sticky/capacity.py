@@ -27,6 +27,26 @@ def resolve_capacity_capital(context: object, *, default: float = TOURNAMENT_INI
     return value
 
 
+def resolve_capacity_params(context: object, config: object) -> tuple[float, float, float] | None:
+    raw_mfr = getattr(config, "min_fill_ratio", None)
+    try:
+        mfr = float(raw_mfr)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(mfr) or mfr <= 0:
+        return None
+    capital = resolve_capacity_capital(context)
+    rules = getattr(context, "rules", None)
+    raw_phi = getattr(rules, "max_order_to_adv", None)
+    try:
+        phi = float(raw_phi)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        phi = 0.01
+    if not math.isfinite(phi) or phi <= 0:
+        phi = 0.01
+    return (float(capital), float(phi), float(mfr))
+
+
 def cached_filtered_scores(
     cache: dict[Hashable, dict[str, float]],
     key: Hashable,

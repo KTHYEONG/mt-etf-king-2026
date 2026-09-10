@@ -247,10 +247,10 @@ def _hook_house_money(cell: _Cell) -> None:
                         master,
                         epsilon=1e-9,
                     )
-                    gross_viol = int(_exp_p25.gross_violation_count)
-                    effective_gross_max = float(_exp_p25.effective_gross_max)
-                    summary["gross_violation_count"] = gross_viol
-                    summary["effective_gross_max"] = effective_gross_max
+                    gross_viol = _exp_p25.gross_violation_count
+                    effective_gross_max = _exp_p25.effective_gross_max
+                    summary["gross_violation_count"] = int(gross_viol) if gross_viol is not None else None
+                    summary["effective_gross_max"] = float(effective_gross_max) if effective_gross_max is not None else None
                 else:
                     gross_viol = None
                     summary["gross_violation_count"] = None

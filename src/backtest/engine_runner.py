@@ -44,6 +44,7 @@ from src.universe.tournament import TournamentRules
 
 from src.backtest.engine_config import BacktestConfig, BacktestResult, _append_trades_from_transition, build_execution_adv
 from src.backtest.engine_session import bootstrap_prestart_intent, emit_session_trace
+from src.tournament.championship_regime import championship_sleeve_from_cache
 
 
 class BacktestEngine:
@@ -65,6 +66,7 @@ class BacktestEngine:
         self.leverage_allowed = leverage_allowed
         self.inverse_allowed = inverse_allowed
         self._portfolio_limits: tuple[float, float, float] | None = None
+        self.championship_sleeves: Mapping[date, str] | None = None
 
     def _portfolio_exposure_limits(self) -> tuple[float, float, float] | None:
         if self._portfolio_limits is not None:
@@ -346,13 +348,7 @@ class BacktestEngine:
             regime_snap = None
             if self.regimes is not None:
                 regime_snap = self.regimes.get(decision_date)
-            ctx = DecisionContext(
-                decision_date=decision_date,
-                regime=regime_snap,
-                capital=equity_start,
-                held=dict(current_weights),
-                rules=rules,
-            )
+            ctx = DecisionContext(decision_date=decision_date, regime=regime_snap, capital=equity_start, held=dict(current_weights), rules=rules, championship_sleeve=championship_sleeve_from_cache(self, decision_date))
             score_exc: Exception | None = None
             try:
                 scores = model.score(snapshot, ctx)

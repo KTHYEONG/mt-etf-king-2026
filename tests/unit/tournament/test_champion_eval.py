@@ -522,3 +522,46 @@ def test_adaptive_mode_dispatches_before_legacy_ranker(monkeypatch) -> None:
     monkeypatch.setattr(module, "run_adaptive_specialist_research", lambda runtime: sentinel)
     monkeypatch.setattr(module, "build_executable_hurdle_oos_scores", lambda runtime: (_ for _ in ()).throw(AssertionError("legacy ranker called")))
     assert module.run_champion_walk_forward(runtime=SimpleNamespace(candidate_mode="adaptive_specialists")) is sentinel
+
+
+def test_unmeasurable_gross_blocks_adoption_pass() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.core.config import config_path
+    from src.reporting.exposure_metrics import prefer_execution_gross_count, summarise_realised_exposure
+    from src.tournament.objective import evaluate_championship_adoption
+    from src.tournament.objective.reports import ChampionshipObjectiveConfig, GROSS_METRIC_UNAVAILABLE
+    from src.universe.instruments import InstrumentMaster
+    from src.universe.taxonomy import Taxonomy
+
+    # Given: the exact degenerate shape observed on run 20260910T055836Z (trade_rows=0)
+    panel = pl.DataFrame(
+        [{"date": date(2026, 1, 2), "ticker": "T1", "name": "KODEX 200", "underlying_index_name": "KOSPI 200"}]
+    )
+    master = InstrumentMaster.build(panel, Taxonomy(rules=[]), {})
+    exposure = summarise_realised_exposure(
+        [date(2026, 1, 2), date(2026, 1, 5)], pl.DataFrame(), (), master, epsilon=1e-9, max_gross=1.90
+    )
+    resolved = prefer_execution_gross_count(None, exposure.gross_violation_count)
+    assert resolved is None
+
+    cfg = ChampionshipObjectiveConfig.from_yaml(config_path("gates"), config_path("portfolio"))
+    returns = [0.01, 0.02, 0.03, 0.04]
+
+    # When
+    result = evaluate_championship_adoption(
+        candidate_returns=returns,
+        incumbent_returns=returns,
+        raw_returns=returns,
+        horizon=36,
+        config=cfg,
+        execution_parity=True,
+        gross_violation_count=resolved,
+        era_pairs=None,
+    )
+
+    # Then: no vacuous PASS is reachable from a path that never took exposure
+    assert result.status == "INSUFFICIENT_EVIDENCE"
+    assert GROSS_METRIC_UNAVAILABLE in result.failures

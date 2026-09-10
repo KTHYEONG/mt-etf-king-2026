@@ -269,20 +269,17 @@ def _run_common_tail(
                 "invested_weight_mean": float(_exposure.invested_weight_mean),
                 "effective_gross_mean": float(_exposure.effective_gross_mean),
                 "effective_gross_q90": float(_exposure.effective_gross_q90),
-                "effective_gross_max": float(_exposure.effective_gross_max),
-                "gross_violation_count": int(_exposure.gross_violation_count),
+                "effective_gross_max": float(_exposure.effective_gross_max) if _exposure.effective_gross_max is not None else None,
+                "gross_violation_count": int(_exposure.gross_violation_count) if _exposure.gross_violation_count is not None else None,
                 "mult2_filled_notional_rate": float(_exposure.mult2_filled_notional_rate),
                 "turnover": float(_exposure.turnover),
                 "unfilled_session_rate": float(_exposure.unfilled_session_rate),
             }
             # prev: summary["gross_violation_count"] = int(_exposure.gross_violation_count)
             _gvc = summary.get("gross_violation_count")
-            summary["gross_violation_count"] = int(
-                prefer_execution_gross_count(
-                    _gvc if isinstance(_gvc, int) or _gvc is None else None, _exposure.gross_violation_count
-                )
-            )
-            summary["effective_gross_max"] = float(_exposure.effective_gross_max)
+            _resolved_gvc = prefer_execution_gross_count(_gvc if isinstance(_gvc, int) or _gvc is None else None, _exposure.gross_violation_count)
+            summary["gross_violation_count"] = int(_resolved_gvc) if _resolved_gvc is not None else None
+            summary["effective_gross_max"] = float(_exposure.effective_gross_max) if _exposure.effective_gross_max is not None else None
         _cfg_obj = ObjectiveGateConfig.from_yaml(config_path("gates"))
         _do_control = bool(prep.control_flags[_cell_idx]) if _cell_idx < len(prep.control_flags) else True
         _b0_dist = cell.dist

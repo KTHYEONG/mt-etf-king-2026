@@ -12,7 +12,7 @@ from typing import Final
 import polars as pl
 
 from src.alpha.base import DecisionContext
-from src.strategies.sticky.capacity import apply_capacity_filter, cached_filtered_scores, resolve_capacity_capital
+from src.strategies.sticky.capacity import apply_capacity_filter, cached_filtered_scores, resolve_capacity_params
 from src.universe.instruments import resolve_leverage
 
 from src.strategies.sticky.model_config import (
@@ -76,19 +76,9 @@ class StickyLeaderModel:
         if decision_date is None or not isinstance(decision_date, date):
             raise ValueError(f"score requires a valid decision_date key, got {decision_date!r}")
         filtered = cached_filtered_scores(self._filtered_scores_by_snapshot, context.decision_date, snapshot, lambda frame: filter_plus2_scores(frame, self.config))
-        try:
-            _mfr = float(getattr(self.config, "min_fill_ratio", 0.0) or 0.0)
-        except Exception:
-            _mfr = 0.0
-        if math.isfinite(_mfr) and _mfr > 0 and filtered:
-            _cap = resolve_capacity_capital(context)
-            try:
-                _rules = getattr(context, "rules", None)
-                _phi = float(getattr(_rules, "max_order_to_adv", 0.01))
-            except Exception:
-                _phi = 0.01
-            if not math.isfinite(_phi) or _phi <= 0:
-                _phi = 0.01
+        _cap_params_main = resolve_capacity_params(context, self.config)
+        if _cap_params_main is not None and filtered:
+            _cap, _phi, _mfr = _cap_params_main
             filtered = apply_capacity_filter(
                 filtered, snapshot, capital=_cap, max_order_to_adv=_phi, min_fill_ratio=_mfr
             )
@@ -224,6 +214,10 @@ class StickyLeaderModel:
         from src.tournament.objective.cutoff_auc import apply_attack_sleeve_route
 
         _rebound_scores = rebound_leader_scores(snapshot)
+        _cap_params = resolve_capacity_params(context, self.config)
+        if _cap_params is not None and _rebound_scores:
+            _rb_cap, _rb_phi, _rb_mfr = _cap_params
+            _rebound_scores = apply_capacity_filter(_rebound_scores, snapshot, capital=_rb_cap, max_order_to_adv=_rb_phi, min_fill_ratio=_rb_mfr)
         out = apply_attack_sleeve_route(sleeve=_sleeve, mom60_scores=out, rebound_scores=_rebound_scores, production_gate=CUTOFF_AUC_IS_PRODUCTION_GATE)
         if _runner_exit and held is not None and _runner_cap is not None and _runner_mom is not None:
             try:

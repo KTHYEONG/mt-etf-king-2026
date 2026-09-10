@@ -24,8 +24,8 @@ class RealisedExposureSummary:
     mult2_filled_notional_rate: float
     turnover: float
     unfilled_session_rate: float
-    effective_gross_max: float = 0.0
-    gross_violation_count: int = 0
+    effective_gross_max: float | None = 0.0
+    gross_violation_count: int | None = 0
 
 
 def summarise_realised_exposure(
@@ -54,6 +54,8 @@ def summarise_realised_exposure(
             mult2_filled_notional_rate=0.0,
             turnover=0.0,
             unfilled_session_rate=0.0,
+            effective_gross_max=None,
+            gross_violation_count=None,
         )
     # Build decision->weight_after map
     decision_to_weights: dict[date, dict[str, float]] = {}
@@ -229,6 +231,20 @@ def summarise_realised_exposure(
     except Exception:
         _mg = 1.60
     gross_violation_count = sum(1 for g in effective_grosses if float(g) > float(_mg) + 1e-9)
+    if float(total_turnover) <= float(epsilon) and float(effective_gross_max) <= float(epsilon):
+        return RealisedExposureSummary(
+            active_name_mean=float(active_name_mean),
+            active_family_mean=float(active_family_mean),
+            multi_family_rate=float(multi_family_rate),
+            invested_weight_mean=float(invested_weight_mean),
+            effective_gross_mean=float(effective_gross_mean),
+            effective_gross_q90=float(effective_gross_q90),
+            mult2_filled_notional_rate=float(mult2_filled_notional_rate),
+            turnover=float(turnover_val),
+            unfilled_session_rate=float(unfilled_session_rate),
+            effective_gross_max=None,
+            gross_violation_count=None,
+        )
     return RealisedExposureSummary(
         active_name_mean=float(active_name_mean),
         active_family_mean=float(active_family_mean),
@@ -257,13 +273,12 @@ def artifact_max_gross_for_model(strategy_id: str) -> float:
     return 1.60
 
 
-def prefer_execution_gross_count(execution_count: int | None, realised_count: int) -> int:
+def prefer_execution_gross_count(execution_count: int | None, realised_count: int | None) -> int | None:
     # Diagnostics execution count wins; None/non-int falls back to realised.
     if isinstance(execution_count, bool):
         pass
     elif isinstance(execution_count, int):
         return int(execution_count)
-    try:
-        return int(realised_count)  # type: ignore[arg-type]
-    except Exception:
-        return 0
+    if realised_count is None:
+        return None
+    return int(realised_count)  # type: ignore[arg-type]

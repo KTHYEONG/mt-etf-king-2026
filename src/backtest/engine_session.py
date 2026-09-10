@@ -43,6 +43,7 @@ from src.universe.tournament import TournamentRules
 
 
 from src.backtest.engine_config import build_execution_adv, logger
+from src.tournament.championship_regime import championship_sleeve_from_cache
 
 
 def bootstrap_prestart_intent(
@@ -111,13 +112,7 @@ def bootstrap_prestart_intent(
                 _regime_pre = None
                 if engine.regimes is not None:
                     _regime_pre = engine.regimes.get(_pre_date)
-                _ctx_pre = DecisionContext(
-                    decision_date=_pre_date,
-                    regime=_regime_pre,
-                    capital=float(config.capital),
-                    held={},
-                    rules=_rules_pre,  # type: ignore[arg-type]
-                )
+                _ctx_pre = DecisionContext(decision_date=_pre_date, regime=_regime_pre, capital=float(config.capital), held={}, rules=_rules_pre, championship_sleeve=championship_sleeve_from_cache(engine, _pre_date))
                 _scores_pre = model.score(_snap, _ctx_pre)
                 if _scores_pre is None:
                     _scores_pre = {}

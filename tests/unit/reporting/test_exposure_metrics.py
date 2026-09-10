@@ -128,3 +128,108 @@ def test_prefer_execution_gross_count_keeps_diagnostics() -> None:
     assert prefer_execution_gross_count(0, 1042) == 0
     assert prefer_execution_gross_count(3, 70) == 3
     assert prefer_execution_gross_count(None, 70) == 70
+
+
+def test_summarise_realised_exposure_degenerate_path_reports_none() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.reporting.exposure_metrics import summarise_realised_exposure
+    from src.universe.instruments import InstrumentMaster
+    from src.universe.taxonomy import Taxonomy
+
+    panel = pl.DataFrame(
+        [
+            {"date": date(2026, 1, 2), "ticker": "T1", "name": "KODEX 200", "underlying_index_name": "KOSPI 200"},
+        ]
+    )
+    master = InstrumentMaster.build(panel, Taxonomy(rules=[]), {})
+    dates = [date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)]
+
+    # When: sessions exist but nothing was ever filled (the observed P27 run shape)
+    no_trades = summarise_realised_exposure(dates, pl.DataFrame(), (), master, epsilon=1e-9, max_gross=1.90)
+
+    # Then: gross compliance is unmeasurable
+    assert no_trades.gross_violation_count is None
+    assert no_trades.effective_gross_max is None
+    assert no_trades.turnover == 0.0
+    assert no_trades.invested_weight_mean == 0.0
+
+    # And: the empty-dates branch behaves identically for gross while keeping zeros elsewhere
+    empty = summarise_realised_exposure([], pl.DataFrame(), (), master)
+    assert empty.gross_violation_count is None
+    assert empty.effective_gross_max is None
+    assert empty.active_name_mean == 0.0
+    assert empty.turnover == 0.0
+
+
+def test_summarise_realised_exposure_active_path_reports_concrete_counts() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.reporting.exposure_metrics import summarise_realised_exposure
+    from src.universe.instruments import InstrumentAttributes, InstrumentMaster
+    from src.universe.taxonomy import Taxonomy
+
+    panel = pl.DataFrame(
+        [
+            {"date": date(2026, 1, 2), "ticker": "T2", "name": "KODEX 레버리지", "underlying_index_name": "KOSPI 200"},
+        ]
+    )
+    base = InstrumentMaster.build(panel, Taxonomy(rules=[]), {})
+    b = base.attributes["T2"]
+    lev2 = InstrumentAttributes(
+        ticker=b.ticker,
+        name=b.name,
+        issuer=b.issuer,
+        leverage_multiple=2,
+        leverage_family_key=b.leverage_family_key,
+        is_synthetic=b.is_synthetic,
+        is_hedged=b.is_hedged,
+        is_active=b.is_active,
+        index_key=b.index_key,
+        theme=b.theme,
+        first_seen=b.first_seen,
+        last_seen=b.last_seen,
+        left_censored=b.left_censored,
+        confidence=b.confidence,
+    )
+    master = InstrumentMaster(attributes={"T2": lev2}, panel_start=base.panel_start)
+
+    dates = [date(2026, 1, 2), date(2026, 1, 5), date(2026, 1, 6)]
+    trades = pl.DataFrame(
+        {
+            "decision_date": [dates[0]],
+            "execution_date": [dates[1]],
+            "ticker": ["T2"],
+            "weight_after": [0.95],
+            "weight_before": [0.0],
+            "delta_weight": [0.95],
+        }
+    )
+
+    # When: 0.95 weight in a +2X name => realised gross 1.90
+    strict = summarise_realised_exposure(dates, trades, (), master, epsilon=1e-9, max_gross=1.60)
+    relaxed = summarise_realised_exposure(dates, trades, (), master, epsilon=1e-9, max_gross=1.90)
+
+    # Then: concrete, non-None metrics on a path that actually took exposure
+    assert strict.gross_violation_count is not None and strict.gross_violation_count >= 1
+    assert relaxed.gross_violation_count == 0
+    assert relaxed.effective_gross_max is not None
+    assert abs(float(relaxed.effective_gross_max) - 1.90) < 1e-9
+
+
+def test_prefer_execution_gross_count_propagates_none_realised() -> None:
+    from src.reporting.exposure_metrics import prefer_execution_gross_count
+
+    # Existing precedence contract is unchanged
+    assert prefer_execution_gross_count(0, 1042) == 0
+    assert prefer_execution_gross_count(3, 70) == 3
+    assert prefer_execution_gross_count(None, 70) == 70
+
+    # New: an unmeasurable realised path must not be fabricated into 0
+    assert prefer_execution_gross_count(None, None) is None
+    # An explicit execution count still wins over an unmeasurable realised path
+    assert prefer_execution_gross_count(7, None) == 7

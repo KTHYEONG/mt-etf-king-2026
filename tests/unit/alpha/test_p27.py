@@ -379,7 +379,7 @@ def test_sticky_leader_score_wires_resolve_capacity_capital() -> None:
     src = inspect.getsource(StickyLeaderModel.score)
     cap_at = src.index("apply_capacity_filter")
     prefix = src[:cap_at]
-    assert "resolve_capacity_capital(context)" in prefix
+    assert "resolve_capacity_params(context" in prefix
 
 
 def test_p27_championship_invariants_unchanged() -> None:

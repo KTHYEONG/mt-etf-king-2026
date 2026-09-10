@@ -180,10 +180,10 @@ def _hook_mom60_raw(cell: _Cell) -> None:
             _trades_p27 = getattr(_bt_p27, "trades", None) if _bt_p27 is not None else None
             if _trades_p27 is not None:
                 _exp_p27 = _summarise_exposure_p27(cal.sessions(start, end), _trades_p27, (), master, epsilon=1e-9, max_gross=_mg27_bt)
-                gross_viol_p27 = int(_exp_p27.gross_violation_count)
-                effective_gross_max_p27 = float(_exp_p27.effective_gross_max)
-                summary["gross_violation_count"] = gross_viol_p27
-                summary["effective_gross_max"] = effective_gross_max_p27
+                gross_viol_p27 = _exp_p27.gross_violation_count
+                effective_gross_max_p27 = _exp_p27.effective_gross_max
+                summary["gross_violation_count"] = int(gross_viol_p27) if gross_viol_p27 is not None else None
+                summary["effective_gross_max"] = float(effective_gross_max_p27) if effective_gross_max_p27 is not None else None
                 _summarise_exposure_p27(cal.sessions(start, end), _trades_p27, (), master, epsilon=1e-9, max_gross=1.90)
             else:
                 gross_viol_p27 = None

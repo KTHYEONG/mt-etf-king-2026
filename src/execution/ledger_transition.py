@@ -487,8 +487,8 @@ def aggregate_session_diagnostics(sessions: Sequence[SessionTransitionDiagnostic
     if not sessions:
         try:
             return RollingDiagnostics(
-                gross_violation_count=0,
-                effective_gross_max=0.0,
+                gross_violation_count=None,
+                effective_gross_max=None,
                 turnover_mean=0.0,
                 fill_count=0,
                 unfilled_count=0,
@@ -497,8 +497,8 @@ def aggregate_session_diagnostics(sessions: Sequence[SessionTransitionDiagnostic
             )
         except TypeError:
             return RollingDiagnostics(
-                gross_violation_count=0,
-                effective_gross_max=0.0,
+                gross_violation_count=None,
+                effective_gross_max=None,
                 turnover_mean=0.0,
                 fill_count=0,
                 unfilled_count=0,
