@@ -111,6 +111,7 @@ def prepare_run(ctx: BacktestContext) -> _Prep:
     from src.backtest.engine import BacktestConfig, BacktestEngine
     from src.backtest.execution import NextOpenExecution
     from src.backtest.session_cache import _build_open_map, build_close_map
+    from src.data.panel import bound_backtest_panel
     from src.features.builder import FeatureBuilder, FeatureConfig
     from src.portfolio.sizing import SizingScheme
     from src.tournament.eval_cache import ControlRollingCache, plan_control_evaluations
@@ -242,6 +243,10 @@ def prepare_run(ctx: BacktestContext) -> _Prep:
     if "mom_20" not in panel.columns:
         with contextlib.suppress(Exception):
             panel = panel.with_columns(pl.lit(0.01).alias("mom_20"))
+    # INV-MASTER-FULL-HISTORY: master(위에서 이미 구성됨)는 손대지 않고, 이 시점 이후
+    # 소비되는 panel만 경계를 적용한다. adv_window는 바로 아래 PointInTimeUniverse
+    # 호출의 adv_window=20과 반드시 같은 값이어야 한다 (INV-PANEL-ADV-WINDOW-LOCKSTEP).
+    panel = bound_backtest_panel(panel, start, end, adv_window=20)
     universe = PointInTimeUniverse(panel, master, cal, adv_window=20, brand_map=brand_map)
     execution = NextOpenExecution(cal)
     regimes = None
