@@ -27,9 +27,10 @@ def resolve_session_grid(sessions: Sequence[date], panel: pl.DataFrame, *, min_r
     counts: dict[date, int] = {}
     try:
         if panel is not None and isinstance(panel, pl.DataFrame) and "date" in panel.columns and panel.height > 0:
-            for d in panel["date"].to_list():
+            grouped = panel.group_by("date").len()
+            for d, n in zip(grouped["date"].to_list(), grouped["len"].to_list(), strict=False):
                 if isinstance(d, date):
-                    counts[d] = counts.get(d, 0) + 1
+                    counts[d] = int(n)
     except Exception:
         counts = {}
     kept: list[date] = []

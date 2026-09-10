@@ -427,3 +427,97 @@ def test_liquidity_admission_full_target_and_for_mode_parsing() -> None:
     assert fallback.liquidity_admission == LiquidityAdmissionMode.FULL_TARGET
     rejected = UniverseFilters.for_mode(UniverseMode.DEPLOYMENT, {}, (), liquidity_admission='unknown-mode')
     assert rejected.liquidity_admission == LiquidityAdmissionMode.FULL_TARGET
+
+
+
+
+
+def test_build_adv_vectorized_matches_manual_reference_and_skips_gaps() -> None:
+    d1, d2, d3, d4 = date(2026, 8, 10), date(2026, 8, 11), date(2026, 8, 12), date(2026, 8, 13)
+    rows = [
+        {"date": d1, "ticker": "A", "name": "KODEX 200", "underlying_index_name": "\ucf54\uc2a4\ud53c 200", "is_tradable": True, "close": 100.0, "trading_value": 10.0},
+        {"date": d2, "ticker": "A", "name": "KODEX 200", "underlying_index_name": "\ucf54\uc2a4\ud53c 200", "is_tradable": False, "close": 100.0, "trading_value": 20.0},
+        {"date": d3, "ticker": "A", "name": "KODEX 200", "underlying_index_name": "\ucf54\uc2a4\ud53c 200", "is_tradable": True, "close": 100.0, "trading_value": None},
+        {"date": d4, "ticker": "A", "name": "KODEX 200", "underlying_index_name": "\ucf54\uc2a4\ud53c 200", "is_tradable": True, "close": 100.0, "trading_value": 30.0},
+    ]
+    panel = make_panel(rows)
+
+    # When
+    universe, _master, _cal = build_universe(panel, adv_window=2)
+
+    # Then: d1 qualifies alone -> 10.0; d2 (non-tradable) has no entry -> falls back to d1's 10.0;
+    # d3 (null trading_value) has no entry -> falls back to d1's 10.0; d4 qualifies with a 2-window
+    # mean of the last 2 qualifying observations (10.0 @ d1, 30.0 @ d4) -> 20.0
+    assert universe.adv("A", d1) == 10.0
+    assert universe.adv("A", d2) == 10.0
+    assert universe.adv("A", d3) == 10.0
+    assert universe.adv("A", d4) == 20.0
+
+
+
+
+from src.core.calendar import TradingCalendar
+from src.universe.instruments import InstrumentMaster
+from src.universe.provider import PointInTimeUniverse
+
+
+def test_build_adv_empty_panel_returns_none() -> None:
+    empty_panel = pl.DataFrame({"date": [], "ticker": [], "trading_value": []})
+    master = InstrumentMaster(attributes={}, panel_start=date(2026, 1, 1))
+
+    universe = PointInTimeUniverse(empty_panel, master, TradingCalendar(), adv_window=20, brand_map={})
+
+    assert universe.adv("A", date(2026, 1, 2)) is None
+
+
+
+
+
+
+def test_build_adv_missing_trading_value_column_returns_none() -> None:
+    panel = pl.DataFrame({"date": [date(2026, 1, 2)], "ticker": ["A"]})
+    master = InstrumentMaster(attributes={}, panel_start=date(2026, 1, 1))
+
+    universe = PointInTimeUniverse(panel, master, TradingCalendar(), adv_window=20, brand_map={})
+
+    assert universe.adv("A", date(2026, 1, 2)) is None
+
+
+def test_build_adv_all_rows_non_qualifying_leaves_map_empty() -> None:
+    from src.core.calendar import TradingCalendar
+    from src.universe.instruments import InstrumentMaster
+    from src.universe.provider import PointInTimeUniverse
+
+    d0 = date(2026, 8, 10)
+    panel = make_panel(
+        [
+            {"date": d0, "ticker": "A", "name": "KODEX 200", "underlying_index_name": "코스피 200", "is_tradable": False, "close": 100.0, "trading_value": 10.0},
+            {"date": d0, "ticker": "B", "name": "KODEX 200", "underlying_index_name": "코스피 200", "is_tradable": True, "close": 100.0, "trading_value": None},
+        ]
+    )
+    master = InstrumentMaster(attributes={}, panel_start=date(2026, 1, 1))
+
+    universe = PointInTimeUniverse(panel, master, TradingCalendar(), adv_window=20, brand_map={})
+
+    assert universe.adv("A", d0) is None
+    assert universe.adv("B", d0) is None
+
+
+def test_build_adv_skips_null_date_rows() -> None:
+    from src.core.calendar import TradingCalendar
+    from src.universe.instruments import InstrumentMaster
+    from src.universe.provider import PointInTimeUniverse
+
+    d0 = date(2026, 8, 10)
+    panel = pl.DataFrame(
+        [
+            {"date": None, "ticker": "A", "trading_value": 10.0, "is_tradable": True},
+            {"date": d0, "ticker": "A", "trading_value": 30.0, "is_tradable": True},
+        ]
+    )
+    master = InstrumentMaster(attributes={}, panel_start=date(2026, 1, 1))
+
+    universe = PointInTimeUniverse(panel, master, TradingCalendar(), adv_window=20, brand_map={})
+
+    assert universe.adv("A", d0) == 20.0
+

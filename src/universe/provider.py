@@ -321,48 +321,36 @@ class PointInTimeUniverse:
     def _build_adv(self) -> None:
         if self._panel.height == 0:
             return
-        # Ensure date is Date type
-        # Group by ticker
-        # For each ticker, sort by date ascending, then compute trailing mean over adv_window tradable sessions
-        # Use only rows with is_tradable True
-        tickers = self._panel.select(pl.col("ticker").unique()).to_series().to_list()
-        for ticker in tickers:
-            tstr = str(ticker)
-            sub = self._panel.filter(pl.col("ticker") == tstr).sort("date")
-            # Collect tradable rows
-            # Need to iterate in date order, maintaining window of tradable trading_values
-            window: list[float] = []
-            # Map date -> ADV for this ticker
+        if not {"ticker", "date", "trading_value"} <= set(self._panel.columns):
+            return
+        adv_window = self._adv_window
+        is_trad_expr = (
+            pl.col("is_tradable").cast(pl.Boolean, strict=False).fill_null(True)
+            if "is_tradable" in self._panel.columns
+            else pl.lit(True)
+        )
+        tagged = self._panel.select(
+            [
+                pl.col("ticker"),
+                pl.col("date"),
+                is_trad_expr.alias("_is_trad"),
+                pl.col("trading_value").cast(pl.Float64, strict=False).alias("_tv"),
+            ]
+        )
+        qualifying = tagged.filter(pl.col("_is_trad") & pl.col("_tv").is_not_null())
+        if qualifying.height == 0:
+            return
+        qualifying = qualifying.sort(["ticker", "date"]).with_columns(
+            pl.col("_tv").rolling_mean(window_size=adv_window, min_samples=1).over("ticker").alias("_adv")
+        )
+        grouped = qualifying.group_by("ticker", maintain_order=True).agg([pl.col("date"), pl.col("_adv")])
+        for row in grouped.iter_rows(named=True):
+            tstr = str(row["ticker"])
             mp: dict[date, float] = {}
-            for row in sub.iter_rows(named=True):
-                d = row.get("date")
-                is_trad = row.get("is_tradable")
-                # Normalize is_tradable: if column missing, assume True? But panel should have it
-                if is_trad is None:
-                    is_trad = True
-                tv = row.get("trading_value")
-                # Convert to float if not None
-                tv_f: float | None = None
-                if tv is not None:
-                    try:
-                        tv_f = float(tv)
-                    except Exception:
-                        tv_f = None
-                if bool(is_trad) and tv_f is not None:
-                    window.append(tv_f)
-                    # keep only last adv_window
-                    if len(window) > self._adv_window:
-                        window.pop(0)
-                    # compute mean of window
-                    if window:
-                        adv = sum(window) / len(window)
-                        if isinstance(d, date):
-                            mp[d] = adv
-                else:
-                    # non-tradable: do not update window, and no ADV for this date (or keep previous? But we don't set)
-                    # For liquidity filter, non-tradable is already dropped at price stage, so ADV not needed
-                    # We also ignore non-tradable sessions rather than treating as zero (window unchanged)
-                    pass
+            for d, a in zip(row["date"], row["_adv"], strict=False):
+                if d is None or a is None:
+                    continue
+                mp[d] = float(a)
             self._adv_map[tstr] = mp
 
     def adv(self, ticker: str, day: date) -> float | None:

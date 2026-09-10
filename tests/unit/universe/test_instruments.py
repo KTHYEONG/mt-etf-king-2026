@@ -80,3 +80,49 @@ def test_resolve_issuer_matches_historical_and_unspaced_prefixes() -> None:
     assert resolve_issuer("KBSTAR200선물인버스2X", brands) == "KB"
     assert resolve_issuer("KODEX 200", brands) == "SAMSUNG"
     assert resolve_issuer("NOT_A_SPONSOR ETF", brands) == "UNKNOWN"
+
+
+
+
+
+
+def test_instrument_master_build_last_row_matches_latest_date_row() -> None:
+    d0 = date(2026, 8, 10)
+    d1 = date(2026, 8, 11)
+    rows = [
+        {"date": d0, "ticker": "A", "name": "KODEX 200", "underlying_index_name": "\ucf54\uc2a4\ud53c 200"},
+        {"date": d1, "ticker": "A", "name": "KODEX 200 (renamed)", "underlying_index_name": "\ucf54\uc2a4\ud53c 200"},
+        {"date": d1, "ticker": "A", "name": "KODEX 200 (latest same-day row)", "underlying_index_name": "\ucf54\uc2a4\ud53c 200"},
+    ]
+    panel = pl.DataFrame(rows)
+
+    master = InstrumentMaster.build(panel, Taxonomy(rules=[]), {})
+
+    attr = master.attributes["A"]
+    assert attr.name == "KODEX 200 (latest same-day row)"
+    assert attr.last_seen == d1
+    assert attr.first_seen == d0
+
+
+
+
+
+
+def test_instrument_master_family_members_matches_brute_force_scan() -> None:
+    d0 = date(2026, 8, 10)
+    rows = [
+        {"date": d0, "ticker": "PLUS1", "name": "KODEX 200", "underlying_index_name": "\ucf54\uc2a4\ud53c 200"},
+        {"date": d0, "ticker": "LEV2", "name": "KODEX 200\ub808\ubc84\ub9ac\uc9c0", "underlying_index_name": "\ucf54\uc2a4\ud53c 200"},
+        {"date": d0, "ticker": "INV1", "name": "KODEX 200\uc778\ubc84\uc2a4", "underlying_index_name": "\ucf54\uc2a4\ud53c 200"},
+    ]
+    panel = pl.DataFrame(rows)
+
+    master = InstrumentMaster.build(panel, Taxonomy(rules=[]), {})
+
+    fk = master.attributes["PLUS1"].leverage_family_key
+    brute_force = {t for t, a in master.attributes.items() if a.leverage_family_key == fk}
+
+    assert set(master.family_members(fk)) == brute_force
+    assert "PLUS1" in master.family_members(fk)
+    assert master.family_members("__NO_SUCH_FAMILY_KEY__") == ()
+

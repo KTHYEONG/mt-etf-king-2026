@@ -102,15 +102,20 @@ def build_execution_adv(engine: BacktestEngine, tickers: list[str] | set[str] | 
     try:
         master = getattr(engine.universe, "master", None)
         if master is not None:
+            family_members_fn = getattr(master, "family_members", None)
             for t in list(all_tickers):
                 try:
                     attr = master.attributes.get(t)  # type: ignore[attr-defined]
                     if attr is not None:
                         fk = getattr(attr, "leverage_family_key", None)
                         if fk:
-                            for mt, matr in master.attributes.items():  # type: ignore[attr-defined]
-                                if getattr(matr, "leverage_family_key", None) == fk:
+                            if callable(family_members_fn):
+                                for mt in family_members_fn(str(fk)):
                                     all_tickers.add(str(mt))
+                            else:
+                                for mt, matr in master.attributes.items():  # type: ignore[attr-defined]
+                                    if getattr(matr, "leverage_family_key", None) == fk:
+                                        all_tickers.add(str(mt))
                 except Exception:
                     continue
     except Exception:

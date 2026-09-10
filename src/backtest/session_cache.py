@@ -37,18 +37,17 @@ def _build_open_map(panel: pl.DataFrame) -> dict[date, dict[str, float]]:
     out: dict[date, dict[str, float]] = {}
     if panel.height == 0 or not {"date", "ticker", "open"} <= set(panel.columns):
         return out
-    for row in panel.iter_rows(named=True):
-        d = row.get("date")
-        t = row.get("ticker")
-        o = row.get("open")
+    dates = panel["date"].to_list()
+    tickers = panel["ticker"].to_list()
+    opens = panel["open"].to_list()
+    for d, t, o in zip(dates, tickers, opens, strict=False):
         if d is None or t is None or o is None:
             continue
         try:
             of = float(o)
         except Exception:
             continue
-        t_str = str(t)
-        out.setdefault(d, {})[t_str] = of
+        out.setdefault(d, {})[str(t)] = of
     return out
 
 
