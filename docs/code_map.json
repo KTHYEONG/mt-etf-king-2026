@@ -302,11 +302,7 @@
     "testing": "tests/unit/data/test_validation.py"
   },
   "src/execution/cash_accounting.py": {
-    "testing": [
-      "tests/unit/execution/test_cash_accounting.py",
-      "tests/unit/strategies/test_inactive_participation_sleeve.py"
-    ],
-    "architecture": "docs/architecture/07-alpha-and-portfolio.md"
+    "testing": "tests/unit/execution/test_cash_accounting.py"
   },
   "src/execution/ledger.py": {
     "testing": "tests/unit/execution/test_ledger.py"
