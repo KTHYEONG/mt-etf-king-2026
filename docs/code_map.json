@@ -314,7 +314,10 @@
     "testing": "tests/unit/execution/test_ledger_state.py"
   },
   "src/execution/ledger_transition.py": {
-    "testing": "tests/unit/execution/test_ledger_transition.py"
+    "testing": [
+      "tests/unit/execution/test_ledger_transition.py",
+      "tests/unit/execution/test_ledger_priceless_session.py"
+    ]
   },
   "src/features/breadth.py": {
     "testing": "tests/unit/features/test_breadth.py"
