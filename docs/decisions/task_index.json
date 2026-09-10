@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "P27_LIVE_ROBUSTNESS_STAGE1",
+      "date": "2026-09-10",
+      "adr_id": "ADR_20260910_P27_LIVE_ROBUSTNESS_STAGE1",
+      "domain": "tournament",
+      "title": "P27 라이브 슬리브 데이터 기반 정합성 복구",
+      "why": "index_daily가 daily-refresh에서 갱신 안 되고 레거시 합성 KOSPI 시리즈(~1000)와 실제 코스피(~7000)가 이름 불일치로 섞여, 대회 전 기간 슬리브가 UNCERTAIN=CASH로 무증상 고정됨",
+      "resolution": "select_kospi_headline_series로 단일 실제 시리즈만 선택, assert_sleeve_inputs_fresh로 인덱스 결측시 fail-closed, daily-refresh에 kospi_index 수집 추가, 실제 코스피 전체 이력 백필+재검증",
+      "impact": "decide가 2026-09-08 기준 실제 포지션(0197W0)을 산출하도록 복구, CRASH_REBOUND 표본이 20->34세션으로 재산정되고 대회 시작 시점이 CRASH_REBOUND 국면임을 확인, F2(held 승계)/F3(익스포저·ADV 캡)/ETF패널 fail-closed는 후속 과제로 이관"
+    },
+    {
       "task_id": "ADR_20260909_DAILY_PIPELINE_AUTOMATION",
       "date": "2026-09-09",
       "adr_id": "ADR_20260909_ADR_20260909_DAILY_PIPELINE_AUTOMATION",
