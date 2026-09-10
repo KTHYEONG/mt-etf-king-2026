@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P27_SLEEVE_WIRING_CAPACITY_PARITY",
+      "date": "2026-09-10",
+      "adr_id": "ADR_20260910_P27_SLEEVE_WIRING_CAPACITY_PARITY",
+      "domain": "tournament",
+      "title": "P27 슬리브 배선·용량필터 정합성 복구",
+      "why": "연속경로 DecisionContext가 championship_sleeve를 미전달해 전 구간 CASH로 붕괴하고 익스포저 게이트가 공허 PASS되었으며, CRASH_REBOUND 라우트는 용량필터 없이 rebound_leader_scores를 그대로 써 비유동 +2X 종목을 골라 ADV캡으로 비중이 중위 0.27%까지 붕괴함",
+      "resolution": "engine_runner/engine_session의 DecisionContext에 championship_sleeve_from_cache 주입, model_runner의 rebound 라우트에 resolve_capacity_params+apply_capacity_filter 동일 적용, gross 지표가 체결 0인 퇴화경로에서 0 대신 None(측정불가)을 반환하도록 summarise_realised_exposure/aggregate_session_diagnostics/prefer_execution_gross_count 수정",
+      "impact": "채택런 재실행에서 trade_rows 0→7, effective_gross_max 0.0→2.0로 배선 복구 확인; CRASH_REBOUND 대박0%/파산0% 결론은 이 버그의 산물이었음이 밝혀져 재검증 필요; INV-18 한도(1.6 vs 1.9) 결정은 재검증 후 거버넌스 판단으로 이월"
+    },
+    {
       "task_id": "P27_LIVE_ROBUSTNESS_STAGE2",
       "date": "2026-09-10",
       "adr_id": "ADR_20260910_P27_LIVE_ROBUSTNESS_STAGE2",
