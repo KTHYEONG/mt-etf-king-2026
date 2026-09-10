@@ -104,7 +104,7 @@ def test_p22_score_collapses_then_top1() -> None:
         max_order_to_adv=0.01,
         stress_grid=(0.01, 0.02, 0.05),
     )
-    ctx = DecisionContext(decision_date=date(2025, 9, 22), regime=None, capital=1_000_000_000.0, held={"122630": 1.0}, rules=rules)
+    ctx = DecisionContext(decision_date=date(2025, 9, 22), regime=None, capital=1_000_000_000.0, held={"122630": 1.0}, rules=rules, championship_sleeve="LOTTERY_ON")
     p22 = BASELINES["sticky.family_peak_lock"]()
     scores = p22.score(snap, ctx)
     assert "123320" not in scores

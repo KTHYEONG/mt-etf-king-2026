@@ -96,12 +96,14 @@ def test_apply_impulse_switch_disabled_when_gap_zero() -> None:
 
 def test_apply_crash_cash_empties_on_drawdown() -> None:
     import polars as pl
+
     from src.alpha.sticky import StickyLeaderConfig, apply_crash_cash
+    from src.portfolio.intent import CASH_INTENT
 
     cfg = StickyLeaderConfig(cash_drawdown=-0.12)
     snap = pl.DataFrame({"ticker": ["HOLD"], "drawdown_20": [-0.15]})
     out = apply_crash_cash({"HOLD": 0.2}, "HOLD", snap, cfg)
-    assert out == {}
+    assert out is CASH_INTENT
 
 
 def test_apply_crash_cash_keeps_when_above_threshold() -> None:

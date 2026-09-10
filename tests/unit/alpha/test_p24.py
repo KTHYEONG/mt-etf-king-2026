@@ -60,7 +60,7 @@ def test_p24_score_uses_mom60_column() -> None:
         max_order_to_adv=0.01,
         stress_grid=(0.01, 0.02, 0.05),
     )
-    ctx = DecisionContext(decision_date=date(2026, 1, 2), regime=None, capital=1.0e9, held={}, rules=rules)
+    ctx = DecisionContext(decision_date=date(2026, 1, 2), regime=None, capital=1.0e9, held={}, rules=rules, championship_sleeve="LOTTERY_ON")
     p24 = BASELINES['sticky.mom60_peak_lock']()
     scores = p24.score(snap, ctx)
     w = weights_from_scores(scores, SizingScheme.TOP1, k=1)

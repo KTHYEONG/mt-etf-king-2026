@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 JsonDiag = dict[str, Any]
@@ -311,6 +312,48 @@ def _iter_contract_entries(contract: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return entries
+
+
+def _wiring_literal_spans(source: str, tree: ast.AST) -> list[tuple[int, int]]:
+    """Absolute [start, end) character offsets of every string-literal AST node in `source`."""
+    line_starts = [0]
+    for line in source.splitlines(keepends=True):
+        line_starts.append(line_starts[-1] + len(line))
+    spans: list[tuple[int, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node.end_lineno is None or node.end_col_offset is None:
+                continue
+            start = line_starts[node.lineno - 1] + node.col_offset
+            end = line_starts[node.end_lineno - 1] + node.end_col_offset
+            spans.append((start, end))
+    return spans
+
+
+def verify_wiring(path: Path, symbol: str, anchor: str) -> tuple[bool, str]:
+    """Reject a wiring anchor that only appears inside a string literal (a dead comment/mock),
+    accepting only an anchor that appears in genuine executable source."""
+    try:
+        source = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        return False, f"cannot read {path}: {exc}"
+    try:
+        tree = ast.parse(source, filename=str(path))
+    except SyntaxError as exc:
+        return False, f"syntax error in {path}: {exc}"
+    literal_spans = _wiring_literal_spans(source, tree)
+    found_any = False
+    idx = source.find(anchor)
+    while idx != -1:
+        found_any = True
+        end_idx = idx + len(anchor)
+        inside_literal = any(s <= idx and end_idx <= e for s, e in literal_spans)
+        if not inside_literal:
+            return True, ""
+        idx = source.find(anchor, idx + 1)
+    if found_any:
+        return False, f"'{anchor}' for symbol '{symbol}' appears only inside string literal(s) in {path}"
+    return False, f"'{anchor}' for symbol '{symbol}' not found in {path}"
 
 
 def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int, list[JsonDiag]]:

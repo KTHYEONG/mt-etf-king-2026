@@ -14,7 +14,7 @@ def test_p33_exits_only_after_confirmed_runner_reversal() -> None:
     rules = TournamentRules(name="t", start_date=date(2026, 9, 21), end_date=date(2026, 11, 13), initial_capital=1_000_000_000, category="autonomous", leverage_allowed=True, inverse_allowed=True, max_weight=1.0, cash_allowed=True, sponsor_etf_only=True, manifest_path=None, issuer_whitelist=None, commission_bps=3.0, slippage_bps=5.0, max_order_to_adv=0.01, stress_grid=(0.01,))
     model = BASELINES["sticky.mom60_runner_reversal"]()
     def context(day: int, capital: float) -> DecisionContext:
-        return DecisionContext(decision_date=date(2026, 9, 21) + timedelta(days=day), regime=None, capital=capital, held={"RUN": 0.95}, rules=rules)
+        return DecisionContext(decision_date=date(2026, 9, 21) + timedelta(days=day), regime=None, capital=capital, held={"RUN": 0.95}, rules=rules, championship_sleeve="LOTTERY_ON")
     strong = pl.DataFrame({"ticker": ["RUN"], "name": ["KODEX 반도체레버리지"], "mom_60": [0.40], "mom_5": [0.02], "volume_expansion": [1.0], "drawdown_20": [0.0], "trading_value": [1.0e12]})
     for day, capital in enumerate((100.0, 102.0, 104.0, 106.0, 108.0)):
         assert getattr(model.score(strong, context(day, capital)), "kind", None) != CASH_INTENT.kind
@@ -37,7 +37,7 @@ def test_p33_does_not_cash_before_confirmation_or_without_momentum_reversal() ->
     model = BASELINES["sticky.mom60_runner_reversal"]()
     snap = pl.DataFrame({"ticker": ["RUN"], "name": ["KODEX 반도체레버리지"], "mom_60": [0.40], "mom_5": [0.02], "volume_expansion": [1.0], "drawdown_20": [0.0], "trading_value": [1.0e12]})
     def call(day: int, capital: float) -> object:
-        return model.score(snap, DecisionContext(decision_date=date(2026, 9, 21) + timedelta(days=day), regime=None, capital=capital, held={"RUN": 0.95}, rules=rules))
+        return model.score(snap, DecisionContext(decision_date=date(2026, 9, 21) + timedelta(days=day), regime=None, capital=capital, held={"RUN": 0.95}, rules=rules, championship_sleeve="LOTTERY_ON"))
     assert getattr(call(0, 100.0), "kind", None) != CASH_INTENT.kind
     assert getattr(call(1, 105.0), "kind", None) != CASH_INTENT.kind
     assert getattr(call(2, 103.0), "kind", None) != CASH_INTENT.kind

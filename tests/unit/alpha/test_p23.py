@@ -63,7 +63,7 @@ def test_p23_allocate_splits_theme_leader() -> None:
         max_order_to_adv=0.01,
         stress_grid=(0.01, 0.02, 0.05),
     )
-    ctx = DecisionContext(decision_date=date(2025, 9, 22), regime=None, capital=1_000_000_000.0, held={}, rules=rules)
+    ctx = DecisionContext(decision_date=date(2025, 9, 22), regime=None, capital=1_000_000_000.0, held={}, rules=rules, championship_sleeve="LOTTERY_ON")
     p23 = BASELINES["sticky.split_fill_lock"]()
     scores = p23.score(snap, ctx)
     assert "494310" in scores
