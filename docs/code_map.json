@@ -78,6 +78,7 @@
   },
   "src/cli/commands/backtest/_prep.py": {
     "testing": [
+      "tests/unit/cli/test_backtest__core.py",
       "tests/unit/cli/test_backtest__prep.py",
       "tests/unit/cli/test_backtest_leverage_scenario.py",
       "tests/unit/cli/test_p26_adoption_wiring.py",
@@ -242,6 +243,8 @@
   "src/cli/context.py": {
     "testing": [
       "tests/unit/cli/test__impl.py",
+      "tests/unit/cli/test_backtest__core.py",
+      "tests/unit/cli/test_backtest__prep.py",
       "tests/unit/cli/test_cli_context.py",
       "tests/unit/cli/test_p27_adoption_wiring.py",
       "tests/unit/cli/test_r3_cli_split.py"
