@@ -482,17 +482,21 @@ def _hook_mom60_raw_allocate(state: _DecideState) -> None:
     from src.core.settings import get_settings
     from src.portfolio.sizing import SizingScheme
     from src.tournament.live_decision import (
+        apply_live_exposure_and_capacity_limits,
+        assert_panel_input_fresh,
         assert_sleeve_inputs_fresh,
         build_live_eligible_snapshot,
         compute_live_target_weights,
+        next_hold_len,
+        persist_sticky_state,
         resolve_live_championship_sleeve,
+        resolve_primary_ticker,
+        resolve_prior_sticky_state,
+        resolve_prior_trading_session,
     )
 
     panel = state.panel_loaded
-    if panel is None or getattr(panel, "height", 0) == 0:
-        state.weights = {}
-        state.decision_weights = None
-        return
+    assert_panel_input_fresh(panel, decision_date=state.decision_date)
     snapshot = build_live_eligible_snapshot(panel, decision_date=state.decision_date)
     try:
         data_root = get_settings().data_root
@@ -506,6 +510,25 @@ def _hook_mom60_raw_allocate(state: _DecideState) -> None:
 
     model: Any = _REG_P27["sticky.mom60_raw"]()
     model.reset_trackers()
+    data_root_for_state = get_settings().data_root
+    state_path = DataPaths(root=Path(str(data_root_for_state))).state("sticky_mom60_raw_position")
+    held_override = getattr(state.args, "held", None)
+    if held_override:
+        stripped = str(held_override).strip()
+        if stripped == "" or stripped.upper() in ("CASH", "NONE"):
+            held_ticker: str | None = None
+            held_weight = 0.0
+            prior_hold_len = 0
+        else:
+            held_ticker = stripped
+            held_weight = 1.0
+            prior_hold_len = 1
+    else:
+        prior_session = resolve_prior_trading_session(panel, decision_date=state.decision_date)
+        held_ticker, held_weight, prior_hold_len = resolve_prior_sticky_state(state_path, prior_session=prior_session)
+    if held_ticker is not None:
+        model.restore_state(held=held_ticker, hold_len=prior_hold_len)
+    held_map: dict[str, float] = {held_ticker: float(held_weight)} if held_ticker else {}
     rules = state.rules
     try:
         capital = float(getattr(rules, "initial_capital", 1_000_000_000))
@@ -515,18 +538,24 @@ def _hook_mom60_raw_allocate(state: _DecideState) -> None:
         model,
         snapshot,
         decision_date=state.decision_date,
-        held={},
+        held=held_map,
         capital=capital,
         rules=rules,
         championship_sleeve=sleeve,
         scheme=SizingScheme.TOP1,
         k=1,
     )
+    capped_weights = apply_live_exposure_and_capacity_limits(intent.weights, panel, held=held_map, decision_date=state.decision_date, capital=capital, strategy_id="sticky.mom60_raw")
     state.decision_weights = intent
-    state.weights = dict(intent.weights)
-    if intent.kind == "cash":
+    state.weights = capped_weights
+    if intent.kind == "cash" or not capped_weights:
         state.weights = {}
         state.peak_is_locked = True
+    new_held = resolve_primary_ticker(state.weights)
+    new_weight = float(state.weights.get(new_held, 0.0)) if new_held else 0.0
+    new_hold_len = next_hold_len(held_ticker, prior_hold_len, new_held)
+    recomputed_path = DataPaths(root=Path(str(get_settings().data_root))).state("sticky_mom60_raw_position")
+    persist_sticky_state(recomputed_path, as_of=state.decision_date, held=new_held, held_weight=new_weight, hold_len=new_hold_len)
 
 
 _ALLOCATE_HOOKS: Final[dict[str, Any]] = {

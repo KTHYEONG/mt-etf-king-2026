@@ -12,7 +12,10 @@ def test_hook_mom60_raw_allocate_wires_real_scoring_into_decide_state() -> None:
     from src.portfolio.intent import PortfolioIntent
 
     d = date(2026, 8, 27)
-    panel = pl.DataFrame({"date": [d], "ticker": ["999"], "mom_60": [0.05]}, schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64})
+    panel = pl.DataFrame(
+        {"date": [d], "ticker": ["999"], "mom_60": [0.05], "name": ["Test ETF"], "trading_value": [1e12]},
+        schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64, "name": pl.String, "trading_value": pl.Float64},
+    )
     # Given: a valid index row AT the decision date so assert_sleeve_inputs_fresh passes (R14)
     index_frame = pl.DataFrame(
         {"date": [d], "index_name": ["코스피"], "close": [7051.64]},
@@ -46,8 +49,9 @@ def test_hook_mom60_raw_allocate_wires_real_scoring_into_decide_state() -> None:
         _ALLOCATE_HOOKS["sticky.mom60_raw"](state)
 
     # Then: real model-driven weights (TOP1 on the only scored ticker), not a generic mom_20 scorer
+    # P27 Stage 2 (F3): exposure caps bind -> 1.0 capped to max_single_weight 0.95
     assert isinstance(state.decision_weights, PortfolioIntent)
-    assert state.weights == {"999": 1.0}
+    assert state.weights == {"999": 0.95}
 
 
 def test_hook_mom60_raw_allocate_surfaces_explicit_cash_intent() -> None:
@@ -90,47 +94,9 @@ def test_hook_mom60_raw_allocate_surfaces_explicit_cash_intent() -> None:
     assert state.peak_is_locked is True
 
 
-def test_hook_mom60_raw_allocate_empty_panel_yields_empty_weights() -> None:
-    from src.cli.commands.decide.models import _ALLOCATE_HOOKS, _DecideState
-
-    d = date(2026, 8, 27)
-    empty_panel = pl.DataFrame({"date": [], "ticker": [], "mom_60": []}, schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64})
-    state = _DecideState(
-        args=SimpleNamespace(capital=None),
-        model_arg="sticky.mom60_raw",
-        decision_date=d,
-        panel_loaded=empty_panel,
-        policy=SimpleNamespace(),
-        master=None,
-        rules=SimpleNamespace(initial_capital=1_000_000_000),
-        regime_str=None,
-        lev_allowed=None,
-        inv_allowed=None,
-    )
-
-    # When: panel has zero rows -> early return, no scoring attempted
-    _ALLOCATE_HOOKS["sticky.mom60_raw"](state)
-
-    # Then
-    assert state.weights == {}
-    assert state.decision_weights is None
-
-    # Then: panel_loaded is None -> the same early return
-    state2 = _DecideState(
-        args=SimpleNamespace(capital=None),
-        model_arg="sticky.mom60_raw",
-        decision_date=d,
-        panel_loaded=None,
-        policy=SimpleNamespace(),
-        master=None,
-        rules=SimpleNamespace(initial_capital=1_000_000_000),
-        regime_str=None,
-        lev_allowed=None,
-        inv_allowed=None,
-    )
-    _ALLOCATE_HOOKS["sticky.mom60_raw"](state2)
-    assert state2.weights == {}
-    assert state2.decision_weights is None
+# R15 (P27 Stage 2): test_hook_mom60_raw_allocate_empty_panel_yields_empty_weights
+# rewritten -> test_hook_mom60_raw_allocate_raises_stale_panel_on_missing_decision_date_row
+# (silent empty-panel early return removed per R2; total outage now raises StalePanelInputError)
 
 
 def test_hook_mom60_raw_allocate_falls_back_to_default_capital_on_bad_rules() -> None:
@@ -138,7 +104,10 @@ def test_hook_mom60_raw_allocate_falls_back_to_default_capital_on_bad_rules() ->
     from src.portfolio.intent import PortfolioIntent
 
     d = date(2026, 8, 27)
-    panel = pl.DataFrame({"date": [d], "ticker": ["999"], "mom_60": [0.05]}, schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64})
+    panel = pl.DataFrame(
+        {"date": [d], "ticker": ["999"], "mom_60": [0.05], "name": ["Test ETF"], "trading_value": [1e12]},
+        schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64, "name": pl.String, "trading_value": pl.Float64},
+    )
     state = _DecideState(
         args=SimpleNamespace(capital=None),
         model_arg="sticky.mom60_raw",
@@ -314,5 +283,189 @@ def test_cmd_decide_returns_1_on_stale_sleeve_input(capsys) -> None:
         rc = cmd_decide(args)
 
     # Then: loud failure, not a silent CASH dashboard (R12)
+    assert rc == 1
+    assert "PORTFOLIO" not in capsys.readouterr().out
+
+
+
+
+
+def test_hook_mom60_raw_allocate_raises_stale_panel_on_missing_decision_date_row() -> None:
+    from src.cli.commands.decide.models import _ALLOCATE_HOOKS, _DecideState
+    from src.tournament.live_decision import StalePanelInputError
+
+    d = date(2026, 8, 27)
+    empty_panel = pl.DataFrame({"date": [], "ticker": [], "mom_60": []}, schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64})
+    state = _DecideState(
+        args=SimpleNamespace(capital=None, held=None),
+        model_arg="sticky.mom60_raw",
+        decision_date=d,
+        panel_loaded=empty_panel,
+        policy=SimpleNamespace(),
+        master=None,
+        rules=SimpleNamespace(initial_capital=1_000_000_000),
+        regime_str=None,
+        lev_allowed=None,
+        inv_allowed=None,
+    )
+
+    with pytest.raises(StalePanelInputError):
+        _ALLOCATE_HOOKS["sticky.mom60_raw"](state)
+
+    # Then: panel_loaded is None -> the same fail-closed raise (R2)
+    state2 = _DecideState(
+        args=SimpleNamespace(capital=None, held=None),
+        model_arg="sticky.mom60_raw",
+        decision_date=d,
+        panel_loaded=None,
+        policy=SimpleNamespace(),
+        master=None,
+        rules=SimpleNamespace(initial_capital=1_000_000_000),
+        regime_str=None,
+        lev_allowed=None,
+        inv_allowed=None,
+    )
+    with pytest.raises(StalePanelInputError):
+        _ALLOCATE_HOOKS["sticky.mom60_raw"](state2)
+
+
+
+
+
+def test_hook_mom60_raw_allocate_carries_prior_state_and_persists_new_state(tmp_path) -> None:
+    from src.cli.commands.decide.models import _ALLOCATE_HOOKS, _DecideState
+    from src.portfolio.intent import PortfolioIntent
+    from src.tournament.live_decision import persist_sticky_state, resolve_prior_sticky_state
+
+    sessions = [date(2026, 8, 25), date(2026, 8, 26), date(2026, 8, 27)]
+    d = sessions[-1]
+    panel = pl.DataFrame(
+        [{"date": s, "ticker": "999", "mom_60": 0.05, "name": "Test ETF", "trading_value": 1e12} for s in sessions],
+        schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64, "name": pl.String, "trading_value": pl.Float64},
+    )
+
+    state_path = tmp_path / "state" / "sticky_mom60_raw_position.json"
+    persist_sticky_state(state_path, as_of=sessions[-2], held="999", held_weight=1.0, hold_len=1)
+
+    restore_calls = []
+
+    def _score(snapshot, ctx):
+        assert ctx.held == {"999": 1.0}
+        return {"999": 0.5}
+
+    fake_model = SimpleNamespace(
+        reset_trackers=lambda: None,
+        restore_state=lambda held, hold_len: restore_calls.append((held, hold_len)),
+        score=_score,
+    )
+
+    state = _DecideState(
+        args=SimpleNamespace(capital=None, held=None),
+        model_arg="sticky.mom60_raw",
+        decision_date=d,
+        panel_loaded=panel,
+        policy=SimpleNamespace(),
+        master=None,
+        rules=SimpleNamespace(initial_capital=1_000_000_000),
+        regime_str=None,
+        lev_allowed=None,
+        inv_allowed=None,
+    )
+
+    with (
+        patch("src.strategies.registry.STRATEGIES", {"sticky.mom60_raw": lambda: fake_model}),
+        patch("src.core.settings.get_settings", return_value=SimpleNamespace(data_root=tmp_path)),
+        patch("polars.read_parquet", return_value=pl.DataFrame({"date": [d], "index_name": ["\ucf54\uc2a4\ud53c"], "close": [7000.0]}, schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64})),
+    ):
+        _ALLOCATE_HOOKS["sticky.mom60_raw"](state)
+
+    # Then: prior state (from the day before decision_date) was restored into the model (R10)
+    assert restore_calls == [("999", 1)]
+    assert isinstance(state.decision_weights, PortfolioIntent)
+
+    # Then: a new state was persisted reflecting today's result, hold_len incremented (R11)
+    held, weight, hold_len = resolve_prior_sticky_state(state_path, prior_session=d)
+    assert held == "999"
+    assert hold_len == 2
+
+
+
+
+
+def test_hook_mom60_raw_allocate_applies_exposure_and_adv_caps() -> None:
+    from src.cli.commands.decide.models import _ALLOCATE_HOOKS, _DecideState
+
+    d = date(2026, 8, 27)
+    panel = pl.DataFrame(
+        {
+            "date": [d],
+            "ticker": ["412570"],
+            "mom_60": [0.05],
+            "name": ["TIGER 2\ucc28\uc804\uc9c0TOP10\ub808\ubc84\ub9ac\uc9c0"],
+            "trading_value": [1_000_000.0],
+        },
+        schema={"date": pl.Date, "ticker": pl.String, "mom_60": pl.Float64, "name": pl.String, "trading_value": pl.Float64},
+    )
+    fake_model = SimpleNamespace(
+        reset_trackers=lambda: None,
+        restore_state=lambda held, hold_len: None,
+        score=lambda snapshot, ctx: {"412570": 0.5},
+    )
+    state = _DecideState(
+        args=SimpleNamespace(capital=None, held=None),
+        model_arg="sticky.mom60_raw",
+        decision_date=d,
+        panel_loaded=panel,
+        policy=SimpleNamespace(),
+        master=None,
+        rules=SimpleNamespace(initial_capital=1_000_000_000),
+        regime_str=None,
+        lev_allowed=None,
+        inv_allowed=None,
+    )
+
+    with (
+        patch("src.strategies.registry.STRATEGIES", {"sticky.mom60_raw": lambda: fake_model}),
+        patch("src.core.settings.get_settings", return_value=SimpleNamespace(data_root="data")),
+        patch(
+            "polars.read_parquet",
+            return_value=pl.DataFrame(
+                {"date": [d], "index_name": ["\ucf54\uc2a4\ud53c"], "close": [7051.64]},
+                schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+            ),
+        ),
+    ):
+        _ALLOCATE_HOOKS["sticky.mom60_raw"](state)
+
+    # Then: capped far below the raw TOP1 100% because ADV (1M) x 1% << 1B capital target
+    assert state.weights.get("412570", 0.0) < 0.05
+
+
+
+
+
+def test_cmd_decide_returns_1_on_stale_panel_input(capsys) -> None:
+    from src.cli import cmd_decide
+    from src.cli.commands.decide import models as decide_models
+    from src.tournament.live_decision import StalePanelInputError
+
+    d = date(2026, 9, 9)
+    panel = pl.DataFrame(
+        {"date": [d], "ticker": ["412570"], "close": [1191.0]},
+        schema={"date": pl.Date, "ticker": pl.String, "close": pl.Float64},
+    )
+
+    def _stale_hook(state):
+        raise StalePanelInputError("panel inputs stale at 2026-09-09")
+
+    args = argparse.Namespace(model="sticky.mom60_raw", date="2026-09-09", panel=None, capital=None, held=None, output=None, trace=False)
+
+    with (
+        patch.dict(decide_models._ALLOCATE_HOOKS, {"sticky.mom60_raw": _stale_hook}),
+        patch("src.cli.commands.decide._load_panel_for_backtest", return_value=panel),
+        patch("src.cli.commands.decide._scores_from_deployment_universe", return_value={"412570": 0.5}),
+    ):
+        rc = cmd_decide(args)
+
     assert rc == 1
     assert "PORTFOLIO" not in capsys.readouterr().out

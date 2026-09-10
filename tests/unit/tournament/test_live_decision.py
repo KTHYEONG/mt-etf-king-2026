@@ -263,3 +263,324 @@ def test_assert_sleeve_inputs_fresh_passes_and_preserves_legitimate_uncertain() 
 
     # Then: insufficient history is still a legitimate UNCERTAIN, not an error (R7)
     assert resolve_live_championship_sleeve(frame, d) == "UNCERTAIN"
+
+
+
+import polars as pl
+
+
+def test_assert_panel_input_fresh_raises_on_empty_or_missing_row() -> None:
+    from src.tournament.live_decision import StalePanelInputError, assert_panel_input_fresh
+
+    d = date(2026, 9, 9)
+
+    empty = pl.DataFrame({"date": [], "ticker": []}, schema={"date": pl.Date, "ticker": pl.String})
+    with pytest.raises(StalePanelInputError, match="2026-09-09"):
+        assert_panel_input_fresh(empty, decision_date=d)
+
+    with pytest.raises(StalePanelInputError):
+        assert_panel_input_fresh(None, decision_date=d)  # type: ignore[arg-type]
+
+    stale = pl.DataFrame(
+        {"date": [date(2026, 9, 8)], "ticker": ["999"]},
+        schema={"date": pl.Date, "ticker": pl.String},
+    )
+    with pytest.raises(StalePanelInputError):
+        assert_panel_input_fresh(stale, decision_date=d)
+
+    # Then: non-empty panel with NO 'date' column at all also fails closed
+    no_date_col = pl.DataFrame({"ticker": ["999"]}, schema={"ticker": pl.String})
+    with pytest.raises(StalePanelInputError):
+        assert_panel_input_fresh(no_date_col, decision_date=d)
+
+
+
+import polars as pl
+
+
+def test_assert_panel_input_fresh_passes_when_decision_date_row_present() -> None:
+    from src.tournament.live_decision import assert_panel_input_fresh
+
+    d = date(2026, 9, 8)
+    panel = pl.DataFrame(
+        {"date": [date(2026, 9, 7), d], "ticker": ["999", "999"]},
+        schema={"date": pl.Date, "ticker": pl.String},
+    )
+
+    assert assert_panel_input_fresh(panel, decision_date=d) is None
+
+
+
+import polars as pl
+
+
+def test_resolve_prior_trading_session_returns_immediately_preceding_session() -> None:
+    from src.tournament.live_decision import resolve_prior_trading_session
+
+    sessions = [date(2026, 8, 24) + timedelta(days=i) for i in range(4)]
+    rows = [{"date": s, "ticker": "111"} for s in sessions]
+    panel = pl.DataFrame(rows, schema={"date": pl.Date, "ticker": pl.String})
+
+    assert resolve_prior_trading_session(panel, decision_date=sessions[-1]) == sessions[-2]
+
+    # Then: decision_date is the earliest session -> no prior session
+    assert resolve_prior_trading_session(panel, decision_date=sessions[0]) is None
+
+    # Then: empty panel -> None
+    empty = pl.DataFrame({"date": [], "ticker": []}, schema={"date": pl.Date, "ticker": pl.String})
+    assert resolve_prior_trading_session(empty, decision_date=sessions[-1]) is None
+
+    # Then: non-DataFrame input -> None
+    assert resolve_prior_trading_session(object(), decision_date=sessions[-1]) is None  # type: ignore[arg-type]
+
+    # Then: panel missing the 'date' column -> None
+    no_date_col = pl.DataFrame({"ticker": ["111"]}, schema={"ticker": pl.String})
+    assert resolve_prior_trading_session(no_date_col, decision_date=sessions[-1]) is None
+
+    # Then: panel's earliest date is AFTER decision_date -> None
+    future_panel = pl.DataFrame({"date": [date(2027, 1, 2)], "ticker": ["111"]}, schema={"date": pl.Date, "ticker": pl.String})
+    assert resolve_prior_trading_session(future_panel, decision_date=sessions[0]) is None
+
+    # Then: 'date' column exists but its min() is not a date (e.g. all-null) -> None
+    null_date_panel = pl.DataFrame({"date": [None], "ticker": ["111"]}, schema={"date": pl.Date, "ticker": pl.String})
+    assert resolve_prior_trading_session(null_date_panel, decision_date=sessions[0]) is None
+
+
+
+
+def test_resolve_prior_sticky_state_round_trips_via_persist(tmp_path) -> None:
+    from src.tournament.live_decision import persist_sticky_state, resolve_prior_sticky_state
+
+    p = tmp_path / "sticky_mom60_raw_position.json"
+    d = date(2026, 9, 8)
+
+    persist_sticky_state(p, as_of=d, held="412570", held_weight=0.83, hold_len=2)
+
+    held, weight, hold_len = resolve_prior_sticky_state(p, prior_session=d)
+    assert held == "412570"
+    assert weight == 0.83
+    assert hold_len == 2
+
+
+
+
+def test_resolve_prior_sticky_state_fails_closed_on_discontinuity_or_corruption(tmp_path) -> None:
+    from src.tournament.live_decision import persist_sticky_state, resolve_prior_sticky_state
+
+    missing = tmp_path / "missing.json"
+    assert resolve_prior_sticky_state(missing, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: persisted as_of does not match the requested prior_session (a gap) -> reset
+    p = tmp_path / "gap.json"
+    persist_sticky_state(p, as_of=date(2026, 9, 4), held="412570", held_weight=1.0, hold_len=3)
+    assert resolve_prior_sticky_state(p, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: malformed JSON -> reset
+    corrupt = tmp_path / "corrupt.json"
+    corrupt.write_text("{not valid json", encoding="utf-8")
+    assert resolve_prior_sticky_state(corrupt, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: prior_session=None (no prior trading session resolvable) -> reset without touching disk
+    assert resolve_prior_sticky_state(p, prior_session=None) == (None, 0.0, 0)
+
+    # Then: valid JSON that is not a dict (e.g. a list) -> reset
+    not_a_dict = tmp_path / "not_a_dict.json"
+    not_a_dict.write_text("[1, 2, 3]", encoding="utf-8")
+    assert resolve_prior_sticky_state(not_a_dict, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: as_of present but not a string -> reset
+    bad_as_of = tmp_path / "bad_as_of.json"
+    bad_as_of.write_text('{"as_of": 20260908, "held": "412570", "held_weight": 1.0, "hold_len": 1}', encoding="utf-8")
+    assert resolve_prior_sticky_state(bad_as_of, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: as_of is a string but not a valid ISO date -> reset (date.fromisoformat ValueError)
+    unparseable_as_of = tmp_path / "unparseable_as_of.json"
+    unparseable_as_of.write_text('{"as_of": "not-a-date", "held": "412570", "held_weight": 1.0, "hold_len": 1}', encoding="utf-8")
+    assert resolve_prior_sticky_state(unparseable_as_of, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: held_weight present but not convertible to float (e.g. a string) -> reset
+    unconvertible_weight = tmp_path / "unconvertible_weight.json"
+    unconvertible_weight.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": "abc", "hold_len": 1}', encoding="utf-8")
+    assert resolve_prior_sticky_state(unconvertible_weight, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: hold_len present but not convertible to int (e.g. a string) -> reset
+    unconvertible_hold_len = tmp_path / "unconvertible_hold_len.json"
+    unconvertible_hold_len.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": 1.0, "hold_len": "abc"}', encoding="utf-8")
+    assert resolve_prior_sticky_state(unconvertible_hold_len, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: held present but not None/str (e.g. a number) -> reset
+    bad_held = tmp_path / "bad_held.json"
+    bad_held.write_text('{"as_of": "2026-09-08", "held": 412570, "held_weight": 1.0, "hold_len": 1}', encoding="utf-8")
+    assert resolve_prior_sticky_state(bad_held, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: held explicitly null (legitimate CASH state) -> reset to (None, 0.0, 0), same result
+    null_held = tmp_path / "null_held.json"
+    null_held.write_text('{"as_of": "2026-09-08", "held": null, "held_weight": 0.0, "hold_len": 0}', encoding="utf-8")
+    assert resolve_prior_sticky_state(null_held, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: held_weight is a bool (not a legitimate numeric) -> reset
+    bool_weight = tmp_path / "bool_weight.json"
+    bool_weight.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": true, "hold_len": 1}', encoding="utf-8")
+    assert resolve_prior_sticky_state(bool_weight, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: held_weight is non-finite -> reset
+    nonfinite_weight = tmp_path / "nonfinite_weight.json"
+    nonfinite_weight.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": NaN, "hold_len": 1}', encoding="utf-8")
+    assert resolve_prior_sticky_state(nonfinite_weight, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: hold_len is a bool -> reset
+    bool_hold_len = tmp_path / "bool_hold_len.json"
+    bool_hold_len.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": 1.0, "hold_len": true}', encoding="utf-8")
+    assert resolve_prior_sticky_state(bool_hold_len, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: hold_len is negative -> reset
+    negative_hold_len = tmp_path / "negative_hold_len.json"
+    negative_hold_len.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": 1.0, "hold_len": -1}', encoding="utf-8")
+    assert resolve_prior_sticky_state(negative_hold_len, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+    # Then: hold_len is a non-integer float -> reset
+    fractional_hold_len = tmp_path / "fractional_hold_len.json"
+    fractional_hold_len.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": 1.0, "hold_len": 1.5}', encoding="utf-8")
+    assert resolve_prior_sticky_state(fractional_hold_len, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+
+
+def test_persist_sticky_state_degrades_safely_on_write_failure(tmp_path, caplog) -> None:
+    from src.tournament.live_decision import persist_sticky_state
+
+    # Given: a path whose parent cannot be created (a file, not a directory, in its place)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("i am a file, not a directory", encoding="utf-8")
+    bad_path = blocker / "sticky_mom60_raw_position.json"
+
+    # When/Then: does not raise, degrades safely
+    assert persist_sticky_state(bad_path, as_of=date(2026, 9, 8), held="412570", held_weight=1.0, hold_len=1) is None
+
+
+def test_next_hold_len_transitions() -> None:
+    from src.tournament.live_decision import next_hold_len
+
+    assert next_hold_len("412570", 2, "412570") == 3
+    assert next_hold_len("412570", 2, "462330") == 1
+    assert next_hold_len(None, 0, "412570") == 1
+    assert next_hold_len("412570", 2, None) == 0
+
+
+def test_resolve_primary_ticker_deterministic_tiebreak() -> None:
+    from src.tournament.live_decision import resolve_primary_ticker
+
+    assert resolve_primary_ticker({}) is None
+    assert resolve_primary_ticker({"412570": 0.6, "462330": 0.4}) == "412570"
+    assert resolve_primary_ticker({"462330": 0.5, "412570": 0.5}) == "412570"
+
+
+
+import polars as pl
+
+
+def test_apply_live_exposure_and_capacity_limits_caps_leverage_gross_and_min_cash() -> None:
+    from src.tournament.live_decision import apply_live_exposure_and_capacity_limits
+
+    d = date(2026, 9, 8)
+    panel = pl.DataFrame(
+        {
+            "date": [d],
+            "ticker": ["412570"],
+            "name": ["TIGER 2\ucc28\uc804\uc9c0TOP10\ub808\ubc84\ub9ac\uc9c0"],
+            "trading_value": [10_000_000_000.0],
+        },
+        schema={"date": pl.Date, "ticker": pl.String, "name": pl.String, "trading_value": pl.Float64},
+    )
+
+    # Given: a huge capital + ADV so the exposure caps bind before the ADV cap does
+    out = apply_live_exposure_and_capacity_limits(
+        {"412570": 1.0},
+        panel,
+        held={},
+        decision_date=d,
+        capital=1_000.0,
+        strategy_id="sticky.mom60_raw",
+    )
+
+    assert out["412570"] <= 0.95 + 1e-9
+    # gross exposure (2x multiplier) must not exceed 1.9
+    assert out["412570"] * 2.0 <= 1.9 + 1e-9
+
+
+
+import polars as pl
+
+
+def test_apply_live_exposure_and_capacity_limits_caps_adv_delta_from_held() -> None:
+    from src.tournament.live_decision import P27_ADOPTED_MAX_ORDER_TO_ADV, apply_live_exposure_and_capacity_limits
+
+    d = date(2026, 9, 8)
+    adv = 100_000_000.0
+    capital = 1_000_000_000_000.0
+    panel = pl.DataFrame(
+        {"date": [d], "ticker": ["069500"], "name": ["KODEX 200"], "trading_value": [adv]},
+        schema={"date": pl.Date, "ticker": pl.String, "name": pl.String, "trading_value": pl.Float64},
+    )
+
+    out = apply_live_exposure_and_capacity_limits(
+        {"069500": 0.95},
+        panel,
+        held={},
+        decision_date=d,
+        capital=capital,
+        strategy_id="sticky.mom60_raw",
+    )
+
+    max_delta_w = (adv * P27_ADOPTED_MAX_ORDER_TO_ADV) / capital
+    assert out.get("069500", 0.0) <= max_delta_w + 1e-9
+    assert out.get("069500", 0.0) < 0.95
+
+
+
+import polars as pl
+
+
+def test_apply_live_exposure_and_capacity_limits_raises_on_missing_name() -> None:
+    from src.tournament.live_decision import apply_live_exposure_and_capacity_limits
+
+    d = date(2026, 9, 8)
+    panel = pl.DataFrame(
+        {"date": [d], "ticker": ["999"], "name": ["Other"], "trading_value": [1_000_000.0]},
+        schema={"date": pl.Date, "ticker": pl.String, "name": pl.String, "trading_value": pl.Float64},
+    )
+
+    with pytest.raises(ValueError, match="412570"):
+        apply_live_exposure_and_capacity_limits(
+            {"412570": 1.0}, panel, held={}, decision_date=d, capital=1_000_000_000.0, strategy_id="sticky.mom60_raw"
+        )
+
+    # Then: empty weights short-circuits before any panel access (R8)
+    assert apply_live_exposure_and_capacity_limits({}, panel, held={}, decision_date=d, capital=1.0, strategy_id="sticky.mom60_raw") == {}
+
+
+def test_apply_live_exposure_and_capacity_limits_skips_tickers_with_no_adv_history() -> None:
+    from src.tournament.live_decision import apply_live_exposure_and_capacity_limits
+
+    d = date(2026, 9, 8)
+    # "412570" has valid trading_value; "999" (held, not in weights) has NO rows at all in
+    # the ADV window; "462330" has a row but trading_value is null. Both must be safely
+    # skipped (fail-closed: omitted from adv_by_ticker, never defaulted to 0).
+    panel = pl.DataFrame(
+        {
+            "date": [d, d, d],
+            "ticker": ["412570", "462330", "999"],
+            "name": ["TIGER 2차전지TOP10레버리지", "Other ETF", "Held ETF (delisted from ADV window)"],
+            "trading_value": [10_000_000_000.0, None, None],
+        },
+        schema={"date": pl.Date, "ticker": pl.String, "name": pl.String, "trading_value": pl.Float64},
+    )
+
+    out = apply_live_exposure_and_capacity_limits(
+        {"412570": 0.5, "462330": 0.0},
+        panel,
+        held={"999": 0.0},
+        decision_date=d,
+        capital=1_000.0,
+        strategy_id="sticky.mom60_raw",
+    )
+
+    assert "412570" in out

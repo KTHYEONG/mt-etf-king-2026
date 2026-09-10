@@ -167,7 +167,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
             inv_allowed=_inv_allowed,
         )
         # Per-model allocation (split-fill has its own path; others share).
-        from src.tournament.live_decision import StaleSleeveInputError
+        from src.tournament.live_decision import StalePanelInputError, StaleSleeveInputError
 
         try:
             allocate_hook = _ALLOCATE_HOOKS.get(_model_arg or "")
@@ -179,7 +179,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 except TypeError:
                     state.decision_weights = policy.allocate(scores)
                 state.weights = state.decision_weights.weights if hasattr(state.decision_weights, "weights") else {}
-        except StaleSleeveInputError as exc:
+        except (StaleSleeveInputError, StalePanelInputError) as exc:
             logger.error(f"[SYS] decide status=fail reason=stale_sleeve_input {exc}")
             return 1
         # apply peak lock cash overlay if active

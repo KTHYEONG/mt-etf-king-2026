@@ -112,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_dec.add_argument("--panel", required=False, help="panel path")
     p_dec.add_argument("--model", required=False, default=None, help="model key")
     p_dec.add_argument("--capital", type=float, default=None)
+    p_dec.add_argument("--held", required=False, default=None, help="override auto-detected prior position (ticker, or CASH for no position)")
     p_dec.set_defaults(func=cmd_decide)
     # daily-refresh
     p_ref = sub.add_parser("daily-refresh", help="ingest+normalize+features (optional decide) daily batch")

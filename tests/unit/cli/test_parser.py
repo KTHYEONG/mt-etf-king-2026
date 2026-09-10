@@ -54,3 +54,13 @@ def test_parser_daily_refresh_accepts_overrides() -> None:
     assert args.decide is True
     assert args.output_dir == "custom/dir"
 
+
+
+def test_parser_decide_accepts_held_override() -> None:
+    from src.cli.parser import build_parser
+
+    default_args = build_parser().parse_args(["decide"])
+    assert default_args.held is None
+
+    override_args = build_parser().parse_args(["decide", "--held", "CASH"])
+    assert override_args.held == "CASH"
