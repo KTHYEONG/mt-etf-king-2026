@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_INACTIVE_REGIME_PARTICIPATION_SLEEVE",
+      "date": "2026-09-10",
+      "adr_id": "ADR_20260910_INACTIVE_REGIME_PARTICIPATION_SLEEVE",
+      "domain": "tournament",
+      "title": "INACTIVE 국면 참여 슬리브 및 체결가중치 회계 결함 수정",
+      "why": "P27이 INACTIVE 국면(전체 윈도우 71%)에서 전액현금으로 우승바 기회를 방기했고, 별도로 cash_accounting의 Fill.target_weight가 ADV/노출한도 캡을 무시한 채 의도목표비중을 그대로 기록하는 결함이 회귀테스트를 깨뜨린 채 방치되어 있었음",
+      "resolution": "sticky.mom60_inactive_participate 신규 전략(용량우선+rv20 변동성추구+캠페인 손절)을 research-only 게이트로 등록하고 cash_accounting의 두 체결루프가 실제 달성비중을 기록하도록 수정",
+      "impact": "전구간 재실행 결과 신규 전략은 P>30/40/50 전부 악화(6.78→6.49%, 5.92→5.30%, 4.96→4.20%)로 G1 게이트 실패해 미승격 결정, sticky held/hold_len 상태가 라우트 구분없이 공유되어 국면전환시 오염되는 것이 유력 원인으로 후속조사 필요; 회계결함 수정은 독립적으로 검증완료(회귀 무영향)"
+    },
+    {
       "task_id": "TASK_P27_SLEEVE_WIRING_CAPACITY_PARITY",
       "date": "2026-09-10",
       "adr_id": "ADR_20260910_P27_SLEEVE_WIRING_CAPACITY_PARITY",
