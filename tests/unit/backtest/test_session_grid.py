@@ -99,3 +99,28 @@ def test_resolve_session_grid_swallows_panel_iteration_errors() -> None:
     with patch.object(pl.DataFrame, "__getitem__", side_effect=RuntimeError("boom")):
         grid = resolve_session_grid(sessions, panel)
     assert grid.phantom == (date(2026, 6, 2),)
+
+
+
+
+
+def test_resolve_session_grid_min_rows_threshold_vectorized() -> None:
+    from src.backtest.session_grid import resolve_session_grid
+
+    # Given: 2026-06-02 has 2 panel rows, 2026-06-03 has only 1
+    sessions = [date(2026, 6, 2), date(2026, 6, 3)]
+    panel = pl.DataFrame(
+        {
+            "date": [date(2026, 6, 2), date(2026, 6, 2), date(2026, 6, 3)],
+            "ticker": ["A", "B", "A"],
+            "close": [100.0, 101.0, 102.0],
+        }
+    )
+
+    # When: min_rows requires at least 2 rows per session
+    grid = resolve_session_grid(sessions, panel, min_rows=2)
+
+    # Then: only the 2-row session survives
+    assert grid.sessions == (date(2026, 6, 2),)
+    assert grid.phantom == (date(2026, 6, 3),)
+

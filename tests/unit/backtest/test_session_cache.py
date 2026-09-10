@@ -151,3 +151,37 @@ def test_session_inputs_propagates_engine_championship_sleeves() -> None:
     model = type("M", (), {"name": "m", "scores_path_independent": True})()
     cache = build_session_cache(engine, model, panel, config)
     assert cache.championship_sleeves == {sessions[0]: "LOTTERY_ON"}
+
+
+
+
+from src.backtest.session_cache import _build_open_map
+
+
+def test_build_open_map_matches_row_values() -> None:
+    d0 = date(2026, 1, 2)
+    d1 = date(2026, 1, 5)
+    panel = pl.DataFrame(
+        [
+            {"date": d0, "ticker": "A", "open": 100.0},
+            {"date": d0, "ticker": "B", "open": 200.0},
+            {"date": d1, "ticker": "A", "open": 110.0},
+            {"date": d1, "ticker": "B", "open": None},
+        ]
+    )
+
+    omap = _build_open_map(panel)
+
+    assert omap[d0]["A"] == 100.0
+    assert omap[d0]["B"] == 200.0
+    assert omap[d1]["A"] == 110.0
+    assert "B" not in omap[d1]
+
+
+
+
+
+def test_build_open_map_empty_panel_returns_empty_dict() -> None:
+    assert _build_open_map(pl.DataFrame({"date": [], "ticker": [], "open": []})) == {}
+    assert _build_open_map(pl.DataFrame({"date": [], "ticker": []})) == {}
+

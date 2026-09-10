@@ -102,6 +102,13 @@ class InstrumentMaster:
     def __init__(self, attributes: Mapping[str, InstrumentAttributes], panel_start: date) -> None:
         self._attributes: dict[str, InstrumentAttributes] = dict(attributes)
         self._panel_start = panel_start
+        family_index: dict[str, list[str]] = {}
+        for ticker, attr in self._attributes.items():
+            fk = str(attr.leverage_family_key)
+            family_index.setdefault(fk, []).append(ticker)
+        self._family_index: dict[str, tuple[str, ...]] = {
+            fk: tuple(sorted(members)) for fk, members in family_index.items()
+        }
 
     @property
     def attributes(self) -> Mapping[str, InstrumentAttributes]:
@@ -110,6 +117,9 @@ class InstrumentMaster:
     @property
     def panel_start(self) -> date:
         return self._panel_start
+
+    def family_members(self, family_key: str) -> tuple[str, ...]:
+        return self._family_index.get(str(family_key), ())
 
     @classmethod
     def build(
@@ -153,18 +163,15 @@ class InstrumentMaster:
         # Use group_by to get last name
         # Simpler: iterate tickers, filter panel for ticker and take row with max date
         attributes: dict[str, InstrumentAttributes] = {}
-        # Precompute for performance: sort panel?
-        # We'll use python loop over tickers
+        # InstrumentMaster.build 벡터화: 티커당 filter+sort+row() 대신 sort 1회 + group_by().last() 1회로
+        # 전체 패널 스캔을 1회로 축소 (INV-PERF: 기존 O(n_tickers) 스캔).
+        last_row_by_ticker: dict[str, dict[str, object]] = {}
+        for _row in panel.sort("date", maintain_order=True).group_by("ticker", maintain_order=True).last().iter_rows(named=True):
+            last_row_by_ticker[str(_row["ticker"])] = _row
         for ticker, first_seen in first_map.items():
             last_seen = last_map[ticker]
             left_censored = first_seen == panel_start
-            # get rows for ticker
-            sub = panel.filter(pl.col("ticker") == ticker)
-            # pick row with max date (last_seen); if multiple rows same date, take last
-            # Sort by date
-            sub_sorted = sub.sort("date")
-            # take last row
-            last_row = sub_sorted.row(sub_sorted.height - 1, named=True) if sub_sorted.height > 0 else {}
+            last_row = last_row_by_ticker.get(ticker, {})
             name = str(last_row.get("name") or "")
             idx_nm = last_row.get("underlying_index_name")
             # fallback column name may be 'underlying_index_name' or 'IDX_IND_NM'

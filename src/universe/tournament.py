@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -30,6 +31,12 @@ class _UnknownRule:
 UNKNOWN: Final[_UnknownRule] = _UnknownRule()
 
 
+@functools.lru_cache(maxsize=32)
+def _load_tournament_yaml(path: Path) -> object:
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
 @dataclass(frozen=True)
 class TournamentRules:
     name: str
@@ -51,8 +58,7 @@ class TournamentRules:
 
     @classmethod
     def from_yaml(cls, path: Path) -> TournamentRules:
-        with open(path, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
+        raw = _load_tournament_yaml(path)
         # tournament may be nested under 'tournament'
         data = raw.get("tournament") if isinstance(raw, dict) and "tournament" in raw else raw
         if not isinstance(data, dict):
