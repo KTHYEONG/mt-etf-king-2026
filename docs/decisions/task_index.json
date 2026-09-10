@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_BACKTEST_PANEL_BOUNDING",
+      "date": "2026-09-11",
+      "adr_id": "ADR_20260911_BACKTEST_PANEL_BOUNDING",
+      "domain": "backtest_engine",
+      "title": "백테스트 패널 lookback 절단",
+      "why": "요청 구간과 무관하게 항상 전체 8년치 패널을 로드해 세션당 필터 비용이 패널 크기에 비례했고, 고정 배수 lookback이나 전 티커 대상 정확 경계는 실증상 안전하지 않음(폐지종목/저유동성종목 오염)을 probe에서 확인",
+      "resolution": "bound_backtest_panel 신규: live 티커(last_seen>=start & first_seen<=end)로 스코프 제한 후 티커별 adv_window 적격관측치 walk-back으로 전역 lookback_start 계산, InstrumentMaster는 절단 전 전체 패널로 유지, 빈 결과는 전체 패널로 폴백",
+      "impact": "9개 시대/엣지케이스에서 [EVAL] 지문 비트동일 확인(실 CLI로 직접 재검증); 과거구간 5.6~69배, 최근구간(토너먼트 인접) 1.07~1.3배로 정직하게 소폭이며 grid 프로토콜과 곱셈적으로 중첩(~1.19배); 실데이터 없는 구간 요청 시 synthetic-panel 폴백 오발동 버그를 함께 발견·수정"
+    },
+    {
       "task_id": "TASK_BACKTEST_PERF_ROUND2",
       "date": "2026-09-10",
       "adr_id": "ADR_20260910_BACKTEST_PERF_ROUND2",
