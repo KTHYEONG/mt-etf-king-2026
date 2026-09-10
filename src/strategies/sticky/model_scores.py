@@ -253,6 +253,86 @@ def apply_sticky_leader(
     return out
 
 
+def inactive_leader_scores(snapshot: pl.DataFrame, *, capital: float, max_order_to_adv: float, min_weight: float, score_col: str = "rv_20", max_single_weight: float = 0.95, max_gross_exposure: float = 1.90, adv_col: str = "trading_value") -> dict[str, float]:
+    try:
+        cap = float(capital)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return {}
+    try:
+        phi = float(max_order_to_adv)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return {}
+    try:
+        min_w = float(min_weight)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return {}
+    try:
+        msw = float(max_single_weight)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return {}
+    try:
+        mge = float(max_gross_exposure)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return {}
+    for v in (cap, phi, min_w, msw, mge):
+        if not math.isfinite(v) or v <= 0:
+            return {}
+    if not isinstance(snapshot, pl.DataFrame):
+        return {}
+    if snapshot.height == 0:
+        return {}
+    cols = snapshot.columns
+    if "ticker" not in cols or "name" not in cols or score_col not in cols:
+        return {}
+    liq_col = "adv" if "adv" in cols else adv_col
+    use_liq = liq_col in cols
+    best_ticker: str | None = None
+    best_score: float = float("-inf")
+    for row in snapshot.iter_rows(named=True):
+        ticker = row.get("ticker")
+        name = row.get("name")
+        if ticker is None or name is None:
+            continue
+        t = str(ticker)
+        n = str(name)
+        if not t or not n:
+            continue
+        if "(합성" in n:
+            continue
+        lev, _conf = resolve_leverage(n)
+        if lev != 2:
+            continue
+        raw_score = row.get(score_col)
+        if raw_score is None:
+            continue
+        try:
+            sc = float(raw_score)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(sc):
+            continue
+        if not use_liq:
+            continue
+        raw_adv = row.get(liq_col)
+        if raw_adv is None:
+            continue
+        try:
+            adv = float(raw_adv)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(adv):
+            continue
+        achievable = min(float(msw), float(adv) * float(phi) / float(cap), float(mge) / 2.0)
+        if not math.isfinite(achievable) or achievable < float(min_w):
+            continue
+        if best_ticker is None or sc > best_score or (sc == best_score and t < best_ticker):
+            best_ticker = t
+            best_score = float(sc)
+    if best_ticker is None:
+        return {}
+    return {best_ticker: float(best_score)}
+
+
 def rebound_leader_scores(snapshot: pl.DataFrame) -> dict[str, float]:
     if not isinstance(snapshot, pl.DataFrame):
         return {}

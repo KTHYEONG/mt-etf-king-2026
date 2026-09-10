@@ -13,6 +13,7 @@ CUTOFF_AUC_THRESHOLDS: Final[tuple[float, ...]] = (0.40, 0.45, 0.50, 0.55, 0.60)
 CUTOFF_AUC_LOW: Final[float] = 0.40
 CUTOFF_AUC_HIGH: Final[float] = 0.55
 CUTOFF_AUC_IS_PRODUCTION_GATE: Final[bool] = True
+INACTIVE_PARTICIPATION_IS_PRODUCTION_GATE: Final[bool] = False
 ATTACK_RUIN_MAX: Final[float] = 0.05
 
 
@@ -119,25 +120,31 @@ def inactive_activity_rate(returns: Sequence[float], active: Sequence[bool]) -> 
     return float(cnt / float(len(inactive)))
 
 
-def resolve_attack_sleeve(sleeve: str | None) -> str:
+def resolve_attack_sleeve(sleeve: str | None, *, inactive_participation: bool = False) -> str:
     if sleeve == "LOTTERY_ON":
         return "MOM60"
     if sleeve == "CRASH_REBOUND":
         return "REBOUND"
+    if sleeve == "INACTIVE" and bool(inactive_participation):
+        return "PARTICIPATE"
     return "CASH"
 
 
-def apply_attack_sleeve_route(*, sleeve: str | None, mom60_scores: Mapping[str, float] | object, rebound_scores: Mapping[str, float] | object, production_gate: bool) -> Mapping[str, float] | object:
+def apply_attack_sleeve_route(*, sleeve: str | None, mom60_scores: Mapping[str, float] | object, rebound_scores: Mapping[str, float] | object, production_gate: bool, inactive_scores: Mapping[str, float] | object | None = None, inactive_participation: bool = False) -> Mapping[str, float] | object:
     from src.portfolio.intent import CASH_INTENT
 
     if not production_gate:
         return mom60_scores
-    route = resolve_attack_sleeve(sleeve)
+    route = resolve_attack_sleeve(sleeve, inactive_participation=inactive_participation)
     if route == "MOM60":
         return mom60_scores
     if route == "REBOUND":
         if isinstance(rebound_scores, Mapping) and len(rebound_scores) > 0:
             return rebound_scores
+        return CASH_INTENT
+    if route == "PARTICIPATE":
+        if isinstance(inactive_scores, Mapping) and len(inactive_scores) > 0:
+            return inactive_scores
         return CASH_INTENT
     return CASH_INTENT
 

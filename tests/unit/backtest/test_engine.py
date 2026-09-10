@@ -41,7 +41,14 @@ def test_cost_applied_on_execution_date_not_signal_date() -> None:
     first_day_equity = float(daily.filter(pl.col("date") == sessions[0]).select("equity").item())
     second_day_equity = float(daily.filter(pl.col("date") == sessions[1]).select("equity").item())
     first_trade_weight = float(result.trades.sort("execution_date").select("weight").item(0, 0))
-    expected_cost = CostModel(costs).charge(1_000_000_000.0 * first_trade_weight)
+    # first_trade_weight is the weight actually achieved (post-cap notional over
+    # post-cost equity), so the fee it implies is self-referential: cost is charged
+    # on the notional, but the notional itself is sized against equity net of that
+    # same cost. Solving cost = weight * (capital - cost) * fee for cost gives the
+    # closed form below -- charge(capital * weight) would double-count the cap's
+    # own denominator and only coincides with reality when fee == 0.
+    fee = CostModel(costs).charge(1.0)
+    expected_cost = first_trade_weight * 1_000_000_000.0 * fee / (1.0 + first_trade_weight * fee)
     assert first_day_equity == 1_000_000_000.0
     assert second_day_equity == 1_000_000_000.0 - expected_cost
 

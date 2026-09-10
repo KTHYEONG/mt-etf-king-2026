@@ -223,3 +223,72 @@ def test_evaluate_attack_policy_empty_mismatch_insufficient() -> None:
     bad_finite = evaluate_attack_policy(candidate_returns=(float("inf"),), incumbent_returns=(0.1,), oracle_returns=(0.1,), active=(True,), execution_parity=True, gross_violation_count=0)
     assert bad_finite.status == "INSUFFICIENT_EVIDENCE"
     assert "MISSING_ARTIFACT" in bad_finite.failures
+
+
+def test_resolve_attack_sleeve_participate_only_for_inactive_with_flag() -> None:
+    from src.tournament.objective.cutoff_auc import (
+        INACTIVE_PARTICIPATION_IS_PRODUCTION_GATE,
+        resolve_attack_sleeve,
+    )
+
+    assert INACTIVE_PARTICIPATION_IS_PRODUCTION_GATE is False, "연구 전용 게이트로 등록되어야 한다"
+
+    # 기본값: 기존 동작 완전 보존
+    assert resolve_attack_sleeve("LOTTERY_ON") == "MOM60"
+    assert resolve_attack_sleeve("CRASH_REBOUND") == "REBOUND"
+    assert resolve_attack_sleeve("INACTIVE") == "CASH"
+    assert resolve_attack_sleeve("UNCERTAIN") == "CASH"
+    assert resolve_attack_sleeve(None) == "CASH"
+
+    # 플래그 ON: INACTIVE만 바뀐다
+    assert resolve_attack_sleeve("INACTIVE", inactive_participation=True) == "PARTICIPATE"
+    assert resolve_attack_sleeve("LOTTERY_ON", inactive_participation=True) == "MOM60"
+    assert resolve_attack_sleeve("CRASH_REBOUND", inactive_participation=True) == "REBOUND"
+    # 국면 미확정은 플래그와 무관하게 fail-closed
+    assert resolve_attack_sleeve("UNCERTAIN", inactive_participation=True) == "CASH"
+    assert resolve_attack_sleeve(None, inactive_participation=True) == "CASH"
+    assert resolve_attack_sleeve("NOT_A_SLEEVE", inactive_participation=True) == "CASH"
+
+
+
+def test_apply_attack_sleeve_route_participate_branch() -> None:
+    from src.portfolio.intent import CASH_INTENT
+    from src.tournament.objective.cutoff_auc import apply_attack_sleeve_route
+
+    mom60 = {"M": 1.0}
+    rebound = {"R": 2.0}
+    inactive = {"I": 3.0}
+
+    # 기존 동작 보존
+    assert apply_attack_sleeve_route(sleeve="INACTIVE", mom60_scores=mom60, rebound_scores=rebound, production_gate=False) is mom60
+    assert apply_attack_sleeve_route(sleeve="LOTTERY_ON", mom60_scores=mom60, rebound_scores=rebound, production_gate=True) is mom60
+    assert apply_attack_sleeve_route(sleeve="CRASH_REBOUND", mom60_scores=mom60, rebound_scores=rebound, production_gate=True) is rebound
+    assert apply_attack_sleeve_route(sleeve="INACTIVE", mom60_scores=mom60, rebound_scores=rebound, production_gate=True) is CASH_INTENT
+
+    # production_gate False면 신규 인자를 줘도 조기 반환
+    assert (
+        apply_attack_sleeve_route(
+            sleeve="INACTIVE", mom60_scores=mom60, rebound_scores=rebound,
+            production_gate=False, inactive_scores=inactive, inactive_participation=True,
+        )
+        is mom60
+    )
+
+    # PARTICIPATE 분기
+    assert (
+        apply_attack_sleeve_route(
+            sleeve="INACTIVE", mom60_scores=mom60, rebound_scores=rebound,
+            production_gate=True, inactive_scores=inactive, inactive_participation=True,
+        )
+        is inactive
+    )
+    # 빈 스코어 / None -> fail-closed
+    for empty in ({}, None):
+        assert (
+            apply_attack_sleeve_route(
+                sleeve="INACTIVE", mom60_scores=mom60, rebound_scores=rebound,
+                production_gate=True, inactive_scores=empty, inactive_participation=True,
+            )
+            is CASH_INTENT
+        )
+

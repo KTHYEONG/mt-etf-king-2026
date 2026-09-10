@@ -37,6 +37,7 @@ from src.strategies.ids import (
     STICKY_MOM60_ABS_CASH,
     STICKY_MOM60_CONCENTRATED,
     STICKY_MOM60_HOLD,
+    STICKY_MOM60_INACTIVE_PARTICIPATE,
     STICKY_MOM60_PEAK_LOCK,
     STICKY_MOM60_RAW,
     STICKY_MOM60_RUNNER_REVERSAL,
@@ -82,6 +83,7 @@ _ALL_SEMANTIC: Final[frozenset[str]] = frozenset(
         STICKY_FILLABLE_MOM60,
         CONVEX_LOTTERY_IMPULSE,
         STICKY_MOM60_RUNNER_REVERSAL,
+        STICKY_MOM60_INACTIVE_PARTICIPATE,
         CHAMPION_TAIL_RANKER,
     }
 )
@@ -147,6 +149,7 @@ def build_strategy_registry() -> Mapping[str, Callable[[], StrategyProtocol]]:
         make_sticky_mom60_abs_cash,
         make_sticky_mom60_concentrated,
         make_sticky_mom60_hold,
+        make_sticky_mom60_inactive_participate,
         make_sticky_mom60_peak_lock,
         make_sticky_mom60_raw,
         make_sticky_mom60_runner_reversal,
@@ -188,6 +191,7 @@ def build_strategy_registry() -> Mapping[str, Callable[[], StrategyProtocol]]:
         STICKY_EQUITY_MOM60_VOL: make_sticky_equity_mom60_vol,
         STICKY_FILLABLE_MOM60: make_sticky_fillable_mom60,
         STICKY_MOM60_RUNNER_REVERSAL: make_sticky_mom60_runner_reversal,
+        STICKY_MOM60_INACTIVE_PARTICIPATE: make_sticky_mom60_inactive_participate,
         CONVEX_LOTTERY_IMPULSE: make_convex_lottery_impulse,
         CHAMPION_TAIL_RANKER: lambda: ChampionTailPolicy(),
     }

@@ -25,6 +25,7 @@ from src.strategies.sticky.model_config import (
     name_excluded,
 )
 from src.strategies.sticky.model_scores import apply_sticky_leader, collapse_plus2_by_family, filter_plus2_scores
+from src.tournament.championship_regime import ChampionshipSleeve
 
 
 class StickyLeaderModel:
@@ -42,6 +43,8 @@ class StickyLeaderModel:
         self._runner_peak_capital: float | None = None
         self._runner_held_sessions: int = 0
         self._runner_armed: bool = False
+        self._inactive_peak_capital: float | None = None
+        self._inactive_stopped: bool = False
         self._filtered_scores_by_snapshot: dict[date, dict[str, float]] = {}
     def reset_trackers(self) -> None:
         self._held = None
@@ -51,6 +54,8 @@ class StickyLeaderModel:
         self._runner_peak_capital = None
         self._runner_held_sessions = 0
         self._runner_armed = False
+        self._inactive_peak_capital = None
+        self._inactive_stopped = False
         self._filtered_scores_by_snapshot = {}
     def restore_state(self, held: str | None, hold_len: int) -> None:
         import math as _math
@@ -209,7 +214,7 @@ class StickyLeaderModel:
         _bypass = abs_mom_rebound_bypass_allowed(sleeve=_sleeve, config_enabled=bool(getattr(self.config, "crash_rebound_abs_mom_bypass", False)))
         abs_gated = apply_abs_mom_cash(crashed, self.config, held=held, rebound_bypass=_bypass)
         out = apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
-        from src.strategies.sticky.model_scores import rebound_leader_scores
+        from src.strategies.sticky.model_scores import inactive_leader_scores, rebound_leader_scores
         from src.tournament.objective.cutoff_auc import CUTOFF_AUC_IS_PRODUCTION_GATE
         from src.tournament.objective.cutoff_auc import apply_attack_sleeve_route
 
@@ -218,7 +223,33 @@ class StickyLeaderModel:
         if _cap_params is not None and _rebound_scores:
             _rb_cap, _rb_phi, _rb_mfr = _cap_params
             _rebound_scores = apply_capacity_filter(_rebound_scores, snapshot, capital=_rb_cap, max_order_to_adv=_rb_phi, min_fill_ratio=_rb_mfr)
-        out = apply_attack_sleeve_route(sleeve=_sleeve, mom60_scores=out, rebound_scores=_rebound_scores, production_gate=CUTOFF_AUC_IS_PRODUCTION_GATE)
+        _inactive_scores: dict[str, float] = {}
+        if bool(getattr(self.config, "inactive_participation", False)) and _sleeve == ChampionshipSleeve.INACTIVE.value:
+            _icap: float | None = None
+            try:
+                _icap_raw = float(getattr(context, "capital", float("nan")))
+                _icap = _icap_raw if math.isfinite(_icap_raw) and _icap_raw > 0 else None
+            except (TypeError, ValueError):
+                _icap = None
+            if _icap is not None:
+                if held is None and not self._inactive_stopped:
+                    self._inactive_peak_capital = float(_icap)
+                elif self._inactive_peak_capital is not None:
+                    self._inactive_peak_capital = max(float(self._inactive_peak_capital), float(_icap))
+                _istop = float(getattr(self.config, "inactive_stop_drawdown", 0.0) or 0.0)
+                _ipeak = self._inactive_peak_capital
+                if _ipeak is not None and _istop > 0.0 and float(_icap) <= float(_ipeak) * (1.0 - _istop):
+                    self._inactive_stopped = True
+                if not self._inactive_stopped and _cap_params is not None:
+                    _in_cap, _in_phi, _ = _cap_params
+                    _inactive_scores = inactive_leader_scores(
+                        snapshot,
+                        capital=_in_cap,
+                        max_order_to_adv=_in_phi,
+                        min_weight=float(getattr(self.config, "inactive_min_weight", 0.30)),
+                        score_col=str(getattr(self.config, "inactive_score_col", "rv_20")),
+                    )
+        out = apply_attack_sleeve_route(sleeve=_sleeve, mom60_scores=out, rebound_scores=_rebound_scores, production_gate=CUTOFF_AUC_IS_PRODUCTION_GATE, inactive_scores=_inactive_scores, inactive_participation=bool(getattr(self.config, "inactive_participation", False)))
         if _runner_exit and held is not None and _runner_cap is not None and _runner_mom is not None:
             try:
                 _pf = float(getattr(self, "_runner_peak_capital", float("nan")))

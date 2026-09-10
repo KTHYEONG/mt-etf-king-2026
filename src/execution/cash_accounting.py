@@ -175,7 +175,14 @@ def cash_order_transition(
         total_notional += notional
         from src.backtest.execution import Fill as _Fill
 
-        fills.append(_Fill(ticker=_t, execution_date=exec_date, price=float(_o), target_weight=float(desired_w)))
+        # Fill.target_weight records the weight ACTUALLY achieved by this fill
+        # (shares held after the sell, marked at the fill price, against
+        # session-entry equity) -- never the pre-cap intended weight. When
+        # ADV/exposure limits bind, qty is already clamped above this point,
+        # so echoing desired_w here would silently overstate what was really
+        # executed (INV-12 cost/fill realism).
+        achieved_w = float(shares[_t]) * float(_o) / equity if equity != 0 else 0.0
+        fills.append(_Fill(ticker=_t, execution_date=exec_date, price=float(_o), target_weight=float(achieved_w)))
         if abs(float(shares[_t])) <= 1e-12:
             shares.pop(_t, None)
     shares = {t: float(q) for t, q in shares.items() if abs(float(q)) > 1e-12}
@@ -221,7 +228,13 @@ def cash_order_transition(
         total_notional += notional
         from src.backtest.execution import Fill as _Fill
 
-        fills.append(_Fill(ticker=_t, execution_date=exec_date, price=price, target_weight=float(target[_t])))
+        # Same realism rule as the sell loop above: report the weight this
+        # buy actually achieved (post-cap shares against the running
+        # execution-equity denominator used by the cap math itself), not the
+        # unclamped target[_t]. remaining_adv/single_cap/gross_cap can each
+        # bind and truncate qty, so target[_t] is frequently unreachable.
+        achieved_w = float(shares[_t]) * price / equity_cur if equity_cur != 0 else 0.0
+        fills.append(_Fill(ticker=_t, execution_date=exec_date, price=price, target_weight=float(achieved_w)))
     open_marks: dict[str, float] = {}
     for _t in shares:
         _o = opens.get(_t) if isinstance(opens, Mapping) else None
