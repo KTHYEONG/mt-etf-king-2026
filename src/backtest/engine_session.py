@@ -302,6 +302,15 @@ def emit_session_trace(
                 n_selected_positive = len(selected_set_positive)
                 # emit candidates
                 cand_traces: list[CandidateTrace] = []
+                # 세션당 1회만 진단 행을 인덱싱한다 (후보마다 스냅샷을 재스캔하지 않음)
+                from src.core.trace import DIAGNOSTIC_FEATURE_COLS
+
+                diag_rows: dict[str, dict[str, object]] = {}
+                if isinstance(snapshot, pl.DataFrame) and "ticker" in snapshot.columns and snapshot.height > 0:
+                    diag_cols = [col for col in DIAGNOSTIC_FEATURE_COLS if col in snapshot.columns]
+                    if diag_cols:
+                        for diag_row in snapshot.select(["ticker", *diag_cols]).iter_rows(named=True):
+                            diag_rows.setdefault(str(diag_row["ticker"]), diag_row)
                 for ticker, sc in ordered[:written]:
                     vehicle_ticker = vehicles_map.get(ticker, ticker)
                     # selected when mapped vehicle is selected
@@ -326,24 +335,20 @@ def emit_session_trace(
                     # (scores values are numeric, tickers are safe)
                     # diagnostics from snapshot if present
                     diag: dict[str, float] | None = None
-                    try:
-                        if isinstance(snapshot, pl.DataFrame) and ticker in snapshot.get_column("ticker").to_list() if "ticker" in snapshot.columns else False:
-                            row = snapshot.filter(pl.col("ticker") == ticker).row(0, named=True) if snapshot.height > 0 else {}
-                            diag_vals: dict[str, float] = {}
-                            from src.core.trace import DIAGNOSTIC_FEATURE_COLS
-
-                            for col in DIAGNOSTIC_FEATURE_COLS:
-                                if col in snapshot.columns and col in row:
-                                    try:
-                                        v = row[col]
-                                        if v is not None:
-                                            diag_vals[col] = float(v)
-                                    except Exception:
-                                        pass
-                            if diag_vals:
-                                diag = diag_vals
-                    except Exception:
-                        diag = None
+                    diag_source = diag_rows.get(ticker)
+                    if diag_source is not None:
+                        diag_vals: dict[str, float] = {}
+                        for col in DIAGNOSTIC_FEATURE_COLS:
+                            if col in diag_source:
+                                value = diag_source[col]
+                                if value is None:
+                                    continue
+                                try:
+                                    diag_vals[col] = float(value)
+                                except (TypeError, ValueError):
+                                    continue
+                        if diag_vals:
+                            diag = diag_vals
                     # lineage fields O(1)
                     src_ticker = ticker
                     veh_ticker = vehicles_map.get(ticker, ticker)

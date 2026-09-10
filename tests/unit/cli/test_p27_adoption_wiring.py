@@ -69,7 +69,7 @@ def test_sticky_shared_session_cache_wiring() -> None:
 
     core_src = inspect.getsource(_core.run_cells) + inspect.getsource(_prep.prepare_run)
     assert "is_pd" in core_src
-    assert "session_cache=shared_cache" in core_src
+    assert "session_cache=cell_cache" in core_src
 
 
 def test_p27_cli_gross_diagnostics_avoids_undefined_name() -> None:

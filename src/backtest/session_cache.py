@@ -51,6 +51,64 @@ def _build_open_map(panel: pl.DataFrame) -> dict[date, dict[str, float]]:
     return out
 
 
+def session_cache_key(
+    model: object,
+    config: object,
+    *,
+    leverage_allowed: bool | None = None,
+    inverse_allowed: bool | None = None,
+) -> tuple[object, ...]:
+    # 비용은 체결 시점에만 들어가므로 키에서 제외한다 (비용 축 재사용과 동일)
+    # 필터 전체를 키에 넣어 참여율 관련 필드가 하나라도 바뀌면 캐시를 분리한다
+    return (
+        str(getattr(model, "name", "") or type(model).__name__),
+        config.start,  # type: ignore[attr-defined]
+        config.end,  # type: ignore[attr-defined]
+        float(config.capital),  # type: ignore[attr-defined]
+        config.scheme,  # type: ignore[attr-defined]
+        int(config.k),  # type: ignore[attr-defined]
+        config.filters,  # type: ignore[attr-defined]
+        leverage_allowed,
+        inverse_allowed,
+    )
+
+
+class SessionCacheRegistry:
+    # 동일 참여율 셀은 같은 SessionInputs를 재사용한다 (비용 축은 캐시와 무관)
+
+    def __init__(self) -> None:
+        self._entries: dict[tuple[object, ...], SessionInputs] = {}
+        self._builds = 0
+        self._hits = 0
+
+    @property
+    def builds(self) -> int:
+        return self._builds
+
+    @property
+    def hits(self) -> int:
+        return self._hits
+
+    def get_or_build(
+        self,
+        engine: object,
+        model: object,
+        panel: pl.DataFrame,
+        config: object,
+        *,
+        leverage_allowed: bool | None = None,
+        inverse_allowed: bool | None = None,
+    ) -> SessionInputs:
+        key = session_cache_key(model, config, leverage_allowed=leverage_allowed, inverse_allowed=inverse_allowed)
+        if key in self._entries:
+            self._hits += 1
+            return self._entries[key]
+        entry = build_session_cache(engine, model, panel, config, leverage_allowed=leverage_allowed, inverse_allowed=inverse_allowed)  # type: ignore[arg-type]
+        self._entries[key] = entry
+        self._builds += 1
+        return entry
+
+
 @dataclass(frozen=True)
 class SessionInputs:
     dates: tuple[date, ...]
