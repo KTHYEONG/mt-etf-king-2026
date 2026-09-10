@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_BACKTEST_PERF_HOTPATH",
+      "date": "2026-09-10",
+      "adr_id": "ADR_20260910_BACKTEST_PERF_HOTPATH",
+      "domain": "backtest_engine",
+      "title": "백테스트 핫패스 캐싱·벡터화",
+      "why": "engine.run() 세션당 TournamentRules.from_yaml 재파싱과 PointInTimeUniverse._build_adv/InstrumentMaster.build/_build_open_map/resolve_session_grid/build_execution_adv의 티커별 O(전체패널) 파이썬 루프가 49.2s 프로파일의 대부분을 차지함(probe 실측)",
+      "resolution": "TournamentRules.from_yaml을 functools.lru_cache로 캐싱하고, 5개 함수의 티커별 filter+iter_rows 루프를 polars group_by/rolling_mean 단일 벡터 연산과 family_key 역인덱스로 치환(동작 100% 동치 검증)",
+      "impact": "동일 입력에 대해 결과 완전 동일(11개 신규 시나리오+기존 47개 회귀 테스트 통과), 그리드/롤링 백테스트에서 세션당 반복되던 O(전체패널) 스캔이 제거됨; 패널 날짜범위 절단(최대 레버리지 항목)은 InstrumentMaster.build의 first_seen 패널 의존성 때문에 별도 spec으로 이연"
+    },
+    {
       "task_id": "TASK_INACTIVE_REGIME_PARTICIPATION_SLEEVE",
       "date": "2026-09-10",
       "adr_id": "ADR_20260910_INACTIVE_REGIME_PARTICIPATION_SLEEVE",
