@@ -24,6 +24,7 @@ class ChampionshipSleeve(StrEnum):
 
 CHAMPIONSHIP_SLEEVE_IS_PRODUCTION_GATE: Final[bool] = False
 P27_REGIME_IS_PRODUCTION_GATE: Final[bool] = False
+KOSPI_HEADLINE_INDEX_NAMES: Final[tuple[str, ...]] = ("코스피", "KOSPI")
 CRASH_REBOUND_RV_ANNUALIZED_MIN: Final[float] = 0.25
 CRASH_REBOUND_MOM20_MIN: Final[float] = 0.03
 LOTTERY_ON_MOM60_MIN: Final[float] = 0.08
@@ -103,6 +104,24 @@ def classify_championship_sleeve_series(
     return tuple(snapshots)
 
 
+def select_kospi_headline_series(index_daily: pl.DataFrame) -> pl.DataFrame:
+    # 헤드라인 지수는 반드시 단일 시리즈여야 한다. 레거시 'KOSPI'(~1000 레벨)와
+    # 실제 KRX '코스피'(~7000 레벨)를 합치면 경계 세션에 +500%대 가짜 수익률이
+    # 들어가 mom20/mom60/rv20 가 통째로 오염된다. 부분일치(str.contains)도 금지 —
+    # 실제 페이로드에는 '코스피 200', '코스피 대형주' 등 51개 시리즈가 함께 온다.
+    if not isinstance(index_daily, pl.DataFrame):
+        return pl.DataFrame()
+    if index_daily.height == 0:
+        return index_daily.head(0)
+    if not {"index_name", "date", "close"} <= set(index_daily.columns):
+        return index_daily.head(0)
+    for name in KOSPI_HEADLINE_INDEX_NAMES:
+        sub = index_daily.filter(pl.col("index_name") == name)
+        if sub.height > 0:
+            return sub.sort("date")
+    return index_daily.head(0)
+
+
 def kospi_sleeve_feature_maps(index_daily: pl.DataFrame) -> tuple[dict[date, float | None], dict[date, float | None], dict[date, float | None]]:
     empty: tuple[dict[date, float | None], dict[date, float | None], dict[date, float | None]] = ({}, {}, {})
     if index_daily.height == 0:
@@ -110,7 +129,7 @@ def kospi_sleeve_feature_maps(index_daily: pl.DataFrame) -> tuple[dict[date, flo
     cols = set(index_daily.columns)
     if not {"index_name", "date", "close"} <= cols:
         return empty
-    sub = index_daily.filter(pl.col("index_name") == "KOSPI").sort("date")
+    sub = select_kospi_headline_series(index_daily)
     dates: list[date] = list(sub.get_column("date").to_list())
     closes: list[float] = [float(c) for c in sub.get_column("close").to_list()]
     mom60_by_date: dict[date, float | None] = {}

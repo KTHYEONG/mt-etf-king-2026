@@ -16,7 +16,21 @@ from src.tournament.championship_regime import (
     ChampionshipSleeve,
     classify_championship_sleeve_from_maps,
     kospi_sleeve_feature_maps,
+    select_kospi_headline_series,
 )
+
+
+class StaleSleeveInputError(RuntimeError):
+    """Raised when the sleeve index input is missing/stale at decision_date."""
+
+
+def assert_sleeve_inputs_fresh(index_daily: pl.DataFrame, *, decision_date: date) -> None:
+    sub = select_kospi_headline_series(index_daily)
+    if sub.height == 0:
+        raise StaleSleeveInputError(f"sleeve inputs missing at {decision_date.isoformat()}: no headline series rows")
+    if decision_date not in sub.get_column("date").to_list():
+        raise StaleSleeveInputError(f"sleeve inputs stale at {decision_date.isoformat()}: no row at decision_date")
+    return None
 
 
 @dataclass(frozen=True, slots=True)

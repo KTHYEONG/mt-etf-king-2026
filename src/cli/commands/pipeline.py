@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import argparse
 from datetime import date, timedelta
+from typing import Final
+
+_INDEX_INGEST_DATASET: Final[str] = "kospi_index"
+_INDEX_NORMALIZE_DATASET: Final[str] = "index_daily"
 
 
 def cmd_daily_refresh(args: argparse.Namespace) -> int:
@@ -46,6 +50,13 @@ def cmd_daily_refresh(args: argparse.Namespace) -> int:
         return 1
 
     rc = cmd_normalize(argparse.Namespace(dataset=dataset, mode="incremental"))
+    if rc != 0:
+        return 1
+
+    rc = cmd_ingest(argparse.Namespace(dataset=_INDEX_INGEST_DATASET, start=ingest_start.isoformat(), end=end.isoformat(), dry_run=False))
+    if rc != 0:
+        return 1
+    rc = cmd_normalize(argparse.Namespace(dataset=_INDEX_NORMALIZE_DATASET, mode="incremental"))
     if rc != 0:
         return 1
 

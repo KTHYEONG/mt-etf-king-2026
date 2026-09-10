@@ -208,3 +208,58 @@ def test_estimate_live_order_quantities_raises_on_missing_price_for_weighted_tic
     # Then: non-finite/non-positive capital with a real weighted ticker raises (R7)
     with pytest.raises(ValueError, match="capital"):
         estimate_live_order_quantities({"111": 1.0}, panel, decision_date=d, capital=0.0)
+
+
+
+import polars as pl
+
+
+def test_assert_sleeve_inputs_fresh_raises_when_decision_date_row_missing() -> None:
+    from src.tournament.live_decision import StaleSleeveInputError, assert_sleeve_inputs_fresh
+
+    # Given: index data that stops one session BEFORE the decision date (the real defect)
+    stale = pl.DataFrame(
+        {"date": [date(2026, 8, 26), date(2026, 8, 27)], "index_name": ["코스피", "코스피"], "close": [7000.0, 7051.64]},
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
+
+    # Then: fail closed, and the message names the date (R5/R6 - no latest-available fallback)
+    with pytest.raises(StaleSleeveInputError, match="2026-09-21"):
+        assert_sleeve_inputs_fresh(stale, decision_date=date(2026, 9, 21))
+
+    # Then: an empty frame (missing index file path) also fails closed
+    empty = pl.DataFrame(
+        {"date": [], "index_name": [], "close": []},
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
+    with pytest.raises(StaleSleeveInputError):
+        assert_sleeve_inputs_fresh(empty, decision_date=date(2026, 9, 21))
+
+    # Then: only sub-indices present -> no headline series -> fail closed
+    only_sub = pl.DataFrame(
+        {"date": [date(2026, 9, 21)], "index_name": ["코스피 200"], "close": [900.0]},
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
+    with pytest.raises(StaleSleeveInputError):
+        assert_sleeve_inputs_fresh(only_sub, decision_date=date(2026, 9, 21))
+
+
+
+import polars as pl
+
+
+def test_assert_sleeve_inputs_fresh_passes_and_preserves_legitimate_uncertain() -> None:
+    from src.tournament.live_decision import assert_sleeve_inputs_fresh, resolve_live_championship_sleeve
+
+    # Given: a row exists exactly at decision_date but with far too little history for mom60
+    d = date(2026, 9, 21)
+    frame = pl.DataFrame(
+        {"date": [date(2026, 9, 18), d], "index_name": ["코스피", "코스피"], "close": [7000.0, 7051.64]},
+        schema={"date": pl.Date, "index_name": pl.String, "close": pl.Float64},
+    )
+
+    # When: the gate passes (returns None, does not raise)
+    assert assert_sleeve_inputs_fresh(frame, decision_date=d) is None
+
+    # Then: insufficient history is still a legitimate UNCERTAIN, not an error (R7)
+    assert resolve_live_championship_sleeve(frame, d) == "UNCERTAIN"
