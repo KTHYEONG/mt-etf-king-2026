@@ -281,7 +281,7 @@ def test_p31_factory_registry_exposure() -> None:
     from src.cli.constants import CHAMPION_STRATEGY
     from src.portfolio.constraints import load_p27_exposure_limits, resolve_exposure_limits_for_model
     from src.strategies.convex_impulse import ConvexImpulseModel, DEFAULT_BETA_FAMILY_KEYS
-    from src.strategies.ids import CONVEX_LOTTERY_IMPULSE, STICKY_MOM60_RAW
+    from src.strategies.ids import CONVEX_LOTTERY_IMPULSE, STICKY_MOM60_POST_CRASH_ANCHOR
     from src.strategies.registry import resolve_strategy_id
 
     assert resolve_strategy_id("convex.lottery_impulse") == CONVEX_LOTTERY_IMPULSE
@@ -297,7 +297,7 @@ def test_p31_factory_registry_exposure() -> None:
     assert abs(float(model.config.continuation_min) - 0.20) < 1e-12
     assert abs(float(model.config.crash_drawdown) + 0.12) < 1e-12
     assert resolve_exposure_limits_for_model("convex.lottery_impulse", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
-    assert CHAMPION_STRATEGY == STICKY_MOM60_RAW
+    assert CHAMPION_STRATEGY == STICKY_MOM60_POST_CRASH_ANCHOR
     assert BASELINES["sticky.mom60_raw"]().name == "sticky.mom60_raw"
     from src.cli.constants import STICKY_ADOPTION_MODELS
 

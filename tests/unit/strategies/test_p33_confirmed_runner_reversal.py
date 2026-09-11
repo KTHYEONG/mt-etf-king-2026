@@ -72,7 +72,7 @@ def test_p33_registry_cli_and_p27_exposure_wiring() -> None:
     from src.cli.constants import STICKY_ADOPTION_MODELS
     from src.cli.constants import CHAMPION_STRATEGY
     from src.portfolio.constraints import load_p27_exposure_limits, resolve_exposure_limits_for_model
-    from src.strategies.ids import STICKY_MOM60_RAW, STICKY_MOM60_RUNNER_REVERSAL
+    from src.strategies.ids import STICKY_MOM60_POST_CRASH_ANCHOR, STICKY_MOM60_RUNNER_REVERSAL
     from src.strategies.registry import resolve_strategy_id
 
     assert resolve_strategy_id("sticky.mom60_runner_reversal") == STICKY_MOM60_RUNNER_REVERSAL
@@ -80,4 +80,4 @@ def test_p33_registry_cli_and_p27_exposure_wiring() -> None:
     assert getattr(BASELINES["sticky.mom60_runner_reversal"](), "path_dependent") is True
     assert "sticky.mom60_runner_reversal" in STICKY_ADOPTION_MODELS
     assert resolve_exposure_limits_for_model("sticky.mom60_runner_reversal", comparison_mode="full_strategy_own") == load_p27_exposure_limits()
-    assert CHAMPION_STRATEGY == STICKY_MOM60_RAW
+    assert CHAMPION_STRATEGY == STICKY_MOM60_POST_CRASH_ANCHOR
