@@ -128,8 +128,15 @@ def resolve_prior_sticky_state(state_path: Path, *, prior_session: date | None) 
     return (held_raw, float(weight), int(hold_len))
 
 
-def persist_sticky_state(state_path: Path, *, as_of: date, held: str | None, held_weight: float, hold_len: int) -> None:
-    payload = {"as_of": as_of.isoformat(), "held": held, "held_weight": float(held_weight), "hold_len": int(hold_len)}
+def persist_sticky_state(
+    state_path: Path, *, decision_date: date, held: str | None, held_weight: float, hold_len: int
+) -> None:
+    payload = {
+        "as_of": decision_date.isoformat(),
+        "held": held,
+        "held_weight": float(held_weight),
+        "hold_len": int(hold_len),
+    }
     try:
         p = Path(state_path)
         if p.parent != Path():
@@ -181,7 +188,12 @@ def apply_live_exposure_and_capacity_limits(
     multiples: dict[str, int] = {}
     for ticker in tickers:
         name: str | None = None
-        if isinstance(panel, pl.DataFrame) and "ticker" in panel.columns and "name" in panel.columns and "date" in panel.columns:
+        if (
+            isinstance(panel, pl.DataFrame)
+            and "ticker" in panel.columns
+            and "name" in panel.columns
+            and "date" in panel.columns
+        ):
             frame = panel.filter((pl.col("ticker") == ticker) & (pl.col("date") == decision_date))
             if frame.height > 0:
                 for raw in frame.get_column("name").to_list():
@@ -200,11 +212,16 @@ def apply_live_exposure_and_capacity_limits(
         min_cash=min_cash,
     )
     adv_by_ticker: dict[str, float] = {}
-    if isinstance(panel, pl.DataFrame) and "ticker" in panel.columns and "trading_value" in panel.columns and "date" in panel.columns:
+    if (
+        isinstance(panel, pl.DataFrame)
+        and "ticker" in panel.columns
+        and "trading_value" in panel.columns
+        and "date" in panel.columns
+    ):
         scoped = panel.filter(pl.col("date") <= decision_date)
         if scoped.height > 0:
             dates = sorted({d for d in scoped.get_column("date").to_list() if isinstance(d, date)})
-            window_dates = dates[-int(adv_window):] if int(adv_window) > 0 else dates
+            window_dates = dates[-int(adv_window) :] if int(adv_window) > 0 else dates
             if window_dates:
                 scoped = scoped.filter(pl.col("date").is_in(window_dates))
                 for ticker in tickers:

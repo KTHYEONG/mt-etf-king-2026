@@ -111,3 +111,25 @@ def test_adaptive_specialists_integrity_calls_population_counts_match() -> None:
     assert "population_counts_match" in text
     assert "eligible_window_count == 2090" not in text
     assert population_counts_match(eligible=3, evaluated=3, router_reset=3, controller=3 * 36, shadow=3 * 36 * 4, horizon=36) is True
+
+
+def test_adaptive_specialists_core_export_surface_preserved() -> None:
+    from src.tournament.adaptive_specialists import (
+        AdaptiveSpecialistConfig,
+        TerminalActionDistribution,
+        TournamentWealthState,
+        build_specialist_proposals,
+        choose_championship_action,
+        initialize_fixed_share,
+        run_adaptive_specialist_research,
+        update_fixed_share,
+    )
+
+    assert callable(run_adaptive_specialist_research)
+    assert callable(build_specialist_proposals)
+    assert callable(initialize_fixed_share)
+    assert callable(update_fixed_share)
+    assert callable(choose_championship_action)
+    assert AdaptiveSpecialistConfig(horizon=36).horizon == 36
+    assert TournamentWealthState(1.0, 1.0, 5, None).equity == 1.0
+    assert TerminalActionDistribution("CASH", (), 0.0).action == "CASH"

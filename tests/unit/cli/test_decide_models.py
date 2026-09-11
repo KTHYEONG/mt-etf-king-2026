@@ -9,3 +9,24 @@ def test_p4_decide_models_hook_tables() -> None:
     assert "convex.lottery_impulse" in _OVERLAY_HOOKS
     assert all(callable(h) for h in _ALLOCATE_HOOKS.values())
     assert all(callable(h) for h in _OVERLAY_HOOKS.values())
+
+
+def test_decide_models_hook_tables_wiring_preserved() -> None:
+    assert set(_ALLOCATE_HOOKS) == {"sticky.split_fill_lock", "sticky.mom60_raw"}
+    assert set(_OVERLAY_HOOKS) == {
+        "sticky.split_fill_lock",
+        "sticky.mom60_peak_lock",
+        "sticky.house_money",
+        "sticky.mom60_concentrated",
+        "sticky.mom60_raw",
+        "sticky.mom60_hold",
+        "sticky.mom60_abs_cash",
+        "sticky.equity_mom60",
+        "sticky.equity_mom60_vol",
+        "sticky.fillable_mom60",
+        "convex.lottery_impulse",
+        "sticky.mom60_runner_reversal",
+    }
+    for hook in _OVERLAY_HOOKS.values():
+        assert callable(hook)
+    assert _DecideState.__dataclass_fields__["decision_date"]

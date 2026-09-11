@@ -33,6 +33,7 @@ class StickyLeaderModel:
     config: StickyLeaderConfig
     path_dependent: bool = True
     scores_path_independent: bool = False
+
     def __init__(self, name: str = "sticky.leader_base", config: StickyLeaderConfig | None = None) -> None:
         self.name = str(name)
         self.config = config if config is not None else StickyLeaderConfig()
@@ -46,6 +47,7 @@ class StickyLeaderModel:
         self._inactive_peak_capital: float | None = None
         self._inactive_stopped: bool = False
         self._filtered_scores_by_snapshot: dict[date, dict[str, float]] = {}
+
     def reset_trackers(self) -> None:
         self._held = None
         self._hold_len = 0
@@ -57,8 +59,10 @@ class StickyLeaderModel:
         self._inactive_peak_capital = None
         self._inactive_stopped = False
         self._filtered_scores_by_snapshot = {}
+
     def restore_state(self, held: str | None, hold_len: int) -> None:
         import math as _math
+
         if held is not None and not isinstance(held, str):
             raise ValueError("held must be str or None")
         try:
@@ -76,11 +80,17 @@ class StickyLeaderModel:
             raise ValueError("hold_len must be >=0")
         self._held = held
         self._hold_len = int(hl)
+
     def score(self, snapshot: pl.DataFrame, context: DecisionContext) -> dict[str, float] | object:
         decision_date = getattr(context, "decision_date", None)
         if decision_date is None or not isinstance(decision_date, date):
             raise ValueError(f"score requires a valid decision_date key, got {decision_date!r}")
-        filtered = cached_filtered_scores(self._filtered_scores_by_snapshot, context.decision_date, snapshot, lambda frame: filter_plus2_scores(frame, self.config))
+        filtered = cached_filtered_scores(
+            self._filtered_scores_by_snapshot,
+            context.decision_date,
+            snapshot,
+            lambda frame: filter_plus2_scores(frame, self.config),
+        )
         _cap_params_main = resolve_capacity_params(context, self.config)
         if _cap_params_main is not None and filtered:
             _cap, _phi, _mfr = _cap_params_main
@@ -89,6 +99,7 @@ class StickyLeaderModel:
             )
             if not filtered:
                 from src.portfolio.intent import CASH_INTENT as _CASH_CAP
+
                 return _CASH_CAP
         try:
             _aux_col = getattr(self.config, "score_aux_col", None)
@@ -115,6 +126,7 @@ class StickyLeaderModel:
                 filtered = blend_rank_scores(filtered, _aux_raw, w_primary=1.0 - _aux_w, w_aux=_aux_w)
             if not filtered:
                 from src.portfolio.intent import CASH_INTENT as _CASH_AUX
+
                 return _CASH_AUX
         if getattr(self.config, "collapse_family", False):
             try:
@@ -154,11 +166,16 @@ class StickyLeaderModel:
             try:
                 _c = float(getattr(context, "capital", float("nan")))
                 _runner_cap = float(_c) if math.isfinite(_c) and _c > 0 else None
-            except Exception: _runner_cap = None
-            try: _runner_mc = str(getattr(self.config, "runner_mom_col", "mom_5"))
-            except Exception: _runner_mc = "mom_5"
-            try: _hz = int(momentum_horizon(_runner_mc))
-            except Exception: _hz = 5
+            except Exception:
+                _runner_cap = None
+            try:
+                _runner_mc = str(getattr(self.config, "runner_mom_col", "mom_5"))
+            except Exception:
+                _runner_mc = "mom_5"
+            try:
+                _hz = int(momentum_horizon(_runner_mc))
+            except Exception:
+                _hz = 5
             if held is None or _runner_cap is None or _hz <= 0:
                 if held is None:
                     self._runner_ticker = None
@@ -180,24 +197,40 @@ class StickyLeaderModel:
                     self._runner_peak_capital = float(_pk)
                     _en = float(getattr(self, "_runner_entry_capital", float("nan")))
                     _pn = float(getattr(self, "_runner_peak_capital", float("nan")))
-                    self._runner_armed = bool(math.isfinite(_en) and math.isfinite(_pn) and int(getattr(self, "_runner_held_sessions", 0)) >= _hz and _pn > _en)
-                except Exception: self._runner_armed = False
+                    self._runner_armed = bool(
+                        math.isfinite(_en)
+                        and math.isfinite(_pn)
+                        and int(getattr(self, "_runner_held_sessions", 0)) >= _hz
+                        and _pn > _en
+                    )
+                except Exception:
+                    self._runner_armed = False
             if held is not None:
                 try:
-                    if isinstance(snapshot, pl.DataFrame) and _runner_mc in snapshot.columns and "ticker" in snapshot.columns:
+                    if (
+                        isinstance(snapshot, pl.DataFrame)
+                        and _runner_mc in snapshot.columns
+                        and "ticker" in snapshot.columns
+                    ):
                         _df = snapshot.filter(pl.col("ticker") == str(held)).head(1)
                         _runner_mom = (
-                            lambda _v: (lambda _f: float(_f) if math.isfinite(float(_f)) else None)(
-                                float(_v) if _v is not None else float("nan")
-                            )
-                        )(_df.row(0, named=True).get(_runner_mc)) if _df.height > 0 else None
-                except Exception: _runner_mom = None
+                            (
+                                lambda _v: (lambda _f: float(_f) if math.isfinite(float(_f)) else None)(
+                                    float(_v) if _v is not None else float("nan")
+                                )
+                            )(_df.row(0, named=True).get(_runner_mc))
+                            if _df.height > 0
+                            else None
+                        )
+                except Exception:
+                    _runner_mom = None
         if getattr(self.config, "collapse_family", False):
             try:
                 _ns = len(filtered)
                 _tt = sorted(filtered.items(), key=lambda kv: (-float(kv[1]), str(kv[0])))[0][0] if filtered else ""
                 logger.debug(f"[ALGO] ticker={_tt} held={held} n_scores={_ns}")
-            except Exception: pass
+            except Exception:
+                pass
         sticky = apply_sticky_leader(filtered, held, self.config, self._hold_len)
         from src.strategies.sticky.overlays import (
             apply_abs_mom_cash,
@@ -211,7 +244,9 @@ class StickyLeaderModel:
         crashed = apply_crash_cash(impulsed, held, snapshot, self.config)
         _sleeve_raw = getattr(context, "championship_sleeve", None)
         _sleeve = _sleeve_raw if isinstance(_sleeve_raw, str) else None
-        _bypass = abs_mom_rebound_bypass_allowed(sleeve=_sleeve, config_enabled=bool(getattr(self.config, "crash_rebound_abs_mom_bypass", False)))
+        _bypass = abs_mom_rebound_bypass_allowed(
+            sleeve=_sleeve, config_enabled=bool(getattr(self.config, "crash_rebound_abs_mom_bypass", False))
+        )
         abs_gated = apply_abs_mom_cash(crashed, self.config, held=held, rebound_bypass=_bypass)
         out = apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
         from src.strategies.sticky.model_scores import inactive_leader_scores, rebound_leader_scores
@@ -222,7 +257,9 @@ class StickyLeaderModel:
         _cap_params = resolve_capacity_params(context, self.config)
         if _cap_params is not None and _rebound_scores:
             _rb_cap, _rb_phi, _rb_mfr = _cap_params
-            _rebound_scores = apply_capacity_filter(_rebound_scores, snapshot, capital=_rb_cap, max_order_to_adv=_rb_phi, min_fill_ratio=_rb_mfr)
+            _rebound_scores = apply_capacity_filter(
+                _rebound_scores, snapshot, capital=_rb_cap, max_order_to_adv=_rb_phi, min_fill_ratio=_rb_mfr
+            )
         _inactive_scores: dict[str, float] = {}
         if bool(getattr(self.config, "inactive_participation", False)) and _sleeve == ChampionshipSleeve.INACTIVE.value:
             _icap: float | None = None
@@ -249,18 +286,35 @@ class StickyLeaderModel:
                         min_weight=float(getattr(self.config, "inactive_min_weight", 0.30)),
                         score_col=str(getattr(self.config, "inactive_score_col", "rv_20")),
                     )
-        out = apply_attack_sleeve_route(sleeve=_sleeve, mom60_scores=out, rebound_scores=_rebound_scores, production_gate=CUTOFF_AUC_IS_PRODUCTION_GATE, inactive_scores=_inactive_scores, inactive_participation=bool(getattr(self.config, "inactive_participation", False)))
+        out = apply_attack_sleeve_route(
+            sleeve=_sleeve,
+            mom60_scores=out,
+            rebound_scores=_rebound_scores,
+            production_gate=CUTOFF_AUC_IS_PRODUCTION_GATE,
+            inactive_scores=_inactive_scores,
+            inactive_participation=bool(getattr(self.config, "inactive_participation", False)),
+        )
         if _runner_exit and held is not None and _runner_cap is not None and _runner_mom is not None:
             try:
                 _pf = float(getattr(self, "_runner_peak_capital", float("nan")))
                 _ef = float(getattr(self, "_runner_entry_capital", float("nan")))
-                if bool(getattr(self, "_runner_armed", False)) and math.isfinite(_pf) and math.isfinite(_ef) and _pf > _ef and float(_runner_cap) < _pf and float(_runner_mom) <= 0:
+                if (
+                    bool(getattr(self, "_runner_armed", False))
+                    and math.isfinite(_pf)
+                    and math.isfinite(_ef)
+                    and _pf > _ef
+                    and float(_runner_cap) < _pf
+                    and float(_runner_mom) <= 0
+                ):
                     from src.portfolio.intent import CASH_INTENT as _CASH_RUNNER
+
                     return _CASH_RUNNER
-            except Exception: pass
+            except Exception:
+                pass
         try:
             from collections.abc import Mapping as _Mapping
             from src.portfolio.intent import CASH_INTENT as _CASH_EMPTY
+
             if isinstance(out, _Mapping) and len(out) == 0:
                 return _CASH_EMPTY
         except Exception:

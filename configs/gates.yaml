@@ -27,3 +27,9 @@ attainability:
   min_attainable_windows: 30
   min_effective_discordant: 5
   capture_min_improvement: 0.02
+
+cutoff_auc:
+  thresholds: [0.40, 0.45, 0.50, 0.55, 0.60]
+
+p27_regime:
+  breadth_majority: 0.50

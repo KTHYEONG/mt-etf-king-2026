@@ -54,7 +54,11 @@ def classify_activation_state(
         if key > decision_date:
             raise PitViolationError(f"PIT violation: mom60 date {key} exceeds decision_date {decision_date}")
     pairs = sorted(
-        ((day, float(value)) for day, value in mom60_by_date.items() if day <= decision_date and value is not None and math.isfinite(float(value))),
+        (
+            (day, float(value))
+            for day, value in mom60_by_date.items()
+            if day <= decision_date and value is not None and math.isfinite(float(value))
+        ),
     )
     values = [value for _, value in pairs]
     n_history = len(values)
@@ -63,7 +67,9 @@ def classify_activation_state(
         if day == decision_date:
             current = value
     if current is None or n_history < min_history:
-        return ActivationSnapshot(as_of=decision_date, state=ActivationState.UNCERTAIN, mom60=None, q1=None, q2=None, n_history=n_history)
+        return ActivationSnapshot(
+            as_of=decision_date, state=ActivationState.UNCERTAIN, mom60=None, q1=None, q2=None, n_history=n_history
+        )
     ordered = sorted(values)
     q1 = _linear_quantile(ordered, 1.0 / 3.0)
     q2 = _linear_quantile(ordered, 2.0 / 3.0)
@@ -104,7 +110,9 @@ def activation_conditional_table(
     overlap_horizon: int = 36,
 ) -> pl.DataFrame:
     if not (len(states) == len(terminal_returns) == len(oracle_returns)):
-        raise ValueError(f"length mismatch: states={len(states)} terminals={len(terminal_returns)} oracle={len(oracle_returns)}")
+        raise ValueError(
+            f"length mismatch: states={len(states)} terminals={len(terminal_returns)} oracle={len(oracle_returns)}"
+        )
     order = (ActivationState.AGGRESSIVE_ON, ActivationState.UNCERTAIN, ActivationState.AGGRESSIVE_OFF)
     normalized = [_normalize_state(item) for item in states]
     terminals = [float(value) for value in terminal_returns]
@@ -115,7 +123,20 @@ def activation_conditional_table(
         n_windows = len(idx)
         n_effective = float(n_windows) / float(overlap_horizon)
         if n_windows == 0:
-            rows.append({"state": bucket.value, "n_windows": 0, "n_effective": 0.0, "p27_p30": 0.0, "p27_p40": 0.0, "p27_p45": 0.0, "p27_p50": 0.0, "p27_ruin25": 0.0, "executable_oracle_p50": 0.0, "capture_50": 0.0})
+            rows.append(
+                {
+                    "state": bucket.value,
+                    "n_windows": 0,
+                    "n_effective": 0.0,
+                    "p27_p30": 0.0,
+                    "p27_p40": 0.0,
+                    "p27_p45": 0.0,
+                    "p27_p50": 0.0,
+                    "p27_ruin25": 0.0,
+                    "executable_oracle_p50": 0.0,
+                    "capture_50": 0.0,
+                }
+            )
             continue
         bucket_terminals = [terminals[i] for i in idx]
         bucket_oracles = [oracles[i] for i in idx]
@@ -129,10 +150,37 @@ def activation_conditional_table(
         if oracle_hits == 0:
             capture = 0.0
         else:
-            capture = sum(1 for t, o in zip(bucket_terminals, bucket_oracles, strict=True) if t > 0.50 and o > 0.50) / oracle_hits
-        rows.append({"state": bucket.value, "n_windows": n_windows, "n_effective": n_effective, "p27_p30": float(p30), "p27_p40": float(p40), "p27_p45": float(p45), "p27_p50": float(p50), "p27_ruin25": float(ruin), "executable_oracle_p50": float(oracle_p50), "capture_50": float(capture)})
+            capture = (
+                sum(1 for t, o in zip(bucket_terminals, bucket_oracles, strict=True) if t > 0.50 and o > 0.50)
+                / oracle_hits
+            )
+        rows.append(
+            {
+                "state": bucket.value,
+                "n_windows": n_windows,
+                "n_effective": n_effective,
+                "p27_p30": float(p30),
+                "p27_p40": float(p40),
+                "p27_p45": float(p45),
+                "p27_p50": float(p50),
+                "p27_ruin25": float(ruin),
+                "executable_oracle_p50": float(oracle_p50),
+                "capture_50": float(capture),
+            }
+        )
     return pl.DataFrame(
         rows,
-        schema={"state": pl.String, "n_windows": pl.Int64, "n_effective": pl.Float64, "p27_p30": pl.Float64, "p27_p40": pl.Float64, "p27_p45": pl.Float64, "p27_p50": pl.Float64, "p27_ruin25": pl.Float64, "executable_oracle_p50": pl.Float64, "capture_50": pl.Float64},
+        schema={
+            "state": pl.String,
+            "n_windows": pl.Int64,
+            "n_effective": pl.Float64,
+            "p27_p30": pl.Float64,
+            "p27_p40": pl.Float64,
+            "p27_p45": pl.Float64,
+            "p27_p50": pl.Float64,
+            "p27_ruin25": pl.Float64,
+            "executable_oracle_p50": pl.Float64,
+            "capture_50": pl.Float64,
+        },
         strict=False,
     )

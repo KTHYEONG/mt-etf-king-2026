@@ -40,11 +40,19 @@ def cash_order_transition(
     panel: pl.DataFrame | None,
     lot_size: int | None = None,
 ) -> PortfolioTransitionResult:
-    if not isinstance(prior_state.cash, (int, float)) or not math.isfinite(float(prior_state.cash)) or float(prior_state.cash) < 0:
+    if (
+        not isinstance(prior_state.cash, (int, float))
+        or not math.isfinite(float(prior_state.cash))
+        or float(prior_state.cash) < 0
+    ):
         raise ValueError("prior cash must be finite and nonnegative")
     if lot_size is not None and not (isinstance(lot_size, int) and lot_size > 0):
         raise ValueError("lot_size must be a positive integer or None")
-    if not isinstance(max_order_to_adv, (int, float)) or not math.isfinite(float(max_order_to_adv)) or float(max_order_to_adv) <= 0:
+    if (
+        not isinstance(max_order_to_adv, (int, float))
+        or not math.isfinite(float(max_order_to_adv))
+        or float(max_order_to_adv) <= 0
+    ):
         raise ValueError("max_order_to_adv must be positive finite")
     fee = float(cost_model.charge(1.0))
     if not math.isfinite(fee) or fee < 0:
@@ -72,11 +80,19 @@ def cash_order_transition(
     universe = set(held) | set(target)
     # Legacy fast-simulation callers pass an empty map when no leverage
     # resolver is configured; treat that as the unlevered default.
-    if isinstance(leverage_multiples, Mapping) and not leverage_multiples and universe:  # pragma: no cover - legacy caller fallback
+    if (
+        isinstance(leverage_multiples, Mapping) and not leverage_multiples and universe
+    ):  # pragma: no cover - legacy caller fallback
         leverage_multiples = {t: 1 for t in universe}  # pragma: no cover
     for _t in universe:
         _m = leverage_multiples.get(_t) if isinstance(leverage_multiples, Mapping) else None
-        if _m is None or not isinstance(_m, (int, float)) or not math.isfinite(float(_m)) or int(float(_m)) == 0 or float(_m) != float(int(float(_m))):
+        if (
+            _m is None
+            or not isinstance(_m, (int, float))
+            or not math.isfinite(float(_m))
+            or int(float(_m)) == 0
+            or float(_m) != float(int(float(_m)))
+        ):
             raise ValueError(f"missing or invalid leverage for {_t}")
     if held and not prev_closes and any(_t not in opens for _t in held):
         raise ValueError("missing previous close for held position")
@@ -96,9 +112,16 @@ def cash_order_transition(
                     session_return=0.0,
                     weights_after_close={},
                     diagnostics=SessionTransitionDiagnostics(
-                        turnover_weight=0.0, transaction_cost=0.0, fill_count=0, unfilled_count=0,
-                        target_gross=0.0, post_fill_gross=0.0, close_realized_gross=0.0,
-                        effective_gross=0.0, gross_violation=False, cash_session=False,
+                        turnover_weight=0.0,
+                        transaction_cost=0.0,
+                        fill_count=0,
+                        unfilled_count=0,
+                        target_gross=0.0,
+                        post_fill_gross=0.0,
+                        close_realized_gross=0.0,
+                        effective_gross=0.0,
+                        gross_violation=False,
+                        cash_session=False,
                     ),
                     fills=(),
                     unfilled=(),
@@ -109,7 +132,12 @@ def cash_order_transition(
             # NAV and make the next rebalance non-reproducible.
             marks[_t] = 0.0
     equity = float(prior_state.cash) + sum(_q * marks[_t] for _t, _q in held.items())
-    equity_prev = float(prior_state.cash) + sum(float(held[_t]) * float(prev_closes[_t]) for _t in held if _fillable(prev_closes.get(_t))) if prev_closes else equity
+    equity_prev = (
+        float(prior_state.cash)
+        + sum(float(held[_t]) * float(prev_closes[_t]) for _t in held if _fillable(prev_closes.get(_t)))
+        if prev_closes
+        else equity
+    )
     w_lim, g_lim, c_lim = (1.0, 1.0, 0.0) if exposure_limits is None else tuple(float(v) for v in exposure_limits)
     if not (0.0 < w_lim <= 1.0 and 0.0 < g_lim and 0.0 <= c_lim < 1.0):
         raise ValueError("invalid exposure limits")  # pragma: no cover - validated at configuration load
@@ -122,9 +150,55 @@ def cash_order_transition(
             else:
                 close_marks[_t] = marks[_t]
         equity_close = float(prior_state.cash) + sum(float(held[_t]) * close_marks[_t] for _t in held)
-        wac = {t: float(held[t]) * close_marks[t] / equity_close for t in held if t in close_marks and t not in invalid_share_keys and equity_close != 0 and abs(float(held[t]) * close_marks[t] / equity_close) > 1e-12}
-        diag = SessionTransitionDiagnostics(turnover_weight=0.0, transaction_cost=0.0, fill_count=0, unfilled_count=0, target_gross=0.0, post_fill_gross=_gross_exposure({t: float(held[t]) * float(marks[t]) / equity for t in held} if equity != 0 else {}, leverage_multiples if isinstance(leverage_multiples, Mapping) else {}), close_realized_gross=_gross_exposure(wac, leverage_multiples if isinstance(leverage_multiples, Mapping) else {}), effective_gross=_gross_exposure(wac, leverage_multiples if isinstance(leverage_multiples, Mapping) else {}), gross_violation=False, cash_session=False, execution_gross_violation=False, carry_gross_drift=bool(_gross_exposure(wac, leverage_multiples if isinstance(leverage_multiples, Mapping) else {}) > (float(exposure_limits[1]) + 1e-9) if exposure_limits is not None else False), delever_required_next_session=bool(_gross_exposure(wac, leverage_multiples if isinstance(leverage_multiples, Mapping) else {}) > (float(exposure_limits[1]) + 1e-9) if exposure_limits is not None else False), gross_after_sell=0.0, residual_gross_budget=0.0)
-        return PortfolioTransitionResult(state=PortfolioLedgerState(cash=float(prior_state.cash), shares=dict(prior_state.shares)), equity_close=float(equity_close), session_return=float(equity_close / equity_prev - 1.0) if equity_prev != 0 else 0.0, weights_after_close=dict(wac), diagnostics=diag, fills=(), unfilled=())
+        wac = {
+            t: float(held[t]) * close_marks[t] / equity_close
+            for t in held
+            if t in close_marks
+            and t not in invalid_share_keys
+            and equity_close != 0
+            and abs(float(held[t]) * close_marks[t] / equity_close) > 1e-12
+        }
+        diag = SessionTransitionDiagnostics(
+            turnover_weight=0.0,
+            transaction_cost=0.0,
+            fill_count=0,
+            unfilled_count=0,
+            target_gross=0.0,
+            post_fill_gross=_gross_exposure(
+                {t: float(held[t]) * float(marks[t]) / equity for t in held} if equity != 0 else {},
+                leverage_multiples if isinstance(leverage_multiples, Mapping) else {},
+            ),
+            close_realized_gross=_gross_exposure(
+                wac, leverage_multiples if isinstance(leverage_multiples, Mapping) else {}
+            ),
+            effective_gross=_gross_exposure(wac, leverage_multiples if isinstance(leverage_multiples, Mapping) else {}),
+            gross_violation=False,
+            cash_session=False,
+            execution_gross_violation=False,
+            carry_gross_drift=bool(
+                _gross_exposure(wac, leverage_multiples if isinstance(leverage_multiples, Mapping) else {})
+                > (float(exposure_limits[1]) + 1e-9)
+                if exposure_limits is not None
+                else False
+            ),
+            delever_required_next_session=bool(
+                _gross_exposure(wac, leverage_multiples if isinstance(leverage_multiples, Mapping) else {})
+                > (float(exposure_limits[1]) + 1e-9)
+                if exposure_limits is not None
+                else False
+            ),
+            gross_after_sell=0.0,
+            residual_gross_budget=0.0,
+        )
+        return PortfolioTransitionResult(
+            state=PortfolioLedgerState(cash=float(prior_state.cash), shares=dict(prior_state.shares)),
+            equity_close=float(equity_close),
+            session_return=float(equity_close / equity_prev - 1.0) if equity_prev != 0 else 0.0,
+            weights_after_close=dict(wac),
+            diagnostics=diag,
+            fills=(),
+            unfilled=(),
+        )
     exec_date = decision_date
     if execution is not None and panel is not None:
         needed = sorted(universe)
@@ -143,7 +217,11 @@ def cash_order_transition(
     budgets: dict[str, float] = {}
     for _t in universe:
         _a = adv_by_ticker.get(_t) if isinstance(adv_by_ticker, Mapping) else None
-        budgets[_t] = float(_a) * float(max_order_to_adv) if isinstance(_a, (int, float)) and math.isfinite(float(_a)) and float(_a) > 0 else 0.0
+        budgets[_t] = (
+            float(_a) * float(max_order_to_adv)
+            if isinstance(_a, (int, float)) and math.isfinite(float(_a)) and float(_a) > 0
+            else 0.0
+        )
     for _t in sorted(held):
         _o = opens.get(_t) if isinstance(opens, Mapping) else None
         desired_w = 0.0 if (is_cash or _t not in target) else float(target[_t])
@@ -151,7 +229,9 @@ def cash_order_transition(
         if lot_size is not None:
             desired = math.floor(desired)
         if not _fillable(_o):
-            if abs(float(held[_t]) - 0.0) > 1e-12 and (is_cash or desired_w != float(held[_t]) * float(marks[_t]) / equity if equity != 0 else True):
+            if abs(float(held[_t]) - 0.0) > 1e-12 and (
+                is_cash or desired_w != float(held[_t]) * float(marks[_t]) / equity if equity != 0 else True
+            ):
                 unfilled.append(_t)
             continue
         qty = float(held[_t]) - desired
@@ -195,19 +275,31 @@ def cash_order_transition(
         elif _fillable(_p):
             cur_marks[_t] = float(_p)  # type: ignore[arg-type]
     equity_cur = cash + sum(float(shares.get(_t, 0.0)) * cur_marks[_t] for _t in shares if _t in cur_marks)
-    gross_after_sell = _gross_exposure({t: float(shares.get(t, 0.0)) * cur_marks[t] / equity_cur for t in shares if t in cur_marks} if equity_cur != 0 else {}, leverage_multiples if isinstance(leverage_multiples, Mapping) else {})
+    gross_after_sell = _gross_exposure(
+        {t: float(shares.get(t, 0.0)) * cur_marks[t] / equity_cur for t in shares if t in cur_marks}
+        if equity_cur != 0
+        else {},
+        leverage_multiples if isinstance(leverage_multiples, Mapping) else {},
+    )
     for _t in sorted(target):
         _o = opens.get(_t) if isinstance(opens, Mapping) else None
         if not _fillable(_o):
             unfilled.append(_t)
             continue
-        if budgets.get(_t, 0.0) - traded.get(_t, 0.0) <= 1e-12 and float(target[_t]) * equity_cur / float(_o) - float(shares.get(_t, 0.0)) > 1e-12:
+        if (
+            budgets.get(_t, 0.0) - traded.get(_t, 0.0) <= 1e-12
+            and float(target[_t]) * equity_cur / float(_o) - float(shares.get(_t, 0.0)) > 1e-12
+        ):
             unfilled.append(_t)
             continue
         price = float(_o)
         mult = abs(int(float(leverage_multiples[_t])))
         val = float(shares.get(_t, 0.0)) * price
-        gross_val = sum(float(shares.get(k, 0.0)) * cur_marks[k] * abs(int(float(leverage_multiples[k]))) for k in shares if k in cur_marks)
+        gross_val = sum(
+            float(shares.get(k, 0.0)) * cur_marks[k] * abs(int(float(leverage_multiples[k])))
+            for k in shares
+            if k in cur_marks
+        )
         w_eff = min(w_lim, float(target[_t]))
         single_cap = (w_eff * equity_cur - val) / (1.0 + w_eff * fee)
         cash_cap = (cash - c_lim * equity_cur) / (1.0 + (1.0 - c_lim) * fee)
@@ -255,16 +347,23 @@ def cash_order_transition(
             close_marks[_t] = float(_p)  # type: ignore[arg-type]
     equity_close = cash + sum(float(shares[_t]) * close_marks[_t] for _t in shares if _t in close_marks)
     w_before = prior_state.weights_at_prices(dict(opens) if opens else dict(prev_closes))
-    w_after_open = {t: float(shares[t]) * open_marks[t] / open_equity for t in shares if t in open_marks and open_equity != 0 and abs(float(shares[t]) * open_marks[t] / open_equity) > 1e-12}
+    w_after_open = {
+        t: float(shares[t]) * open_marks[t] / open_equity
+        for t in shares
+        if t in open_marks and open_equity != 0 and abs(float(shares[t]) * open_marks[t] / open_equity) > 1e-12
+    }
     # Turnover is measured against the intended open allocation.  Using the
     # post-fee marked weights would make the diagnostic depend on commission
     # rounding rather than on the rebalance decision itself.
     intended_open = {
-        t: (0.0 if is_cash else min(w_lim, max(0.0, float(target.get(t, 0.0)))))
-        for t in set(w_before) | set(target)
+        t: (0.0 if is_cash else min(w_lim, max(0.0, float(target.get(t, 0.0))))) for t in set(w_before) | set(target)
     }
     turnover = sum(abs(float(intended_open.get(t, 0.0)) - float(w_before.get(t, 0.0))) for t in intended_open)
-    wac = {t: float(shares[t]) * close_marks[t] / equity_close for t in shares if t in close_marks and equity_close != 0 and abs(float(shares[t]) * close_marks[t] / equity_close) > 1e-12}
+    wac = {
+        t: float(shares[t]) * close_marks[t] / equity_close
+        for t in shares
+        if t in close_marks and equity_close != 0 and abs(float(shares[t]) * close_marks[t] / equity_close) > 1e-12
+    }
     mults = leverage_multiples if isinstance(leverage_multiples, Mapping) else {}
     target_gross = _gross_exposure(target, mults)
     post_gross = _gross_exposure(w_after_open, mults)
@@ -275,5 +374,29 @@ def cash_order_transition(
     carry = bool(close_gross > limit + 1e-9 and not exec_viol)
     delever = bool(close_gross > limit + 1e-9)
     residual = float(limit) - float(gross_after_sell) if (not is_hold and not is_cash) else 0.0
-    diag = SessionTransitionDiagnostics(turnover_weight=float(turnover), transaction_cost=float(total_cost), fill_count=len(fills), unfilled_count=len(sorted(set(unfilled))), target_gross=float(target_gross), post_fill_gross=float(post_gross), close_realized_gross=float(close_gross), effective_gross=float(close_gross), gross_violation=bool(exec_viol), cash_session=bool(is_cash), execution_gross_violation=bool(exec_viol), carry_gross_drift=bool(carry), delever_required_next_session=bool(delever), gross_after_sell=float(gross_after_sell) if (not is_hold and not is_cash and limit is not None) else 0.0, residual_gross_budget=float(residual) if (not is_hold and not is_cash and limit is not None) else 0.0)
-    return PortfolioTransitionResult(state=PortfolioLedgerState(cash=float(cash), shares={t: float(q) for t, q in shares.items()}), equity_close=float(equity_close), session_return=float(equity_close / equity_prev - 1.0) if equity_prev != 0 else 0.0, weights_after_close=dict(wac), diagnostics=diag, fills=tuple(fills), unfilled=tuple(sorted(set(unfilled))))
+    diag = SessionTransitionDiagnostics(
+        turnover_weight=float(turnover),
+        transaction_cost=float(total_cost),
+        fill_count=len(fills),
+        unfilled_count=len(sorted(set(unfilled))),
+        target_gross=float(target_gross),
+        post_fill_gross=float(post_gross),
+        close_realized_gross=float(close_gross),
+        effective_gross=float(close_gross),
+        gross_violation=bool(exec_viol),
+        cash_session=bool(is_cash),
+        execution_gross_violation=bool(exec_viol),
+        carry_gross_drift=bool(carry),
+        delever_required_next_session=bool(delever),
+        gross_after_sell=float(gross_after_sell) if (not is_hold and not is_cash and limit is not None) else 0.0,
+        residual_gross_budget=float(residual) if (not is_hold and not is_cash and limit is not None) else 0.0,
+    )
+    return PortfolioTransitionResult(
+        state=PortfolioLedgerState(cash=float(cash), shares={t: float(q) for t, q in shares.items()}),
+        equity_close=float(equity_close),
+        session_return=float(equity_close / equity_prev - 1.0) if equity_prev != 0 else 0.0,
+        weights_after_close=dict(wac),
+        diagnostics=diag,
+        fills=tuple(fills),
+        unfilled=tuple(sorted(set(unfilled))),
+    )

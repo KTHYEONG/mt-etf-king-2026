@@ -16,6 +16,7 @@ from src.execution.cash_accounting import cash_order_transition
 from src.execution.ledger_state import PortfolioLedgerState
 from src.portfolio.intent import CASH_INTENT, HOLD_INTENT, PortfolioIntent
 from src.portfolio.opportunity_frontier import capacity_frontier_scores
+from src.tournament.objective_core import TOURNAMENT_SESSIONS
 from src.universe.instruments import resolve_leverage
 
 
@@ -62,7 +63,7 @@ def run_frontier_research(
     n = len(grid)
     rows: list[dict[str, object]] = []
     for s in range(n - 35):
-        window = grid[s : s + 36]
+        window = grid[s : s + TOURNAMENT_SESSIONS]
         state = PortfolioLedgerState(cash=float(capital), shares={})
         base = PortfolioLedgerState(cash=float(capital), shares={})
         peak = float(capital)
@@ -72,13 +73,43 @@ def run_frontier_research(
         missing = 0
         viols = 0
         first_fill = None
-        for pos in range(36):
+        for pos in range(TOURNAMENT_SESSIONS):
             idx = s + pos
             dec = idx - 1 if pos > 0 else (s - 1 if s > 0 else None)
             if dec is None or dec < 0:
-                res = cash_order_transition(prior_state=state, intent=HOLD_INTENT, decision_date=window[0], prev_closes=closes[idx], opens=opens[idx], closes=closes[idx], cost_model=cost_model, adv_by_ticker={}, max_order_to_adv=float(participation), exposure_limits=limits, leverage_multiples=dict.fromkeys(state.shares, 1) or {"__none__": 1}, execution=None, panel=None, lot_size=1)
+                res = cash_order_transition(
+                    prior_state=state,
+                    intent=HOLD_INTENT,
+                    decision_date=window[0],
+                    prev_closes=closes[idx],
+                    opens=opens[idx],
+                    closes=closes[idx],
+                    cost_model=cost_model,
+                    adv_by_ticker={},
+                    max_order_to_adv=float(participation),
+                    exposure_limits=limits,
+                    leverage_multiples=dict.fromkeys(state.shares, 1) or {"__none__": 1},
+                    execution=None,
+                    panel=None,
+                    lot_size=1,
+                )
                 state = res.state
-                bres = cash_order_transition(prior_state=base, intent=HOLD_INTENT, decision_date=window[0], prev_closes=closes[idx], opens=opens[idx], closes=closes[idx], cost_model=cost_model, adv_by_ticker={}, max_order_to_adv=float(participation), exposure_limits=limits, leverage_multiples=dict.fromkeys(base.shares, 1) or {"__none__": 1}, execution=None, panel=None, lot_size=1)
+                bres = cash_order_transition(
+                    prior_state=base,
+                    intent=HOLD_INTENT,
+                    decision_date=window[0],
+                    prev_closes=closes[idx],
+                    opens=opens[idx],
+                    closes=closes[idx],
+                    cost_model=cost_model,
+                    adv_by_ticker={},
+                    max_order_to_adv=float(participation),
+                    exposure_limits=limits,
+                    leverage_multiples=dict.fromkeys(base.shares, 1) or {"__none__": 1},
+                    execution=None,
+                    panel=None,
+                    lot_size=1,
+                )
                 base = bres.state
                 eq = state.equity_at_prices(closes[idx]) if closes[idx] else float(state.cash)
                 peak = max(peak, eq)
@@ -89,7 +120,7 @@ def run_frontier_research(
             ddate = grid[dec]
             eq_now = state.equity_at_prices(closes[dec]) if closes[dec] else float(state.cash)
             beq_now = base.equity_at_prices(closes[dec]) if closes[dec] else float(base.cash)
-            r = 36 - pos
+            r = TOURNAMENT_SESSIONS - pos
             frame_rows: list[dict[str, object]] = []
             adv_map: dict[str, float] = {}
             mult_map: dict[str, int] = {}
@@ -105,15 +136,72 @@ def run_frontier_research(
                 if adv is not None:
                     adv_map[t] = float(adv)
                     mult_map[t] = int(mult)
-                frame_rows.append({"ticker": t, "mom_60": mom if mom is not None else float("nan"), "adv20": adv if adv is not None else float("nan"), "leverage_multiple": int(mult), "confidence": str(conf), "eligible": True})
-            snapshot = pl.DataFrame(frame_rows, schema={"ticker": pl.String, "mom_60": pl.Float64, "adv20": pl.Float64, "leverage_multiple": pl.Int64, "confidence": pl.String, "eligible": pl.Boolean}) if frame_rows else pl.DataFrame(schema={"ticker": pl.String, "mom_60": pl.Float64, "adv20": pl.Float64, "leverage_multiple": pl.Int64, "confidence": pl.String, "eligible": pl.Boolean})
-            scores = capacity_frontier_scores(snapshot, capital=float(eq_now), remaining_sessions=int(r), participation=float(participation), cost_bps=float(cost_bps)) if frame_rows else {}
+                frame_rows.append(
+                    {
+                        "ticker": t,
+                        "mom_60": mom if mom is not None else float("nan"),
+                        "adv20": adv if adv is not None else float("nan"),
+                        "leverage_multiple": int(mult),
+                        "confidence": str(conf),
+                        "eligible": True,
+                    }
+                )
+            snapshot = (
+                pl.DataFrame(
+                    frame_rows,
+                    schema={
+                        "ticker": pl.String,
+                        "mom_60": pl.Float64,
+                        "adv20": pl.Float64,
+                        "leverage_multiple": pl.Int64,
+                        "confidence": pl.String,
+                        "eligible": pl.Boolean,
+                    },
+                )
+                if frame_rows
+                else pl.DataFrame(
+                    schema={
+                        "ticker": pl.String,
+                        "mom_60": pl.Float64,
+                        "adv20": pl.Float64,
+                        "leverage_multiple": pl.Int64,
+                        "confidence": pl.String,
+                        "eligible": pl.Boolean,
+                    }
+                )
+            )
+            scores = (
+                capacity_frontier_scores(
+                    snapshot,
+                    capital=float(eq_now),
+                    remaining_sessions=int(r),
+                    participation=float(participation),
+                    cost_bps=float(cost_bps),
+                )
+                if frame_rows
+                else {}
+            )
             chall_intent = PortfolioIntent(kind="target", weights={sorted(scores)[0]: 0.8}) if scores else CASH_INTENT
             if scores:
                 best = sorted(scores, key=lambda k: (-scores[k], k))[0]
                 chall_intent = PortfolioIntent(kind="target", weights={best: 0.8})
             cand_mults = {t: mult_map.get(t, 1) for t in set(state.shares) | set(getattr(chall_intent, "weights", {}))}
-            res = cash_order_transition(prior_state=state, intent=chall_intent, decision_date=ddate, prev_closes=closes[dec], opens=opens[idx], closes=closes[idx], cost_model=cost_model, adv_by_ticker=adv_map, max_order_to_adv=float(participation), exposure_limits=limits, leverage_multiples=cand_mults or {"__none__": 1}, execution=None, panel=None, lot_size=1)
+            res = cash_order_transition(
+                prior_state=state,
+                intent=chall_intent,
+                decision_date=ddate,
+                prev_closes=closes[dec],
+                opens=opens[idx],
+                closes=closes[idx],
+                cost_model=cost_model,
+                adv_by_ticker=adv_map,
+                max_order_to_adv=float(participation),
+                exposure_limits=limits,
+                leverage_multiples=cand_mults or {"__none__": 1},
+                execution=None,
+                panel=None,
+                lot_size=1,
+            )
             state = res.state
             if res.fills and first_fill is None:
                 first_fill = ddate
@@ -130,17 +218,61 @@ def run_frontier_research(
                 a = fr["adv20"]
                 if not isinstance(m, float) or m != m or m <= 0:
                     continue
-                if m > baseline_mom or (m == baseline_mom and (baseline_pick is None or str(fr["ticker"]) < baseline_pick)):
+                if m > baseline_mom or (
+                    m == baseline_mom and (baseline_pick is None or str(fr["ticker"]) < baseline_pick)
+                ):
                     baseline_mom = m
                     baseline_pick = str(fr["ticker"])
             base_intent = PortfolioIntent(kind="target", weights={baseline_pick: 0.8}) if baseline_pick else CASH_INTENT
             base_mults = {t: mult_map.get(t, 1) for t in set(base.shares) | set(getattr(base_intent, "weights", {}))}
-            bres = cash_order_transition(prior_state=base, intent=base_intent, decision_date=ddate, prev_closes=closes[dec], opens=opens[idx], closes=closes[idx], cost_model=cost_model, adv_by_ticker=adv_map, max_order_to_adv=float(participation), exposure_limits=limits, leverage_multiples=base_mults or {"__none__": 1}, execution=None, panel=None, lot_size=1)
+            bres = cash_order_transition(
+                prior_state=base,
+                intent=base_intent,
+                decision_date=ddate,
+                prev_closes=closes[dec],
+                opens=opens[idx],
+                closes=closes[idx],
+                cost_model=cost_model,
+                adv_by_ticker=adv_map,
+                max_order_to_adv=float(participation),
+                exposure_limits=limits,
+                leverage_multiples=base_mults or {"__none__": 1},
+                execution=None,
+                panel=None,
+                lot_size=1,
+            )
             base = bres.state
         term = state.equity_at_prices(closes[s + 35]) if closes[s + 35] else float(state.cash)
         bterm = base.equity_at_prices(closes[s + 35]) if closes[s + 35] else float(base.cash)
-        rows.append({"window_start": window[0], "window_end": window[-1], "candidate_return": float(term) / float(capital) - 1.0, "baseline_return": float(bterm) / float(capital) - 1.0, "candidate_mdd": float(mdd), "candidate_giveback": float(giveback), "candidate_cash_min": float(cash_min), "candidate_first_fill": first_fill, "candidate_missing_mark_count": int(missing), "candidate_execution_violation_count": int(viols)})
-    return pl.DataFrame(rows, schema={"window_start": pl.Date, "window_end": pl.Date, "candidate_return": pl.Float64, "baseline_return": pl.Float64, "candidate_mdd": pl.Float64, "candidate_giveback": pl.Float64, "candidate_cash_min": pl.Float64, "candidate_first_fill": pl.Date, "candidate_missing_mark_count": pl.Int64, "candidate_execution_violation_count": pl.Int64})
+        rows.append(
+            {
+                "window_start": window[0],
+                "window_end": window[-1],
+                "candidate_return": float(term) / float(capital) - 1.0,
+                "baseline_return": float(bterm) / float(capital) - 1.0,
+                "candidate_mdd": float(mdd),
+                "candidate_giveback": float(giveback),
+                "candidate_cash_min": float(cash_min),
+                "candidate_first_fill": first_fill,
+                "candidate_missing_mark_count": int(missing),
+                "candidate_execution_violation_count": int(viols),
+            }
+        )
+    return pl.DataFrame(
+        rows,
+        schema={
+            "window_start": pl.Date,
+            "window_end": pl.Date,
+            "candidate_return": pl.Float64,
+            "baseline_return": pl.Float64,
+            "candidate_mdd": pl.Float64,
+            "candidate_giveback": pl.Float64,
+            "candidate_cash_min": pl.Float64,
+            "candidate_first_fill": pl.Date,
+            "candidate_missing_mark_count": pl.Int64,
+            "candidate_execution_violation_count": pl.Int64,
+        },
+    )
 
 
 def run_frontier_from_paths(*, data_root: Path, start: date, end: date, output: Path) -> Path:
@@ -152,7 +284,9 @@ def run_frontier_from_paths(*, data_root: Path, start: date, end: date, output: 
     scenarios = [(p, b, a) for p in (0.01, 0.02) for b in (8.0, 23.0) for a in (True, False)]
     results: dict[tuple[float, float, bool], pl.DataFrame] = {}
     for part, bps, allow in scenarios:
-        results[(part, bps, allow)] = run_frontier_research(panel, sessions, capital=1_000_000_000.0, participation=part, cost_bps=bps, allow_leverage=allow)
+        results[(part, bps, allow)] = run_frontier_research(
+            panel, sessions, capital=1_000_000_000.0, participation=part, cost_bps=bps, allow_leverage=allow
+        )
     primary = results[(0.01, 8.0, True)]
     out = Path(output)
     out.mkdir(parents=True, exist_ok=True)
@@ -163,6 +297,18 @@ def run_frontier_from_paths(*, data_root: Path, start: date, end: date, output: 
     sha = hashlib.sha256(str(panel.height).encode()).hexdigest()[:16]
     elapsed = time.perf_counter() - t0
     rets = primary["candidate_return"].to_list()
-    report = {"status": "RESEARCH_ONLY", "session_count": len(sessions), "window_count": primary.height, "scenarios": len(scenarios), "median_return": float(sorted(rets)[len(rets) // 2]) if rets else 0.0, "ruin": float(sum(1 for v in rets if v < -0.25) / len(rets)) if rets else 0.0, "data_sha256": sha, "elapsed_seconds": float(elapsed), "peak_rss_mb": float(rss), "start": str(start), "end": str(end)}
+    report = {
+        "status": "RESEARCH_ONLY",
+        "session_count": len(sessions),
+        "window_count": primary.height,
+        "scenarios": len(scenarios),
+        "median_return": float(sorted(rets)[len(rets) // 2]) if rets else 0.0,
+        "ruin": float(sum(1 for v in rets if v < -0.25) / len(rets)) if rets else 0.0,
+        "data_sha256": sha,
+        "elapsed_seconds": float(elapsed),
+        "peak_rss_mb": float(rss),
+        "start": str(start),
+        "end": str(end),
+    }
     (out / "report.json").write_text(__import__("json").dumps(report, indent=2))
     return out / "windows.parquet"

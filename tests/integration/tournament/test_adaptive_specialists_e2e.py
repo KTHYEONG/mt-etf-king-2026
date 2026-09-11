@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 
 def test_champion_research_inputs_builds_real_adaptive_runtime() -> None:
     import argparse
@@ -17,6 +19,7 @@ def test_champion_research_inputs_builds_real_adaptive_runtime() -> None:
     assert filters.allow_leverage and filters.allow_inverse
 
 
+@pytest.mark.slow
 def test_adaptive_specialists_real_runtime_evaluates_all_windows() -> None:
     import argparse
     from src.cli.commands.champion_research import _build_champion_research_inputs

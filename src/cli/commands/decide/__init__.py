@@ -175,7 +175,9 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 allocate_hook(state)
             else:
                 try:
-                    state.decision_weights = policy.allocate(scores, regime=_regime_str, leverage_allowed=_lev_allowed, inverse_allowed=_inv_allowed)
+                    state.decision_weights = policy.allocate(
+                        scores, regime=_regime_str, leverage_allowed=_lev_allowed, inverse_allowed=_inv_allowed
+                    )
                 except TypeError:
                     state.decision_weights = policy.allocate(scores)
                 state.weights = state.decision_weights.weights if hasattr(state.decision_weights, "weights") else {}
@@ -250,7 +252,13 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 cap_val = 1_000_000_000.0
         if getattr(state, "model_arg", None) == "sticky.mom60_raw":
             try:
-                order_estimates = estimate_live_order_quantities(state.weights, state.panel_loaded, decision_date=decision_date, capital=cap_val) if state.panel_loaded is not None and state.weights else {}
+                order_estimates = (
+                    estimate_live_order_quantities(
+                        state.weights, state.panel_loaded, decision_date=decision_date, capital=cap_val
+                    )
+                    if state.panel_loaded is not None and state.weights
+                    else {}
+                )
             except ValueError as exc:
                 logger.error(f"[SYS] decide status=fail error={exc!r}")
                 return 1

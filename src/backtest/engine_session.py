@@ -41,7 +41,6 @@ from src.universe.tournament import TournamentRules
 # wiring anchors
 
 
-
 from src.backtest.engine_config import build_execution_adv, logger
 from src.tournament.championship_regime import championship_sleeve_from_cache
 
@@ -112,7 +111,14 @@ def bootstrap_prestart_intent(
                 _regime_pre = None
                 if engine.regimes is not None:
                     _regime_pre = engine.regimes.get(_pre_date)
-                _ctx_pre = DecisionContext(decision_date=_pre_date, regime=_regime_pre, capital=float(config.capital), held={}, rules=_rules_pre, championship_sleeve=championship_sleeve_from_cache(engine, _pre_date))
+                _ctx_pre = DecisionContext(
+                    decision_date=_pre_date,
+                    regime=_regime_pre,
+                    capital=float(config.capital),
+                    held={},
+                    rules=_rules_pre,
+                    championship_sleeve=championship_sleeve_from_cache(engine, _pre_date),
+                )
                 _scores_pre = model.score(_snap, _ctx_pre)
                 if _scores_pre is None:
                     _scores_pre = {}
@@ -142,8 +148,14 @@ def bootstrap_prestart_intent(
                                         _regime_str = str(getattr(_rs, "value", str(_rs)))
                             except Exception:
                                 _regime_str = None
-                            lev_allowed_pre, inv_allowed_pre = engine._resolve_allocate_leverage(_rules_pre) if _rules_pre is not None else (None, None)
-                            exec_adv_pre = build_execution_adv(engine, list(_scores_pre.keys()) if isinstance(_scores_pre, dict) else [], _pre_date)
+                            lev_allowed_pre, inv_allowed_pre = (
+                                engine._resolve_allocate_leverage(_rules_pre)
+                                if _rules_pre is not None
+                                else (None, None)
+                            )
+                            exec_adv_pre = build_execution_adv(
+                                engine, list(_scores_pre.keys()) if isinstance(_scores_pre, dict) else [], _pre_date
+                            )
                             try:
                                 alloc_res_pre = model.allocate(
                                     _scores_pre,
@@ -171,7 +183,11 @@ def bootstrap_prestart_intent(
                         except Exception:
                             raw_weights_pre = dict(_scores_pre) if isinstance(_scores_pre, dict) else {}
                     if used_alloc_pre:
-                        _pre_intent = resolve_portfolio_intent(alloc_res_pre if alloc_res_pre is not None else raw_weights_pre, current_weights={}, score_failed=False)  # type: ignore[arg-type]
+                        _pre_intent = resolve_portfolio_intent(
+                            alloc_res_pre if alloc_res_pre is not None else raw_weights_pre,
+                            current_weights={},
+                            score_failed=False,
+                        )  # type: ignore[arg-type]
                     else:
                         _pre_intent = resolve_portfolio_intent(raw_weights_pre, current_weights={}, score_failed=False)
             except Exception:
@@ -242,206 +258,206 @@ def emit_session_trace(
     regime_snap,
     equity,
 ):
-        # Trace emission per session (only when enabled)
-        if sink.enabled:
-            # tagged log session line
-            try:
-                tagged_log(
-                    logger,
-                    "ALGO",
-                    date=decision_date,
-                    n_univ=len(snap_universe.tickers) if hasattr(snap_universe, "tickers") else 0,
-                    n_scores=len(scores),
-                    n_sel=len(target),
-                    n_fill=len(fills),
-                    n_unf=len(unfilled),
-                )
-            except Exception:
-                pass
-            # build candidate traces with cap handling
-            try:
-                # ranking
-                sorted_scores = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
-                rank_map = {t: i + 1 for i, (t, _) in enumerate(sorted_scores)}
-                # selected set from target (after adv) - considered selected
-                selected_set = set(target.keys())
-                # family/theme drops only when allocate path ran selection inside policy
-                drops_family_theme: dict[str, str] = {}
-                if used_allocate_path and scores:
-                    try:
-                        max_per_theme = int(getattr(model, "max_per_theme", 2))
-                        max_per_family = int(getattr(model, "max_per_family", 1))
-                        drops_family_theme = explain_selection_drops(
-                            scores,
-                            universe.master,
-                            max_per_theme,
-                            max_per_family,
-                        )
-                    except Exception:
-                        drops_family_theme = {}
-                # priority set: held U target U fills
-                priority_set = set(current_weights.keys()) | set(target_before_adv.keys()) | set(new_weights.keys())
-                # build ordered list: priority first then remaining
-                # both groups sorted by score desc ticker asc
-                priority_list = [t for t in sorted_scores if t[0] in priority_set]
-                remaining_list = [t for t in sorted_scores if t[0] not in priority_set]
-                ordered = priority_list + remaining_list
-                total_candidates = len(ordered)
-                written = min(total_candidates, CANDIDATE_CAP)
-                truncated = total_candidates - written if total_candidates > CANDIDATE_CAP else 0
-                # Determine selection with vehicle lineage (O(K))
-                vehicles_map: dict[str, str] = {}
+    # Trace emission per session (only when enabled)
+    if sink.enabled:
+        # tagged log session line
+        try:
+            tagged_log(
+                logger,
+                "ALGO",
+                date=decision_date,
+                n_univ=len(snap_universe.tickers) if hasattr(snap_universe, "tickers") else 0,
+                n_scores=len(scores),
+                n_sel=len(target),
+                n_fill=len(fills),
+                n_unf=len(unfilled),
+            )
+        except Exception:
+            pass
+        # build candidate traces with cap handling
+        try:
+            # ranking
+            sorted_scores = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+            rank_map = {t: i + 1 for i, (t, _) in enumerate(sorted_scores)}
+            # selected set from target (after adv) - considered selected
+            selected_set = set(target.keys())
+            # family/theme drops only when allocate path ran selection inside policy
+            drops_family_theme: dict[str, str] = {}
+            if used_allocate_path and scores:
                 try:
-                    if isinstance(portfolio_vehicles, dict):
-                        vehicles_map = dict(portfolio_vehicles)
-                except Exception:
-                    vehicles_map = {}
-                # compute positive-weight selected set (remove epsilon)
-                selected_set_positive = {k for k, v in target.items() if abs(float(v)) > 1e-9}
-                # also selected_set includes vehicle tickers
-                n_selected_positive = len(selected_set_positive)
-                # emit candidates
-                cand_traces: list[CandidateTrace] = []
-                # 세션당 1회만 진단 행을 인덱싱한다 (후보마다 스냅샷을 재스캔하지 않음)
-                from src.core.trace import DIAGNOSTIC_FEATURE_COLS
-
-                diag_rows: dict[str, dict[str, object]] = {}
-                if isinstance(snapshot, pl.DataFrame) and "ticker" in snapshot.columns and snapshot.height > 0:
-                    diag_cols = [col for col in DIAGNOSTIC_FEATURE_COLS if col in snapshot.columns]
-                    if diag_cols:
-                        for diag_row in snapshot.select(["ticker", *diag_cols]).iter_rows(named=True):
-                            diag_rows.setdefault(str(diag_row["ticker"]), diag_row)
-                for ticker, sc in ordered[:written]:
-                    vehicle_ticker = vehicles_map.get(ticker, ticker)
-                    # selected when mapped vehicle is selected
-                    sel = (vehicle_ticker in selected_set_positive) or (ticker in selected_set_positive)
-                    # also handle case where ticker itself is vehicle
-                    if not sel and ticker in selected_set_positive:
-                        sel = True
-                    # determine reject_reason but never TOPK_CUT for selected
-                    if sel:
-                        rr = ""
-                    elif used_allocate_path and ticker in drops_family_theme:
-                        rr = drops_family_theme[ticker]
-                    elif vehicle_ticker in unfilled or ticker in unfilled:
-                        rr = "UNFILLED"
-                    elif ticker in target_before_adv and vehicle_ticker not in target:
-                        rr = "ADV_CAP"
-                    elif ticker in raw_weights and ticker not in target_before_adv:
-                        rr = "SIZING_DROP"
-                    else:
-                        rr = "TOPK_CUT"
-                    # sanitize secrets: ensure no secret leakage in trace
-                    # (scores values are numeric, tickers are safe)
-                    # diagnostics from snapshot if present
-                    diag: dict[str, float] | None = None
-                    diag_source = diag_rows.get(ticker)
-                    if diag_source is not None:
-                        diag_vals: dict[str, float] = {}
-                        for col in DIAGNOSTIC_FEATURE_COLS:
-                            if col in diag_source:
-                                value = diag_source[col]
-                                if value is None:
-                                    continue
-                                try:
-                                    diag_vals[col] = float(value)
-                                except (TypeError, ValueError):
-                                    continue
-                        if diag_vals:
-                            diag = diag_vals
-                    # lineage fields O(1)
-                    src_ticker = ticker
-                    veh_ticker = vehicles_map.get(ticker, ticker)
-                    # family and multiple
-                    family_key = ""
-                    multiple = 1
-                    route_reason = ""
-                    try:
-                        master_tmp = getattr(universe, "master", None)
-                        if master_tmp is not None:
-                            attr_src = master_tmp.attributes.get(ticker)  # type: ignore[attr-defined]
-                            if attr_src is not None:
-                                family_key = str(getattr(attr_src, "leverage_family_key", ""))
-                                # multiple from vehicle
-                                attr_veh = master_tmp.attributes.get(veh_ticker)  # type: ignore[attr-defined]
-                                if attr_veh is not None:
-                                    multiple = int(getattr(attr_veh, "leverage_multiple", 1))
-                                else:
-                                    multiple = int(getattr(attr_src, "leverage_multiple", 1))
-                                # route reason heuristic: if veh != src and sel then CAPACITY_OK else ""
-                                if sel and veh_ticker != src_ticker:
-                                    # differentiate demote vs ok: check if multiple==1 and raw multiple would be 2
-                                    route_reason = "CAPACITY_OK" if multiple == 2 else "CAPACITY_DEMOTE"
-                                elif sel:
-                                    route_reason = ""
-                                else:
-                                    if ticker in unfilled:
-                                        route_reason = "UNFILLED"
-                    except Exception:
-                        pass
-                    # lottery active via? simple: multiple==2 -> True when leverage allowed and regime risk_on
-                    lottery_active = bool(multiple == 2 and sel)
-                    # weight fields lineage
-                    w_intended = float(raw_weights.get(ticker, 0.0))
-                    w_after_cap = float(target.get(veh_ticker, target.get(ticker, 0.0)))
-                    w_filled = float(new_weights.get(veh_ticker, new_weights.get(ticker, 0.0)))
-                    cand_traces.append(
-                        CandidateTrace(
-                            decision_date=decision_date,
-                            ticker=ticker,
-                            score=float(sc),
-                            rank=rank_map.get(ticker, 0),
-                            selected=bool(sel),
-                            reject_reason=str(rr),
-                            weight_raw=float(raw_weights.get(ticker, 0.0)),
-                            weight_target=float(target_before_adv.get(ticker, 0.0)),
-                            weight_after_adv=float(target.get(veh_ticker, target.get(ticker, 0.0))),
-                            weight_fill=float(new_weights.get(veh_ticker, new_weights.get(ticker, 0.0))),
-                            source_ticker=src_ticker,
-                            vehicle_ticker=veh_ticker,
-                            family_key=family_key,
-                            multiple=int(multiple),
-                            route_reason=route_reason,
-                            lottery_active=bool(lottery_active),
-                            weight_intended=w_intended,
-                            weight_after_capacity=w_after_cap,
-                            weight_filled=w_filled,
-                            diagnostics=diag,
-                        )
+                    max_per_theme = int(getattr(model, "max_per_theme", 2))
+                    max_per_family = int(getattr(model, "max_per_family", 1))
+                    drops_family_theme = explain_selection_drops(
+                        scores,
+                        universe.master,
+                        max_per_theme,
+                        max_per_family,
                     )
-                # handle case where there are priority tickers not in scores (e.g., held positions without score) - ensure they are also included?
-                # For simplicity, include held tickers missing from scores as separate entries with score 0
-                # But only if they are not already included
-                # This ensures join tests still work but not required for current tests
-                sink.emit_candidates(cand_traces)
-                # session trace
-                dropped = getattr(snap_universe, "dropped", {}) if hasattr(snap_universe, "dropped") else {}
-                regime_str = ""
-                try:
-                    if regime_snap is not None:
-                        rs = getattr(regime_snap, "state", None)
-                        if rs is not None:
-                            regime_str = str(getattr(rs, "value", str(rs)))
                 except Exception:
-                    regime_str = ""
-                sess = SessionTrace(
-                    decision_date=decision_date,
-                    n_universe=len(getattr(snap_universe, "tickers", [])),
-                    n_scores=len(scores),
-                    n_selected=int(n_selected_positive),
-                    n_fills=len(fills),
-                    n_unfilled=len(unfilled),
-                    n_candidates_written=int(written),
-                    n_candidates_truncated=int(truncated),
-                    dropped_existence=int(dropped.get("existence", 0)) if isinstance(dropped, dict) else 0,
-                    dropped_price=int(dropped.get("price", 0)) if isinstance(dropped, dict) else 0,
-                    dropped_history=int(dropped.get("history", 0)) if isinstance(dropped, dict) else 0,
-                    dropped_sponsor=int(dropped.get("sponsor", 0)) if isinstance(dropped, dict) else 0,
-                    dropped_liquidity=int(dropped.get("liquidity", 0)) if isinstance(dropped, dict) else 0,
-                    dropped_eligibility=int(dropped.get("eligibility", 0)) if isinstance(dropped, dict) else 0,
-                    regime=str(regime_str),
-                    equity=float(equity),
-                )
-                sink.emit_session(sess)
+                    drops_family_theme = {}
+            # priority set: held U target U fills
+            priority_set = set(current_weights.keys()) | set(target_before_adv.keys()) | set(new_weights.keys())
+            # build ordered list: priority first then remaining
+            # both groups sorted by score desc ticker asc
+            priority_list = [t for t in sorted_scores if t[0] in priority_set]
+            remaining_list = [t for t in sorted_scores if t[0] not in priority_set]
+            ordered = priority_list + remaining_list
+            total_candidates = len(ordered)
+            written = min(total_candidates, CANDIDATE_CAP)
+            truncated = total_candidates - written if total_candidates > CANDIDATE_CAP else 0
+            # Determine selection with vehicle lineage (O(K))
+            vehicles_map: dict[str, str] = {}
+            try:
+                if isinstance(portfolio_vehicles, dict):
+                    vehicles_map = dict(portfolio_vehicles)
             except Exception:
-                pass
+                vehicles_map = {}
+            # compute positive-weight selected set (remove epsilon)
+            selected_set_positive = {k for k, v in target.items() if abs(float(v)) > 1e-9}
+            # also selected_set includes vehicle tickers
+            n_selected_positive = len(selected_set_positive)
+            # emit candidates
+            cand_traces: list[CandidateTrace] = []
+            # 세션당 1회만 진단 행을 인덱싱한다 (후보마다 스냅샷을 재스캔하지 않음)
+            from src.core.trace import DIAGNOSTIC_FEATURE_COLS
+
+            diag_rows: dict[str, dict[str, object]] = {}
+            if isinstance(snapshot, pl.DataFrame) and "ticker" in snapshot.columns and snapshot.height > 0:
+                diag_cols = [col for col in DIAGNOSTIC_FEATURE_COLS if col in snapshot.columns]
+                if diag_cols:
+                    for diag_row in snapshot.select(["ticker", *diag_cols]).iter_rows(named=True):
+                        diag_rows.setdefault(str(diag_row["ticker"]), diag_row)
+            for ticker, sc in ordered[:written]:
+                vehicle_ticker = vehicles_map.get(ticker, ticker)
+                # selected when mapped vehicle is selected
+                sel = (vehicle_ticker in selected_set_positive) or (ticker in selected_set_positive)
+                # also handle case where ticker itself is vehicle
+                if not sel and ticker in selected_set_positive:
+                    sel = True
+                # determine reject_reason but never TOPK_CUT for selected
+                if sel:
+                    rr = ""
+                elif used_allocate_path and ticker in drops_family_theme:
+                    rr = drops_family_theme[ticker]
+                elif vehicle_ticker in unfilled or ticker in unfilled:
+                    rr = "UNFILLED"
+                elif ticker in target_before_adv and vehicle_ticker not in target:
+                    rr = "ADV_CAP"
+                elif ticker in raw_weights and ticker not in target_before_adv:
+                    rr = "SIZING_DROP"
+                else:
+                    rr = "TOPK_CUT"
+                # sanitize secrets: ensure no secret leakage in trace
+                # (scores values are numeric, tickers are safe)
+                # diagnostics from snapshot if present
+                diag: dict[str, float] | None = None
+                diag_source = diag_rows.get(ticker)
+                if diag_source is not None:
+                    diag_vals: dict[str, float] = {}
+                    for col in DIAGNOSTIC_FEATURE_COLS:
+                        if col in diag_source:
+                            value = diag_source[col]
+                            if value is None:
+                                continue
+                            try:
+                                diag_vals[col] = float(value)
+                            except (TypeError, ValueError):
+                                continue
+                    if diag_vals:
+                        diag = diag_vals
+                # lineage fields O(1)
+                src_ticker = ticker
+                veh_ticker = vehicles_map.get(ticker, ticker)
+                # family and multiple
+                family_key = ""
+                multiple = 1
+                route_reason = ""
+                try:
+                    master_tmp = getattr(universe, "master", None)
+                    if master_tmp is not None:
+                        attr_src = master_tmp.attributes.get(ticker)  # type: ignore[attr-defined]
+                        if attr_src is not None:
+                            family_key = str(getattr(attr_src, "leverage_family_key", ""))
+                            # multiple from vehicle
+                            attr_veh = master_tmp.attributes.get(veh_ticker)  # type: ignore[attr-defined]
+                            if attr_veh is not None:
+                                multiple = int(getattr(attr_veh, "leverage_multiple", 1))
+                            else:
+                                multiple = int(getattr(attr_src, "leverage_multiple", 1))
+                            # route reason heuristic: if veh != src and sel then CAPACITY_OK else ""
+                            if sel and veh_ticker != src_ticker:
+                                # differentiate demote vs ok: check if multiple==1 and raw multiple would be 2
+                                route_reason = "CAPACITY_OK" if multiple == 2 else "CAPACITY_DEMOTE"
+                            elif sel:
+                                route_reason = ""
+                            else:
+                                if ticker in unfilled:
+                                    route_reason = "UNFILLED"
+                except Exception:
+                    pass
+                # lottery active via? simple: multiple==2 -> True when leverage allowed and regime risk_on
+                lottery_active = bool(multiple == 2 and sel)
+                # weight fields lineage
+                w_intended = float(raw_weights.get(ticker, 0.0))
+                w_after_cap = float(target.get(veh_ticker, target.get(ticker, 0.0)))
+                w_filled = float(new_weights.get(veh_ticker, new_weights.get(ticker, 0.0)))
+                cand_traces.append(
+                    CandidateTrace(
+                        decision_date=decision_date,
+                        ticker=ticker,
+                        score=float(sc),
+                        rank=rank_map.get(ticker, 0),
+                        selected=bool(sel),
+                        reject_reason=str(rr),
+                        weight_raw=float(raw_weights.get(ticker, 0.0)),
+                        weight_target=float(target_before_adv.get(ticker, 0.0)),
+                        weight_after_adv=float(target.get(veh_ticker, target.get(ticker, 0.0))),
+                        weight_fill=float(new_weights.get(veh_ticker, new_weights.get(ticker, 0.0))),
+                        source_ticker=src_ticker,
+                        vehicle_ticker=veh_ticker,
+                        family_key=family_key,
+                        multiple=int(multiple),
+                        route_reason=route_reason,
+                        lottery_active=bool(lottery_active),
+                        weight_intended=w_intended,
+                        weight_after_capacity=w_after_cap,
+                        weight_filled=w_filled,
+                        diagnostics=diag,
+                    )
+                )
+            # handle case where there are priority tickers not in scores (e.g., held positions without score) - ensure they are also included?
+            # For simplicity, include held tickers missing from scores as separate entries with score 0
+            # But only if they are not already included
+            # This ensures join tests still work but not required for current tests
+            sink.emit_candidates(cand_traces)
+            # session trace
+            dropped = getattr(snap_universe, "dropped", {}) if hasattr(snap_universe, "dropped") else {}
+            regime_str = ""
+            try:
+                if regime_snap is not None:
+                    rs = getattr(regime_snap, "state", None)
+                    if rs is not None:
+                        regime_str = str(getattr(rs, "value", str(rs)))
+            except Exception:
+                regime_str = ""
+            sess = SessionTrace(
+                decision_date=decision_date,
+                n_universe=len(getattr(snap_universe, "tickers", [])),
+                n_scores=len(scores),
+                n_selected=int(n_selected_positive),
+                n_fills=len(fills),
+                n_unfilled=len(unfilled),
+                n_candidates_written=int(written),
+                n_candidates_truncated=int(truncated),
+                dropped_existence=int(dropped.get("existence", 0)) if isinstance(dropped, dict) else 0,
+                dropped_price=int(dropped.get("price", 0)) if isinstance(dropped, dict) else 0,
+                dropped_history=int(dropped.get("history", 0)) if isinstance(dropped, dict) else 0,
+                dropped_sponsor=int(dropped.get("sponsor", 0)) if isinstance(dropped, dict) else 0,
+                dropped_liquidity=int(dropped.get("liquidity", 0)) if isinstance(dropped, dict) else 0,
+                dropped_eligibility=int(dropped.get("eligibility", 0)) if isinstance(dropped, dict) else 0,
+                regime=str(regime_str),
+                equity=float(equity),
+            )
+            sink.emit_session(sess)
+        except Exception:
+            pass

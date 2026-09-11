@@ -345,7 +345,7 @@ def test_hook_mom60_raw_allocate_carries_prior_state_and_persists_new_state(tmp_
     )
 
     state_path = tmp_path / "state" / "sticky_mom60_raw_position.json"
-    persist_sticky_state(state_path, as_of=sessions[-2], held="999", held_weight=1.0, hold_len=1)
+    persist_sticky_state(state_path, decision_date=sessions[-2], held="999", held_weight=1.0, hold_len=1)
 
     restore_calls = []
 
