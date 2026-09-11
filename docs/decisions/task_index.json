@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_STRATEGY_CEILING_PROBE",
+      "date": "2026-09-11",
+      "adr_id": "ADR_20260911_STRATEGY_CEILING_PROBE",
+      "domain": "tournament",
+      "title": "P27+앵커 구조 천장 탐색",
+      "why": "챔피언 실전투입 전 근본적 개선 가능성 자율 탐색 요청",
+      "resolution": "오라클 대비 포착률·참여율 민감도·앵커 분류기 변형·INACTIVE 참여 실증, 구조 변경 없음으로 결론",
+      "impact": "챔피언 유지, HTS 체결규칙 확인과 밴드 재진입은 라이브 손절 시 결정 항목으로 보류"
+    },
+    {
       "task_id": "POST_CRASH_CAMPAIGN_ANCHOR",
       "date": "2026-09-11",
       "adr_id": "ADR_20260911_POST_CRASH_CAMPAIGN_ANCHOR",
