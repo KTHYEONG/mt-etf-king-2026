@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_ARCHITECTURE_LINT_DEBT_REMEDIATION",
+      "date": "2026-09-11",
+      "adr_id": "ADR_20260911_ARCHITECTURE_LINT_DEBT_REMEDIATION",
+      "domain": "architecture",
+      "title": "architecture-lint 이연 부채 4건 해소",
+      "why": "TASK_PRE_EXISTING_TEST_DEBT에서 의도적으로 이연한 400문장 예산 초과 2건·과밀 라인 42곳·파라미터 별칭 1건·하드코딩 임계값 41건(probe 재조사로 championship_regime.py/frontier.py/cutoff_auc.py 포함 전량 확인, 최초 과소집계 정정)",
+      "resolution": "adaptive_specialists.py/decide-models.py를 core/overlay_hooks 모듈로 분할, ruff format으로 42개 과밀라인 AST동일 재포맷, persist_sticky_state as_of를 decision_date로 rename(JSON 스키마 불변), 41개 하드코딩 임계값을 CHAMPIONSHIP_THRESHOLDS/TOURNAMENT_SESSIONS 재사용 및 gates.yaml 신규 키(cutoff_auc, p27_regime)로 config-route",
+      "impact": "architecture-lint 4개 테스트 전부 GREEN, 전 회귀 스위트 무손상(lean_check --no-cov PASS), 부채 완전 해소로 별도 과제 잔존 없음"
+    },
+    {
       "task_id": "TASK_PRE_EXISTING_TEST_DEBT",
       "date": "2026-09-11",
       "adr_id": "ADR_20260911_PRE_EXISTING_TEST_DEBT",
