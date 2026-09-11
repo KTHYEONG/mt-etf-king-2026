@@ -193,6 +193,7 @@
     "testing": [
       "tests/unit/cli/test_decide_live_p27.py",
       "tests/unit/cli/test_decide_models.py",
+      "tests/unit/cli/test_decide_models_overlay_hooks.py",
       "tests/unit/cli/test_p23_adoption_wiring.py",
       "tests/unit/cli/test_p24_adoption_wiring.py",
       "tests/unit/cli/test_p25_adoption_wiring.py",
@@ -201,6 +202,9 @@
       "tests/unit/cli/test_p28a_adoption_wiring.py",
       "tests/unit/cli/test_p30_adoption_wiring.py"
     ]
+  },
+  "src/cli/commands/decide/models_overlay_hooks.py": {
+    "testing": "tests/unit/cli/test_decide_models_overlay_hooks.py"
   },
   "src/cli/commands/decide/render.py": {
     "testing": "tests/unit/cli/test_render.py"
@@ -314,10 +318,7 @@
     "testing": "tests/unit/execution/test_ledger_state.py"
   },
   "src/execution/ledger_transition.py": {
-    "testing": [
-      "tests/unit/execution/test_ledger_transition.py",
-      "tests/unit/execution/test_ledger_priceless_session.py"
-    ]
+    "testing": "tests/unit/execution/test_ledger_transition.py"
   },
   "src/features/breadth.py": {
     "testing": "tests/unit/features/test_breadth.py"
@@ -554,7 +555,13 @@
     ]
   },
   "src/tournament/adaptive_specialists.py": {
-    "testing": "tests/unit/tournament/test_adaptive_specialists.py"
+    "testing": [
+      "tests/unit/tournament/test_adaptive_specialists.py",
+      "tests/unit/architecture/test_naming_consistency.py"
+    ]
+  },
+  "src/tournament/adaptive_specialists_core.py": {
+    "testing": "tests/unit/tournament/test_adaptive_specialists_core.py"
   },
   "src/tournament/attainability.py": {
     "testing": "tests/unit/tournament/test_attainability.py"
@@ -614,7 +621,8 @@
       "tests/unit/alpha/test_p27.py",
       "tests/unit/strategies/test_inactive_participation_sleeve.py",
       "tests/unit/strategies/test_model_runner.py",
-      "tests/unit/tournament/test_cutoff_auc.py"
+      "tests/unit/tournament/test_cutoff_auc.py",
+      "tests/unit/tournament/test_cutoff_auc_config_routing.py"
     ]
   },
   "src/tournament/objective/reports.py": {
