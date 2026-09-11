@@ -159,7 +159,16 @@ def _hook_split_fill_lock(state: _DecideState) -> None:
         pass
 
 
-def _hook_mom60_raw_allocate(state: _DecideState) -> None:
+_LIVE_STICKY_STRATEGIES: Final[frozenset[str]] = frozenset({"sticky.mom60_raw", "sticky.mom60_post_crash_anchor"})
+
+
+def _sticky_live_state_name(strategy_id: str) -> str:
+    return strategy_id.replace(".", "_") + "_position"
+
+
+def _hook_sticky_live_allocate(state: _DecideState, *, strategy_id: str) -> None:
+    if strategy_id not in _LIVE_STICKY_STRATEGIES:
+        raise ValueError(f"unsupported live sticky strategy: {strategy_id}")
     from pathlib import Path
 
     import polars as pl
@@ -194,10 +203,10 @@ def _hook_mom60_raw_allocate(state: _DecideState) -> None:
     sleeve = resolve_live_championship_sleeve(index_daily, state.decision_date)
     from src.strategies.registry import STRATEGIES as _REG_P27
 
-    model: Any = _REG_P27["sticky.mom60_raw"]()
+    model: Any = _REG_P27[strategy_id]()
     model.reset_trackers()
     data_root_for_state = get_settings().data_root
-    state_path = DataPaths(root=Path(str(data_root_for_state))).state("sticky_mom60_raw_position")
+    state_path = DataPaths(root=Path(str(data_root_for_state))).state(_sticky_live_state_name(strategy_id))
     held_override = getattr(state.args, "held", None)
     if held_override:
         stripped = str(held_override).strip()
@@ -237,7 +246,7 @@ def _hook_mom60_raw_allocate(state: _DecideState) -> None:
         held=held_map,
         decision_date=state.decision_date,
         capital=capital,
-        strategy_id="sticky.mom60_raw",
+        strategy_id=strategy_id,
     )
     state.decision_weights = intent
     state.weights = capped_weights
@@ -247,15 +256,26 @@ def _hook_mom60_raw_allocate(state: _DecideState) -> None:
     new_held = resolve_primary_ticker(state.weights)
     new_weight = float(state.weights.get(new_held, 0.0)) if new_held else 0.0
     new_hold_len = next_hold_len(held_ticker, prior_hold_len, new_held)
-    recomputed_path = DataPaths(root=Path(str(get_settings().data_root))).state("sticky_mom60_raw_position")
+    recomputed_path = DataPaths(root=Path(str(get_settings().data_root))).state(
+        _sticky_live_state_name(strategy_id)
+    )
     persist_sticky_state(
         recomputed_path, decision_date=state.decision_date, held=new_held, held_weight=new_weight, hold_len=new_hold_len
     )
 
 
+def _hook_mom60_raw_allocate(state: _DecideState) -> None:
+    _hook_sticky_live_allocate(state, strategy_id="sticky.mom60_raw")
+
+
+def _hook_mom60_post_crash_anchor_allocate(state: _DecideState) -> None:
+    _hook_sticky_live_allocate(state, strategy_id="sticky.mom60_post_crash_anchor")
+
+
 _ALLOCATE_HOOKS: Final[dict[str, Any]] = {
     "sticky.split_fill_lock": _hook_split_fill_allocate,
     "sticky.mom60_raw": _hook_mom60_raw_allocate,
+    "sticky.mom60_post_crash_anchor": _hook_mom60_post_crash_anchor_allocate,
 }
 
 _OVERLAY_HOOKS: Final[dict[str, Any]] = {
@@ -264,6 +284,7 @@ _OVERLAY_HOOKS: Final[dict[str, Any]] = {
     "sticky.house_money": _hook_house_money,
     "sticky.mom60_concentrated": _hook_mom60_concentrated,
     "sticky.mom60_raw": _hook_mom60_raw,
+    "sticky.mom60_post_crash_anchor": _hook_mom60_raw,
     "sticky.mom60_hold": _hook_mom60_hold,
     "sticky.mom60_abs_cash": _hook_mom60_abs_cash,
     "sticky.equity_mom60": _hook_equity_group,

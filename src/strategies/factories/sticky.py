@@ -22,6 +22,7 @@ from src.strategies.factories.sticky_mom60 import (
     make_sticky_mom60_concentrated,
     make_sticky_mom60_hold,
     make_sticky_mom60_inactive_participate,
+    make_sticky_mom60_post_crash_anchor,
     make_sticky_mom60_raw,
     make_sticky_mom60_runner_reversal,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "make_sticky_mom60_hold",
     "make_sticky_mom60_inactive_participate",
     "make_sticky_mom60_peak_lock",
+    "make_sticky_mom60_post_crash_anchor",
     "make_sticky_mom60_raw",
     "make_sticky_mom60_runner_reversal",
     "make_sticky_split_fill_lock",

@@ -292,3 +292,48 @@ def test_apply_attack_sleeve_route_participate_branch() -> None:
             is CASH_INTENT
         )
 
+
+
+def test_resolve_attack_sleeve_post_crash_anchor_routes() -> None:
+    from src.tournament.objective.cutoff_auc import resolve_attack_sleeve
+
+    assert resolve_attack_sleeve("CRASH_REBOUND") == "REBOUND"
+    assert resolve_attack_sleeve("CRASH_REBOUND", anchor_enabled=True) == "ANCHOR"
+    assert resolve_attack_sleeve("INACTIVE", anchor_enabled=True, held_is_anchor=True) == "ANCHOR"
+    assert resolve_attack_sleeve("INACTIVE", anchor_enabled=True, held_is_anchor=False) == "CASH"
+    assert resolve_attack_sleeve("INACTIVE", anchor_enabled=False, held_is_anchor=True) == "CASH"
+    assert (
+        resolve_attack_sleeve("INACTIVE", inactive_participation=True, anchor_enabled=True, held_is_anchor=True)
+        == "ANCHOR"
+    )
+    assert (
+        resolve_attack_sleeve("INACTIVE", inactive_participation=True, anchor_enabled=True, held_is_anchor=False)
+        == "PARTICIPATE"
+    )
+    assert resolve_attack_sleeve("LOTTERY_ON", anchor_enabled=True, held_is_anchor=True) == "MOM60"
+    assert resolve_attack_sleeve("UNCERTAIN", anchor_enabled=True, held_is_anchor=True) == "CASH"
+    assert resolve_attack_sleeve(None, anchor_enabled=True, held_is_anchor=True) == "CASH"
+
+
+
+def test_apply_attack_sleeve_route_anchor_scores_or_cash() -> None:
+    from src.portfolio.intent import CASH_INTENT
+    from src.tournament.objective.cutoff_auc import apply_attack_sleeve_route
+
+    mom60 = {"M": 1.0}
+    rebound = {"R": 1.0}
+    anchor = {"233740": 0.2}
+
+    def route(**kw: object) -> object:
+        return apply_attack_sleeve_route(mom60_scores=mom60, rebound_scores=rebound, **kw)  # type: ignore[arg-type]
+
+    assert route(sleeve="CRASH_REBOUND", production_gate=True, anchor_scores=anchor, anchor_enabled=True) == anchor
+    assert route(sleeve="CRASH_REBOUND", production_gate=True, anchor_scores={}, anchor_enabled=True) is CASH_INTENT
+    assert route(sleeve="CRASH_REBOUND", production_gate=True, anchor_scores=None, anchor_enabled=True) is CASH_INTENT
+    assert (
+        route(sleeve="INACTIVE", production_gate=True, anchor_scores=anchor, anchor_enabled=True, held_is_anchor=True)
+        == anchor
+    )
+    assert route(sleeve="CRASH_REBOUND", production_gate=True, anchor_scores=anchor, anchor_enabled=False) == rebound
+    assert route(sleeve="CRASH_REBOUND", production_gate=False, anchor_scores=anchor, anchor_enabled=True) == mom60
+

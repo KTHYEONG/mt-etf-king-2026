@@ -308,6 +308,7 @@ def resolve_exposure_limits_for_model(
         "sticky.fillable_mom60",
         "sticky.mom60_runner_reversal",
         "sticky.mom60_inactive_participate",
+        "sticky.mom60_post_crash_anchor",
         "convex.lottery_impulse",
     ):
         return load_p27_exposure_limits()
@@ -319,7 +320,7 @@ def resolve_exposure_limits_for_model(
         "sticky.mom60_raw", "sticky.mom60_hold", "sticky.mom60_abs_cash",
         "sticky.equity_mom60", "sticky.equity_mom60_vol", "sticky.fillable_mom60",
         "convex.lottery_impulse", "sticky.mom60_runner_reversal",
-        "sticky.mom60_inactive_participate",
+        "sticky.mom60_inactive_participate", "sticky.mom60_post_crash_anchor",
     ):
         return load_p27_exposure_limits()
     if comparison_mode == "alpha_equal":

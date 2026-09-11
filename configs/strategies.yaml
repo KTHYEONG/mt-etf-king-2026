@@ -116,6 +116,24 @@ portfolio:
       max_single_weight: 0.95
       max_gross_exposure: 1.9
       min_cash: 0.05
+    # 급락 후 반등 캠페인(research): KODEX 코스닥150레버리지 / KODEX 레버리지 앵커
+    mom60_post_crash_anchor:
+      mom_col: mom_60
+      cash_drawdown: 0.0
+      min_gap: 0.04
+      min_hold: 2
+      impulse_gap: 0.0
+      overlay_mode: identity
+      abs_mom_cash: true
+      exclude_synthetic: true
+      min_fill_ratio: 0.25
+      post_crash_anchor: true
+      anchor_tickers: ["233740", "122630"]
+      anchor_score_col: mom_20
+      anchor_stop_drawdown: 0.15
+      max_single_weight: 0.95
+      max_gross_exposure: 1.9
+      min_cash: 0.05
     mom60_vol_hysteresis:
       mom_col: mom_60
       abs_mom_cash: true

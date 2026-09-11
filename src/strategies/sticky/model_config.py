@@ -117,6 +117,10 @@ class StickyLeaderConfig:
     inactive_min_weight: float = 0.30
     inactive_stop_drawdown: float = 0.15
     crash_rebound_abs_mom_bypass: bool = crash_rebound_abs_mom_bypass
+    post_crash_anchor: bool = False
+    anchor_tickers: tuple[str, ...] = ()
+    anchor_score_col: str = "mom_20"
+    anchor_stop_drawdown: float = 0.15
     @classmethod
     def from_yaml(cls, raw: Mapping[str, object]) -> StickyLeaderConfig:
         defaults = cls()
@@ -339,6 +343,43 @@ class StickyLeaderConfig:
                     inactive_stop_drawdown = float(vv)
         except (TypeError, ValueError):
             inactive_stop_drawdown = defaults.inactive_stop_drawdown
+        if "post_crash_anchor" in raw:
+            if not isinstance(raw["post_crash_anchor"], bool):
+                raise ValueError("post_crash_anchor must be bool")
+            post_crash_anchor = bool(raw["post_crash_anchor"])
+        else:
+            post_crash_anchor = False
+        if "anchor_tickers" in raw:
+            tickers_raw = raw["anchor_tickers"]
+            if not isinstance(tickers_raw, (list, tuple)):
+                raise ValueError("anchor_tickers must be a list or tuple of non-empty strings")
+            cleaned: list[str] = []
+            for el in tickers_raw:
+                if not isinstance(el, str) or not el.strip():
+                    raise ValueError("anchor_tickers must be a list or tuple of non-empty strings")
+                cleaned.append(el.strip())
+            anchor_tickers = tuple(cleaned)
+        else:
+            anchor_tickers = ()
+        if "anchor_score_col" in raw:
+            score_raw = raw["anchor_score_col"]
+            if not isinstance(score_raw, str) or not score_raw.strip():
+                raise ValueError("anchor_score_col must be a non-empty string")
+            anchor_score_col = str(score_raw)
+        else:
+            anchor_score_col = "mom_20"
+        if "anchor_stop_drawdown" in raw:
+            stop_raw = raw["anchor_stop_drawdown"]
+            if isinstance(stop_raw, bool) or not isinstance(stop_raw, (int, float, str)):
+                raise ValueError("anchor_stop_drawdown must be in (0, 1)")
+            stop_val = float(stop_raw)
+            if not math.isfinite(stop_val) or not 0 < stop_val < 1:
+                raise ValueError(f"anchor_stop_drawdown must be in (0, 1), got {stop_raw!r}")
+            anchor_stop_drawdown = float(stop_val)
+        else:
+            anchor_stop_drawdown = 0.15
+        if post_crash_anchor and not anchor_tickers:
+            raise ValueError("post_crash_anchor requires non-empty anchor_tickers")
         return cls(
             mom_col=str(mom_col),
             only_plus_2=bool(only_plus_2),
@@ -366,4 +407,8 @@ class StickyLeaderConfig:
             inactive_min_weight=float(inactive_min_weight),
             inactive_stop_drawdown=float(inactive_stop_drawdown),
             crash_rebound_abs_mom_bypass=bool(defaults.crash_rebound_abs_mom_bypass),
+            post_crash_anchor=bool(post_crash_anchor),
+            anchor_tickers=tuple(anchor_tickers),
+            anchor_score_col=str(anchor_score_col),
+            anchor_stop_drawdown=float(anchor_stop_drawdown),
         )

@@ -249,7 +249,7 @@ class StickyLeaderModel:
         )
         abs_gated = apply_abs_mom_cash(crashed, self.config, held=held, rebound_bypass=_bypass)
         out = apply_same_leader_hold(abs_gated, held, bool(getattr(self.config, "same_leader_hold", False)))
-        from src.strategies.sticky.model_scores import inactive_leader_scores, rebound_leader_scores
+        from src.strategies.sticky.model_scores import inactive_leader_scores, post_crash_anchor_scores, rebound_leader_scores
         from src.tournament.objective.cutoff_auc import CUTOFF_AUC_IS_PRODUCTION_GATE
         from src.tournament.objective.cutoff_auc import apply_attack_sleeve_route
 
@@ -286,6 +286,18 @@ class StickyLeaderModel:
                         min_weight=float(getattr(self.config, "inactive_min_weight", 0.30)),
                         score_col=str(getattr(self.config, "inactive_score_col", "rv_20")),
                     )
+        _anchor_enabled = bool(getattr(self.config, "post_crash_anchor", False))
+        _anchor_tickers = tuple(getattr(self.config, "anchor_tickers", ()) or ())
+        _held_is_anchor = held is not None and held in _anchor_tickers
+        _anchor_scores: dict[str, float] = {}
+        if _anchor_enabled and (_sleeve == ChampionshipSleeve.CRASH_REBOUND.value or (_sleeve == ChampionshipSleeve.INACTIVE.value and _held_is_anchor)):
+            # 급락 후 반등 캠페인: 지수 +2x 앵커, 보유 앵커면 INACTIVE 에서도 유지(무상태 래치)
+            _anchor_scores = post_crash_anchor_scores(snapshot, anchor_tickers=_anchor_tickers, held=held, score_col=str(self.config.anchor_score_col), stop_drawdown=float(self.config.anchor_stop_drawdown))
+            if _cap_params is not None and _anchor_scores:
+                _an_cap, _an_phi, _an_mfr = _cap_params
+                _anchor_scores = apply_capacity_filter(
+                    _anchor_scores, snapshot, capital=_an_cap, max_order_to_adv=_an_phi, min_fill_ratio=_an_mfr
+                )
         out = apply_attack_sleeve_route(
             sleeve=_sleeve,
             mom60_scores=out,
@@ -293,6 +305,9 @@ class StickyLeaderModel:
             production_gate=CUTOFF_AUC_IS_PRODUCTION_GATE,
             inactive_scores=_inactive_scores,
             inactive_participation=bool(getattr(self.config, "inactive_participation", False)),
+            anchor_scores=_anchor_scores,
+            anchor_enabled=_anchor_enabled,
+            held_is_anchor=_held_is_anchor,
         )
         if _runner_exit and held is not None and _runner_cap is not None and _runner_mom is not None:
             try:
