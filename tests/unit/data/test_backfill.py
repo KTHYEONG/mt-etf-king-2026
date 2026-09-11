@@ -151,3 +151,54 @@ async def test_scenario_02_09_failure_partial(tmp_path: Path) -> None:
     planner2 = BackfillPlanner(cal, store, ledger)
     plan2 = planner2.plan("etf_daily", date(2026, 8, 13), date(2026, 8, 20))
     assert plan2.scheduled == (date(2026, 8, 18),)
+
+
+@pytest.mark.asyncio
+async def test_backfill_zero_row_response_is_not_cached_and_stays_retryable(tmp_path: Path) -> None:
+    """A provider returning HTTP-200-with-zero-rows for a calendar trading day (KRX has not yet
+    published that basDd) must not be written to bronze -- BronzeStore.write() is write-once, so
+    caching an empty snapshot would permanently block ever picking up the real data once KRX
+    actually publishes it. The date must remain `scheduled` (retryable) on the next plan, and the
+    result must report it via `pending`, not `written`/`skipped`/`failed`."""
+    paths = DataPaths(root=tmp_path)
+    store = BronzeStore(paths)
+
+    def today() -> date:
+        return date(2026, 8, 27)
+
+    ledger = QuotaLedger(paths.state("krx_quota"), daily_quota=100, today=today)
+    cal = TradingCalendar(name="XKRX")
+    planner = BackfillPlanner(cal, store, ledger)
+    plan = planner.plan("etf_daily", date(2026, 8, 13), date(2026, 8, 14))
+    assert len(plan.scheduled) == 2
+
+    class NotYetPublishedStub:
+        async def fetch_session(self, endpoint: str, bas_dd: date):  # type: ignore[override]
+            if bas_dd == date(2026, 8, 14):
+                return []  # KRX 200 OK, 0 rows: not yet published
+            return [{"x": "y"}]
+
+    stub = NotYetPublishedStub()
+    result = await run_backfill(plan, stub, store, ledger, max_concurrency=2)
+
+    assert result.written == 1
+    assert result.pending == 1
+    assert result.skipped == 0
+    assert result.failed == ()
+    assert store.has_session("etp/etf_bydd_trd", date(2026, 8, 14)) is False
+    assert store.has_session("etp/etf_bydd_trd", date(2026, 8, 13)) is True
+
+    # Next plan still schedules the not-yet-published date for retry.
+    planner2 = BackfillPlanner(cal, store, ledger)
+    plan2 = planner2.plan("etf_daily", date(2026, 8, 13), date(2026, 8, 14))
+    assert plan2.scheduled == (date(2026, 8, 14),)
+
+    # Once KRX actually publishes it, a later run picks up the real data.
+    class NowPublishedStub:
+        async def fetch_session(self, endpoint: str, bas_dd: date):  # type: ignore[override]
+            return [{"x": "y"}]
+
+    result2 = await run_backfill(plan2, NowPublishedStub(), store, ledger, max_concurrency=2)
+    assert result2.written == 1
+    assert result2.pending == 0
+    assert store.has_session("etp/etf_bydd_trd", date(2026, 8, 14)) is True

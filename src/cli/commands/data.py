@@ -65,10 +65,12 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 provider = KRXOpenAPIProvider(client=client, base_url=base_url, limiter=limiter)
                 result = await run_backfill(plan, provider, store, ledger, max_concurrency=settings.max_concurrency)
                 logger.info(
-                    f"[DATA] ingest written={result.written} skipped={result.skipped} failed={len(result.failed)} quota_exhausted={result.quota_exhausted}"
+                    f"[DATA] ingest written={result.written} skipped={result.skipped} pending={result.pending} "
+                    f"failed={len(result.failed)} quota_exhausted={result.quota_exhausted}"
                 )
                 logger.info(
-                    f"[SYS] ingest dataset={dataset} start={start} end={end} written={result.written} quota_exhausted={result.quota_exhausted}"
+                    f"[SYS] ingest dataset={dataset} start={start} end={end} written={result.written} "
+                    f"pending={result.pending} quota_exhausted={result.quota_exhausted}"
                 )
                 return 0
 
