@@ -128,13 +128,24 @@ def inactive_activity_rate(returns: Sequence[float], active: Sequence[bool]) -> 
     return float(cnt / float(len(inactive)))
 
 
-def resolve_attack_sleeve(sleeve: str | None, *, inactive_participation: bool = False) -> str:
+def resolve_attack_sleeve(
+    sleeve: str | None,
+    *,
+    inactive_participation: bool = False,
+    anchor_enabled: bool = False,
+    held_is_anchor: bool = False,
+) -> str:
     if sleeve == "LOTTERY_ON":
         return "MOM60"
     if sleeve == "CRASH_REBOUND":
+        if anchor_enabled:
+            return "ANCHOR"
         return "REBOUND"
-    if sleeve == "INACTIVE" and bool(inactive_participation):
-        return "PARTICIPATE"
+    if sleeve == "INACTIVE":
+        if anchor_enabled and held_is_anchor:
+            return "ANCHOR"
+        if bool(inactive_participation):
+            return "PARTICIPATE"
     return "CASH"
 
 
@@ -146,14 +157,21 @@ def apply_attack_sleeve_route(
     production_gate: bool,
     inactive_scores: Mapping[str, float] | object | None = None,
     inactive_participation: bool = False,
+    anchor_scores: Mapping[str, float] | object | None = None,
+    anchor_enabled: bool = False,
+    held_is_anchor: bool = False,
 ) -> Mapping[str, float] | object:
     from src.portfolio.intent import CASH_INTENT
 
     if not production_gate:
         return mom60_scores
-    route = resolve_attack_sleeve(sleeve, inactive_participation=inactive_participation)
+    route = resolve_attack_sleeve(sleeve, inactive_participation=inactive_participation, anchor_enabled=anchor_enabled, held_is_anchor=held_is_anchor)
     if route == "MOM60":
         return mom60_scores
+    if route == "ANCHOR":
+        if isinstance(anchor_scores, Mapping) and len(anchor_scores) > 0:
+            return anchor_scores
+        return CASH_INTENT
     if route == "REBOUND":
         if isinstance(rebound_scores, Mapping) and len(rebound_scores) > 0:
             return rebound_scores

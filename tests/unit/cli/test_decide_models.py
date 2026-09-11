@@ -12,7 +12,7 @@ def test_p4_decide_models_hook_tables() -> None:
 
 
 def test_decide_models_hook_tables_wiring_preserved() -> None:
-    assert set(_ALLOCATE_HOOKS) == {"sticky.split_fill_lock", "sticky.mom60_raw"}
+    assert set(_ALLOCATE_HOOKS) == {"sticky.split_fill_lock", "sticky.mom60_raw", "sticky.mom60_post_crash_anchor"}
     assert set(_OVERLAY_HOOKS) == {
         "sticky.split_fill_lock",
         "sticky.mom60_peak_lock",
@@ -26,6 +26,7 @@ def test_decide_models_hook_tables_wiring_preserved() -> None:
         "sticky.fillable_mom60",
         "convex.lottery_impulse",
         "sticky.mom60_runner_reversal",
+        "sticky.mom60_post_crash_anchor",
     }
     for hook in _OVERLAY_HOOKS.values():
         assert callable(hook)

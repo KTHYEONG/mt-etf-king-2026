@@ -302,6 +302,30 @@ def make_sticky_mom60_inactive_participate() -> StickyLeaderModel:
     return model
 
 
+def make_sticky_mom60_post_crash_anchor() -> StickyLeaderModel:
+    from src.alpha.sticky import StickyLeaderModel
+    from src.strategies.ids import STICKY_MOM60_POST_CRASH_ANCHOR
+    from src.strategies.sticky import config as sticky_config
+
+    base = make_sticky_mom60_raw()
+    block = sticky_config.read_sticky_yaml_block(STICKY_MOM60_POST_CRASH_ANCHOR)
+    config = base.config.from_yaml(block) if block else base.config
+    config.mom_col = "mom_60"
+    config.min_gap = 0.04
+    config.min_hold = 2
+    config.only_plus_2 = True
+    config.no_inverse = True
+    config.abs_mom_cash = True
+    config.exclude_synthetic = True
+    config.min_fill_ratio = 0.25
+    config.collapse_family = False
+    config.inactive_participation = False
+    config.post_crash_anchor = True
+    if not config.anchor_tickers:
+        raise ValueError("sticky.mom60_post_crash_anchor requires anchor_tickers in configs/strategies.yaml")
+    return StickyLeaderModel(name=STICKY_MOM60_POST_CRASH_ANCHOR, config=config)
+
+
 def make_sticky_mom60_runner_reversal() -> StickyLeaderModel:
     import yaml
 

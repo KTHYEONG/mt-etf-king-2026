@@ -345,6 +345,76 @@ def inactive_leader_scores(
     return {best_ticker: float(best_score)}
 
 
+def post_crash_anchor_scores(
+    snapshot: pl.DataFrame,
+    *,
+    anchor_tickers: Sequence[str],
+    held: str | None,
+    score_col: str = "mom_20",
+    stop_drawdown: float = 0.15,
+    drawdown_col: str = "drawdown_20",
+) -> dict[str, float]:
+    """Select the post-crash rebound campaign anchor.
+
+    The campaign holds a single broad domestic index +2x anchor (e.g. KODEX
+    코스닥150레버리지 / KODEX 레버리지). A held anchor is retained while it is
+    not stopped (campaign latch, no daily re-ranking); the latch and the stop
+    are stateless, derived only from ``held`` and the decision-date snapshot,
+    so live decide and backtest agree.
+
+    Stop semantics: an anchor with ``drawdown_col <= -stop_drawdown``
+    (inclusive boundary) is ineligible.
+
+    Returns:
+        At most one ``{ticker: score}`` entry; ``{}`` means CASH.
+
+    Raises:
+        ValueError: If ``stop_drawdown`` is a bool, non-finite, or outside
+            the open interval (0, 1).
+    """
+    if isinstance(stop_drawdown, bool):
+        raise ValueError(f"stop_drawdown must be in (0, 1), got {stop_drawdown!r}")
+    stop = float(stop_drawdown)
+    if not math.isfinite(stop) or not 0 < stop < 1:
+        raise ValueError(f"stop_drawdown must be in (0, 1), got {stop_drawdown!r}")
+    if not isinstance(snapshot, pl.DataFrame) or snapshot.height == 0:
+        return {}
+    anchors = tuple(str(t) for t in anchor_tickers if isinstance(t, str) and t)
+    if not anchors:
+        return {}
+    if "ticker" not in snapshot.columns or score_col not in snapshot.columns or drawdown_col not in snapshot.columns:
+        return {}
+    rows = snapshot.filter(pl.col("ticker").cast(pl.String).is_in(list(anchors))).select(
+        "ticker", score_col, drawdown_col
+    )
+    eligible: dict[str, float] = {}
+    for row in rows.iter_rows(named=True):
+        t = str(row.get("ticker"))
+        score = row.get(score_col)
+        drawdown = row.get(drawdown_col)
+        if (
+            not isinstance(score, (int, float))
+            or isinstance(score, bool)
+            or not isinstance(drawdown, (int, float))
+            or isinstance(drawdown, bool)
+        ):
+            continue
+        score_f = float(score)
+        drawdown_f = float(drawdown)
+        if not math.isfinite(score_f) or not math.isfinite(drawdown_f):
+            continue
+        if drawdown_f <= -stop:
+            continue
+        if t not in eligible:
+            eligible[t] = score_f
+    if held is not None and held in eligible:
+        return {held: eligible[held]}
+    if not eligible:
+        return {}
+    best = min(eligible.items(), key=lambda kv: (-kv[1], kv[0]))
+    return {best[0]: best[1]}
+
+
 def rebound_leader_scores(snapshot: pl.DataFrame) -> dict[str, float]:
     if not isinstance(snapshot, pl.DataFrame):
         return {}

@@ -11,7 +11,7 @@ import logging
 from datetime import date as _date
 from pathlib import Path as _Path
 
-from src.cli.commands.decide.models import _ALLOCATE_HOOKS, _OVERLAY_HOOKS, _DecideState
+from src.cli.commands.decide.models import _ALLOCATE_HOOKS, _LIVE_STICKY_STRATEGIES, _OVERLAY_HOOKS, _DecideState
 from src.cli.commands.decide.render import render_decision
 from src.cli.commands.decide.scoring import _load_panel_for_backtest, _scores_from_deployment_universe
 from src.cli.context import normalize_cli_model_arg
@@ -250,7 +250,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
                     cap_val = _rules_cap
             except (TypeError, ValueError, AttributeError):
                 cap_val = 1_000_000_000.0
-        if getattr(state, "model_arg", None) == "sticky.mom60_raw":
+        if getattr(state, "model_arg", None) in _LIVE_STICKY_STRATEGIES:
             try:
                 order_estimates = (
                     estimate_live_order_quantities(
