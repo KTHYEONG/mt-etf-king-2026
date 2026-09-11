@@ -4,29 +4,19 @@ import functools
 from pathlib import Path
 
 from pydantic import SecretStr
-from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.core.config import clear_config_caches
-from src.core.sops_env import SopsDotEnvSettingsSource, clear_env_caches
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,  # noqa: ARG003
-        file_secret_settings: PydanticBaseSettingsSource,  # noqa: ARG003
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        return (
-            init_settings,
-            env_settings,
-            SopsDotEnvSettingsSource(settings_cls),
-        )
+    model_config = SettingsConfigDict(
+        env_file=_PROJECT_ROOT / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     krx_openapi_key: SecretStr
     fred_api: SecretStr | None = None
@@ -49,5 +39,4 @@ def get_settings() -> Settings:
 
 def clear_settings_caches() -> None:
     get_settings.cache_clear()
-    clear_env_caches()
     clear_config_caches()

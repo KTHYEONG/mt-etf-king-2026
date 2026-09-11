@@ -160,6 +160,8 @@ P27은 60일 모멘텀 기반으로 우수한 우측 꼬리 수익률을 보였�
 
 ## ADR-07: In-Memory Secret Decryption via SOPS + Age (Zero Plaintext Secrets on Disk)
 
+**Status: Superseded (2026-09-11).** 여러 프로젝트에 걸쳐 sops/age 운영 부담(바이너리 설치, 키 배포, CI 복호화 단계)이 실보안 이득 대비 과했다고 판단해 전면 폐기. 평문 `.env`(git 비추적, `.gitignore`)로 회귀했다. 아래는 폐기 전 원래 결정 기록.
+
 ### Decision
 KRX API 키 등 민감한 인증 정보를 평문 `.env` 파일에 저장하지 않고, **저장소에 커밋된 `.env.enc` 파일을 SOPS와 Age 비대칭 키를 통해 프로세스 기동 시 메모리 상에서만 복호화**하여 사용한다.
 
