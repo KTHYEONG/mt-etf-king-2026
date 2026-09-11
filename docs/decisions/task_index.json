@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "POST_CRASH_CAMPAIGN_ANCHOR",
+      "date": "2026-09-11",
+      "adr_id": "ADR_20260911_POST_CRASH_CAMPAIGN_ANCHOR",
+      "domain": "tournament",
+      "title": "급락 후 반등 캠페인 앵커 전략",
+      "why": "P27은 코스피 mom60<0인 급락-반등 국면에서 P>30=0%로 무력화되고 대회 시작 시점(2026-09-21)이 이 국면에 해당함",
+      "resolution": "sticky.mom60_post_crash_anchor 신설: CRASH_REBOUND/보유중 INACTIVE에서 코스닥150레버리지·KODEX레버리지 앵커를 mom20 선택+drawdown_20 무상태 손절로 운용, LOTTERY_ON 시 P27로 복귀",
+      "impact": "L5 전략층: 연구용 챔피언 후보 추가, 기존 P27/인버스/무활동 라우팅 불변"
+    },
+    {
       "task_id": "TASK_ARCHITECTURE_LINT_DEBT_REMEDIATION",
       "date": "2026-09-11",
       "adr_id": "ADR_20260911_ARCHITECTURE_LINT_DEBT_REMEDIATION",

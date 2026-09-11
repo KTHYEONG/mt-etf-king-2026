@@ -192,6 +192,7 @@
   "src/cli/commands/decide/models.py": {
     "testing": [
       "tests/unit/cli/test_decide_live_p27.py",
+      "tests/unit/cli/test_decide_live_post_crash_anchor.py",
       "tests/unit/cli/test_decide_models.py",
       "tests/unit/cli/test_decide_models_overlay_hooks.py",
       "tests/unit/cli/test_p23_adoption_wiring.py",
@@ -466,12 +467,16 @@
   "src/strategies/factories/convex.py": {},
   "src/strategies/factories/portfolio.py": {},
   "src/strategies/factories/sticky.py": {
-    "testing": "tests/unit/strategies/test_sticky_factories.py"
+    "testing": "tests/unit/strategies/factories/test_sticky.py"
   },
   "src/strategies/factories/sticky_core.py": {},
   "src/strategies/factories/sticky_locks.py": {},
   "src/strategies/factories/sticky_mom60.py": {
-    "testing": "tests/unit/strategies/test_sticky_factories.py"
+    "testing": [
+      "tests/unit/strategies/factories/test_sticky.py",
+      "tests/unit/strategies/test_post_crash_anchor.py",
+      "tests/unit/strategies/test_sticky_factories.py"
+    ]
   },
   "src/strategies/ids.py": {
     "testing": "tests/unit/strategies/test_ids.py"
@@ -520,7 +525,8 @@
       "tests/unit/alpha/test_p27.py",
       "tests/unit/strategies/test_inactive_participation_sleeve.py",
       "tests/unit/strategies/test_model_config.py",
-      "tests/unit/strategies/test_model_runner.py"
+      "tests/unit/strategies/test_model_runner.py",
+      "tests/unit/strategies/test_post_crash_anchor.py"
     ]
   },
   "src/strategies/sticky/model_runner.py": {
@@ -528,13 +534,15 @@
       "tests/unit/alpha/test_p27.py",
       "tests/unit/strategies/test_capacity.py",
       "tests/unit/strategies/test_inactive_participation_sleeve.py",
-      "tests/unit/strategies/test_model_runner.py"
+      "tests/unit/strategies/test_model_runner.py",
+      "tests/unit/strategies/test_post_crash_anchor.py"
     ]
   },
   "src/strategies/sticky/model_scores.py": {
     "testing": [
       "tests/unit/strategies/test_inactive_leader_scores.py",
       "tests/unit/strategies/test_model_scores.py",
+      "tests/unit/strategies/test_post_crash_anchor.py",
       "tests/unit/strategies/test_rebound_leader_scores.py"
     ]
   },
@@ -555,10 +563,7 @@
     ]
   },
   "src/tournament/adaptive_specialists.py": {
-    "testing": [
-      "tests/unit/tournament/test_adaptive_specialists.py",
-      "tests/unit/architecture/test_naming_consistency.py"
-    ]
+    "testing": "tests/unit/tournament/test_adaptive_specialists.py"
   },
   "src/tournament/adaptive_specialists_core.py": {
     "testing": "tests/unit/tournament/test_adaptive_specialists_core.py"
@@ -621,6 +626,7 @@
       "tests/unit/alpha/test_p27.py",
       "tests/unit/strategies/test_inactive_participation_sleeve.py",
       "tests/unit/strategies/test_model_runner.py",
+      "tests/unit/strategies/test_post_crash_anchor.py",
       "tests/unit/tournament/test_cutoff_auc.py",
       "tests/unit/tournament/test_cutoff_auc_config_routing.py"
     ]
