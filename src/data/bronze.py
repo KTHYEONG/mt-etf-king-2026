@@ -202,6 +202,25 @@ class BronzeStore:
             gz_path = self._paths.bronze(endpoint, bas_dd)
             if gz_path.exists():
                 counts["skipped_existing_gz"] += 1
+                if delete_plain:
+                    try:
+                        with plain.open("r", encoding="utf-8") as f:
+                            plain_data = json.load(f)
+                        with gzip.open(gz_path, "rt", encoding="utf-8") as f:
+                            gz_data = json.load(f)
+                        plain_row_count = int(plain_data.get("row_count", -1))
+                        gz_row_count = int(gz_data.get("row_count", -2))
+                        if plain_row_count != gz_row_count or plain_data.get("rows") != gz_data.get("rows"):
+                            raise ValueError("row_count/rows mismatch")
+                    except Exception:  # noqa: S110
+                        # 내용이 다르면 손대지 않고 넘어간다(수동 확인 필요, skipped_existing_gz로만 집계).
+                        pass  # noqa: S110
+                    else:
+                        try:
+                            plain.unlink()
+                            counts["deleted_plain"] += 1
+                        except Exception:  # noqa: S110
+                            pass  # noqa: S110
                 continue
             # read plain
             try:
