@@ -204,26 +204,40 @@ def test_cmd_decide_p27_path_fails_closed_when_price_missing(capsys) -> None:
     assert rc == 1
 
 
-def test_cmd_decide_legacy_path_skips_order_estimate_and_stays_green(capsys) -> None:
-    import argparse
-    from unittest.mock import patch
-
+def test_cmd_decide_omitted_model_defaults_to_champion_strategy(capsys) -> None:
+    """Omitting --model must route through the live CHAMPION_STRATEGY (order estimates
+    included) rather than a silent synthetic-score fallback that could misrepresent an
+    actual trading recommendation."""
     from src.cli import cmd_decide
+    from src.cli.commands.decide import models as decide_models
+    from src.cli.constants import CHAMPION_STRATEGY
 
-    # Given: no --model (legacy/default path), a decision_date with zero real panel coverage
-    args = argparse.Namespace(date="2026-10-07")
+    d = date(2026, 8, 27)
+    panel = pl.DataFrame(
+        {"date": [d], "ticker": ["233740"], "close": [12_345.0]},
+        schema={"date": pl.Date, "ticker": pl.String, "close": pl.Float64},
+    )
 
-    # When: estimate_live_order_quantities must never even be called for this path (R14)
-    with patch(
-        "src.tournament.live_decision.estimate_live_order_quantities",
-        side_effect=AssertionError("must not be called for the legacy/default decide path"),
+    def _stub_allocate(state) -> None:  # type: ignore[no-untyped-def]
+        assert state.model_arg == CHAMPION_STRATEGY
+        state.weights = {"233740": 0.95}
+        state.panel_loaded = panel
+
+    args = argparse.Namespace(date="2026-08-27", panel=None, capital=None, output=None, trace=False)
+
+    with (
+        patch.dict(decide_models._ALLOCATE_HOOKS, {CHAMPION_STRATEGY: _stub_allocate}),
+        patch("src.cli.commands.decide._load_panel_for_backtest", return_value=panel),
+        patch("src.cli.commands.decide._scores_from_deployment_universe", return_value={"233740": 0.5}),
     ):
         rc = cmd_decide(args)
 
-    # Then: unchanged legacy behaviour - still succeeds via the synthetic fallback scores
     assert rc == 0
+    assert args.model == CHAMPION_STRATEGY
     out = capsys.readouterr().out
     assert "PORTFOLIO" in out
+    assert "233740" in out
+    assert "추정" in out
 
 
 def test_hook_mom60_raw_allocate_fails_closed_on_stale_index() -> None:

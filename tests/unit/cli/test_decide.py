@@ -9,7 +9,7 @@ from src.reporting.dashboard import DailyDecision, write_decision_artifact
 
 
 def test_SCENARIO_08_18_cmd_decide(capsys) -> None:  # noqa: N802
-    args = argparse.Namespace(date="2026-10-07")
+    args = argparse.Namespace(date="2026-10-07", model="baseline.mom20_top1")
     rc = cmd_decide(args)
     assert rc == 0
     out = capsys.readouterr().out + capsys.readouterr().err
@@ -22,7 +22,7 @@ def test_SCENARIO_08_18_cmd_decide(capsys) -> None:  # noqa: N802
     old_stdout = sys.stdout
     sys.stdout = captured
     try:
-        cmd_decide(argparse.Namespace(date="2026-10-07"))
+        cmd_decide(argparse.Namespace(date="2026-10-07", model="baseline.mom20_top1"))
     finally:
         sys.stdout = old_stdout
     txt = captured.getvalue()
@@ -39,7 +39,7 @@ def test_SCENARIO_B2_07_cmd_decide_and_artifact(capsys) -> None:  # noqa: N802
     old_stdout = sys.stdout
     sys.stdout = captured
     try:
-        rc = cmd_decide(argparse.Namespace(date="2026-10-07"))
+        rc = cmd_decide(argparse.Namespace(date="2026-10-07", model="baseline.mom20_top1"))
     finally:
         sys.stdout = old_stdout
     assert rc == 0
@@ -79,7 +79,7 @@ def test_SCENARIO_09_09_cmd_decide_vehicle_rationale(capsys) -> None:  # noqa: N
     old_stdout = sys.stdout
     sys.stdout = captured
     try:
-        rc = cmd_decide(argparse.Namespace(date="2026-10-07"))
+        rc = cmd_decide(argparse.Namespace(date="2026-10-07", model="baseline.mom20_top1"))
     finally:
         sys.stdout = old_stdout
     assert rc == 0
