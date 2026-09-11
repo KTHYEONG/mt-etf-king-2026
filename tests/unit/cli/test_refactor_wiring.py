@@ -54,9 +54,9 @@ def test_cli_backtest_resolves_semantic_model_flag() -> None:
 
 def test_championship_constants_use_semantic_ids() -> None:
     from src.cli.constants import ANCHOR_STRATEGY, CHAMPION_STRATEGY
-    from src.strategies.ids import STICKY_IMPULSE_CRASH, STICKY_MOM60_RAW
+    from src.strategies.ids import STICKY_IMPULSE_CRASH, STICKY_MOM60_POST_CRASH_ANCHOR
 
-    assert CHAMPION_STRATEGY == STICKY_MOM60_RAW
+    assert CHAMPION_STRATEGY == STICKY_MOM60_POST_CRASH_ANCHOR
     assert ANCHOR_STRATEGY == STICKY_IMPULSE_CRASH
     assert "." in CHAMPION_STRATEGY
     assert not CHAMPION_STRATEGY.startswith("P")
