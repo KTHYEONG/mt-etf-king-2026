@@ -1250,10 +1250,12 @@ def main() -> None:
         # line numbers no longer match this file's current content.
         with contextlib.suppress(OSError):
             os.remove(cov_json_path)
-        # pytest-cov's --cov silently collects nothing for a bare file path
-        # (coverage.py resolves it as a source, not a measured module) --
-        # the dotted module form is what actually attaches instrumentation.
-        cov_modules = [f[:-3].replace("/", ".") for f in src_files]
+        # pytest-cov's --cov silently collects nothing for a bare file path,
+        # and the dotted module form makes coverage import the parent package
+        # before pytest starts (src.cli pulls exchange_calendars, whose C ext
+        # then fails "cannot load module more than once" in conftest). The
+        # containing directory is measured as a source dir without importing.
+        cov_modules = sorted({os.path.dirname(f) for f in src_files})
         cov_args = [
             *[f"--cov={m}" for m in cov_modules],
             f"--cov-report=json:{cov_json_path}",
