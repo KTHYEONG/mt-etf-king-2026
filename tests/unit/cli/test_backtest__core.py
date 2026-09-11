@@ -5,6 +5,15 @@ from src.cli.commands.backtest import _core as core_mod
 from src.cli.commands.backtest._core import _Cell, run_cells, run_preflight
 
 
+def test_fullspan_fallback_ids_include_all_sticky_strategies_needing_exposure_artifacts() -> None:
+    """Any sticky-family strategy without a path_dependent rolling.backtest must be in
+    _FULLSPAN_FALLBACK_IDS, or its exposure/gross-violation metrics silently go unmeasured
+    (effective_gross_mean/max stay null and gross_violation_count is never actually computed,
+    only defaulted) instead of failing loudly."""
+    assert "sticky.mom60_inactive_participate" in core_mod._FULLSPAN_FALLBACK_IDS
+    assert "sticky.mom60_post_crash_anchor" in core_mod._FULLSPAN_FALLBACK_IDS
+
+
 def test_p4_backtest_core_surface() -> None:
     assert callable(run_preflight)
     assert callable(run_cells)

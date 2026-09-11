@@ -5,7 +5,7 @@ from datetime import date
 
 import polars as pl
 
-from src.features.pit import assert_pit
+from src.features.pit import assert_pit, restrict_to_traded_sessions
 
 
 def decompose_aum_change(
@@ -50,10 +50,16 @@ def add_flow(
         return frame
     sorted_frame = frame.sort([key, "date"])
     result = sorted_frame
-    # Ensure decompose columns exist (creation_flow_krw, performance_effect)
+    # Ensure decompose columns exist (creation_flow_krw, performance_effect); shift(1)-only,
+    # not window-based, so it is unaffected by the phantom-session propagation bug below.
     # Compute creation_flow_krw if not already present
     if "creation_flow_krw" not in result.columns:
         result = decompose_aum_change(result, decision_date, key=key)
+    # 시장 전체가 무거래인 phantom 세션을 롤링 윈도우(flow_{w}d, ADV5/ADV20)에서 제외
+    # (add_trend/add_volatility와 동일 방어 패턴). price_col="close"는 다른 피처 모듈과
+    # 동일 기준으로 phantom 세션을 판별한다(해당 세션은 trading_value도 함께 결측/0이다).
+    calc = restrict_to_traded_sessions(result, price_col="close")
+    output_cols: list[str] = []
     # flow_ratio = (shares - shares.shift1)/shares.shift1
     if "shares_outstanding" in result.columns:
         sh_prev = pl.col("shares_outstanding").shift(1).over(key)
@@ -63,13 +69,15 @@ def add_flow(
             .otherwise((pl.col("shares_outstanding") - sh_prev) / sh_prev)
             .alias("flow_ratio")
         )
-        result = result.with_columns(flow_ratio_expr)
+        calc = calc.with_columns(flow_ratio_expr)
+        output_cols.append("flow_ratio")
         # cumulative flow over windows
         for w in windows:
             col = f"flow_{w}d"
             # rolling sum of creation_flow_krw
             sum_expr = pl.col("creation_flow_krw").rolling_sum(window_size=w, min_samples=w).over(key).alias(col)
-            result = result.with_columns(sum_expr)
+            calc = calc.with_columns(sum_expr)
+            output_cols.append(col)
     # turnover = trading_value / net_assets
     if "trading_value" in result.columns and "net_assets" in result.columns:
         turnover_expr = (
@@ -78,7 +86,8 @@ def add_flow(
             .otherwise(pl.col("trading_value") / pl.col("net_assets"))
             .alias("turnover")
         )
-        result = result.with_columns(turnover_expr)
+        calc = calc.with_columns(turnover_expr)
+        output_cols.append("turnover")
         # volume_expansion = ADV5 / ADV20 ; need ADV windows fixed 5 and 20 as per spec
         # Use trading_value rolling mean
         # Ensure windows contains 5 and 20 for expansion; if not, still compute using 5 and 20
@@ -92,7 +101,8 @@ def add_flow(
             .otherwise(adv5 / adv20)
             .alias("volume_expansion")
         )
-        result = result.with_columns(vol_exp_expr)
+        calc = calc.with_columns(vol_exp_expr)
+        output_cols.append("volume_expansion")
     # disparity = (close - nav)/nav
     if "close" in result.columns and "nav" in result.columns:
         disp_expr = (
@@ -101,5 +111,11 @@ def add_flow(
             .otherwise((pl.col("close") - pl.col("nav")) / pl.col("nav"))
             .alias("disparity")
         )
-        result = result.with_columns(disp_expr)
-    return result
+        calc = calc.with_columns(disp_expr)
+        output_cols.append("disparity")
+    if not output_cols:
+        return result
+    # Drop any stale same-named columns from a prior call (e.g. incremental/idempotent
+    # re-invocation) so the join overwrites rather than colliding into "<col>_right".
+    base = result.drop([c for c in output_cols if c in result.columns])
+    return base.join(calc.select([key, "date", *output_cols]), on=[key, "date"], how="left")

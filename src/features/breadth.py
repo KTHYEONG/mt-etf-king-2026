@@ -4,7 +4,7 @@ from datetime import date
 
 import polars as pl
 
-from src.features.pit import assert_pit
+from src.features.pit import assert_pit, restrict_to_traded_sessions
 
 
 def market_breadth(
@@ -21,9 +21,13 @@ def market_breadth(
     sorted_panel = stock_panel.sort(["ticker", "date"])
     # MA
     ma_col = f"_ma_{ma_window}"
-    sorted_panel = sorted_panel.with_columns(
+    # 시장 전체가 무거래인 phantom 세션을 롤링 윈도우에서 제외(add_trend와 동일 방어 패턴).
+    calc = restrict_to_traded_sessions(sorted_panel, price_col="close")
+    calc = calc.with_columns(
         pl.col("close").rolling_mean(window_size=ma_window, min_samples=ma_window).over("ticker").alias(ma_col)
     )
+    sorted_panel = sorted_panel.drop([ma_col]) if ma_col in sorted_panel.columns else sorted_panel
+    sorted_panel = sorted_panel.join(calc.select(["ticker", "date", ma_col]), on=["ticker", "date"], how="left")
     # Filter to decision_date only for breadth calculation
     # But need to compute for each date? For this function, return one row per date present up to decision_date?
     # Spec expects for that date; we return single row for decision_date
@@ -93,9 +97,13 @@ def cluster_breadth(
         return pl.DataFrame({"date": [], group_column: [], "breadth_ma20": []})
     sorted_panel = etf_panel.sort(["ticker", "date"])
     ma_col = f"_ma_{ma_window}"
-    sorted_panel = sorted_panel.with_columns(
+    # 시장 전체가 무거래인 phantom 세션을 롤링 윈도우에서 제외(add_trend와 동일 방어 패턴).
+    calc = restrict_to_traded_sessions(sorted_panel, price_col="close")
+    calc = calc.with_columns(
         pl.col("close").rolling_mean(window_size=ma_window, min_samples=ma_window).over("ticker").alias(ma_col)
     )
+    sorted_panel = sorted_panel.drop([ma_col]) if ma_col in sorted_panel.columns else sorted_panel
+    sorted_panel = sorted_panel.join(calc.select(["ticker", "date", ma_col]), on=["ticker", "date"], how="left")
     # Get distinct groups
     groups = sorted_panel.select(pl.col(group_column).unique()).to_series().to_list()
     # For decision_date only

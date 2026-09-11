@@ -75,6 +75,8 @@ _FULLSPAN_FALLBACK_IDS: Final[frozenset[str]] = frozenset(
         "sticky.fillable_mom60",
         "convex.lottery_impulse",
         "sticky.mom60_runner_reversal",
+        "sticky.mom60_inactive_participate",
+        "sticky.mom60_post_crash_anchor",
     }
 )
 
