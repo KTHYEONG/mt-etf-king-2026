@@ -7,7 +7,7 @@ def test_champion_research_cli_preserves_p27_when_candidate_research_only(monkey
     from src.cli.commands import champion_research as _cr
     from src.cli.commands.champion_research import cmd_champion_research
     from src.cli.constants import CHAMPION_STRATEGY
-    from src.strategies.ids import STICKY_MOM60_RAW
+    from src.strategies.ids import STICKY_MOM60_POST_CRASH_ANCHOR
 
     monkeypatch.setattr(_cr, '_build_champion_research_inputs', lambda _: {})
     monkeypatch.setattr(_cr, 'run_champion_walk_forward', lambda **_: type('Result', (), {'status': 'RESEARCH_ONLY', 'write': lambda self, _: tmp_path / 'promotion.json'})())
@@ -15,7 +15,7 @@ def test_champion_research_cli_preserves_p27_when_candidate_research_only(monkey
     result = cmd_champion_research(args)
 
     assert result == 0
-    assert CHAMPION_STRATEGY == STICKY_MOM60_RAW
+    assert CHAMPION_STRATEGY == STICKY_MOM60_POST_CRASH_ANCHOR
 
 
 def test_champion_research_cli_passes_real_runtime(monkeypatch) -> None:

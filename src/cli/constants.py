@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from typing import Final
 
-from src.strategies.ids import STICKY_IMPULSE_CRASH, STICKY_MOM60_RAW
+from src.strategies.ids import STICKY_IMPULSE_CRASH, STICKY_MOM60_POST_CRASH_ANCHOR
 
-CHAMPION_STRATEGY: Final[str] = STICKY_MOM60_RAW
+# 2026-09-11 champion switch (ADR_20260911_POST_CRASH_CAMPAIGN_ANCHOR): sticky.mom60_raw (P27)
+# is 0% P>30/P>50 in CRASH_REBOUND sleeve windows and the 2026 tournament opens in that sleeve;
+# sticky.mom60_post_crash_anchor keeps P27's identical LOTTERY_ON/mom60 routing and adds a
+# domestic index +2x anchor route for CRASH_REBOUND/held-anchor INACTIVE (see docs/decisions
+# task POST_CRASH_CAMPAIGN_ANCHOR). ANCHOR_STRATEGY below is an unrelated pre-existing constant
+# (sticky.impulse_crash, P21) -- do not confuse the two.
+CHAMPION_STRATEGY: Final[str] = STICKY_MOM60_POST_CRASH_ANCHOR
 ANCHOR_STRATEGY: Final[str] = STICKY_IMPULSE_CRASH
 STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset(
     {
@@ -23,6 +29,8 @@ STICKY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset(
         "sticky.fillable_mom60",
         "convex.lottery_impulse",
         "sticky.mom60_runner_reversal",
+        "sticky.mom60_inactive_participate",
+        "sticky.mom60_post_crash_anchor",
     }
 )
 CONVEXITY_ADOPTION_MODELS: Final[frozenset[str]] = frozenset(
