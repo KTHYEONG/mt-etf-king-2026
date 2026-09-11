@@ -29,11 +29,19 @@ logger = logging.getLogger(__name__)
 
 
 def cmd_decide(args: argparse.Namespace) -> int:
-    """Build a portfolio decision dashboard for the requested model and date."""
+    """Build a portfolio decision dashboard for the requested model and date.
+
+    Omitting ``--model`` defaults to the live ``CHAMPION_STRATEGY`` (never a
+    silent synthetic-score fallback) so an unqualified `decide` reflects the
+    strategy actually deployed for trading; pass ``--model`` explicitly only
+    to inspect a different strategy's recommendation.
+    """
+    if getattr(args, "model", None) is None:
+        from src.cli.constants import CHAMPION_STRATEGY
+
+        args.model = CHAMPION_STRATEGY
+    normalize_cli_model_arg(args)
     _model_arg = getattr(args, "model", None)
-    if _model_arg is not None:
-        normalize_cli_model_arg(args)
-        _model_arg = getattr(args, "model", None)
     try:
         d_str = getattr(args, "date", None)
         panel_path = getattr(args, "panel", None)
