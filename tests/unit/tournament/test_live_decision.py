@@ -354,7 +354,7 @@ def test_resolve_prior_sticky_state_round_trips_via_persist(tmp_path) -> None:
     p = tmp_path / "sticky_mom60_raw_position.json"
     d = date(2026, 9, 8)
 
-    persist_sticky_state(p, as_of=d, held="412570", held_weight=0.83, hold_len=2)
+    persist_sticky_state(p, decision_date=d, held="412570", held_weight=0.83, hold_len=2)
 
     held, weight, hold_len = resolve_prior_sticky_state(p, prior_session=d)
     assert held == "412570"
@@ -372,7 +372,7 @@ def test_resolve_prior_sticky_state_fails_closed_on_discontinuity_or_corruption(
 
     # Then: persisted as_of does not match the requested prior_session (a gap) -> reset
     p = tmp_path / "gap.json"
-    persist_sticky_state(p, as_of=date(2026, 9, 4), held="412570", held_weight=1.0, hold_len=3)
+    persist_sticky_state(p, decision_date=date(2026, 9, 4), held="412570", held_weight=1.0, hold_len=3)
     assert resolve_prior_sticky_state(p, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
 
     # Then: malformed JSON -> reset
@@ -453,7 +453,22 @@ def test_persist_sticky_state_degrades_safely_on_write_failure(tmp_path, caplog)
     bad_path = blocker / "sticky_mom60_raw_position.json"
 
     # When/Then: does not raise, degrades safely
-    assert persist_sticky_state(bad_path, as_of=date(2026, 9, 8), held="412570", held_weight=1.0, hold_len=1) is None
+    assert persist_sticky_state(bad_path, decision_date=date(2026, 9, 8), held="412570", held_weight=1.0, hold_len=1) is None
+
+
+def test_persist_sticky_state_param_renamed_state_file_schema_unchanged(tmp_path) -> None:
+    import json
+
+    from src.tournament.live_decision import persist_sticky_state, resolve_prior_sticky_state
+
+    p = tmp_path / "state.json"
+    persist_sticky_state(p, decision_date=date(2026, 9, 10), held="412570", held_weight=0.5, hold_len=2)
+
+    payload = json.loads(p.read_text(encoding="utf-8"))
+    assert payload["as_of"] == "2026-09-10"
+
+    held, weight, hold_len = resolve_prior_sticky_state(p, prior_session=date(2026, 9, 10))
+    assert (held, weight, hold_len) == ("412570", 0.5, 2)
 
 
 def test_next_hold_len_transitions() -> None:

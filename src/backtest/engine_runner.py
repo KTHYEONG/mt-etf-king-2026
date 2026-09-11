@@ -41,8 +41,12 @@ from src.universe.tournament import TournamentRules
 # wiring anchors
 
 
-
-from src.backtest.engine_config import BacktestConfig, BacktestResult, _append_trades_from_transition, build_execution_adv
+from src.backtest.engine_config import (
+    BacktestConfig,
+    BacktestResult,
+    _append_trades_from_transition,
+    build_execution_adv,
+)
 from src.backtest.engine_session import bootstrap_prestart_intent, emit_session_trace
 from src.tournament.championship_regime import championship_sleeve_from_cache
 
@@ -253,7 +257,9 @@ class BacktestEngine:
                     if adv_val is not None:
                         adv_map_transition[str(ticker)] = float(adv_val)
                 limits = self._portfolio_exposure_limits()
-                multiples = self._leverage_multiples(set(ledger_state.shares.keys()) | set(pending_intent.weights.keys()))
+                multiples = self._leverage_multiples(
+                    set(ledger_state.shares.keys()) | set(pending_intent.weights.keys())
+                )
                 transition_result = transition_portfolio_state(
                     prior_state=ledger_state,
                     intent=pending_intent,
@@ -310,7 +316,11 @@ class BacktestEngine:
                 snapshot = panel.filter(pl.col("date") == decision_date) if "date" in panel.columns else panel
             if sink.enabled and snapshot_exc is not None:
                 try:
-                    sink.emit_gate(GateTrace(decision_date=decision_date, gate="SNAPSHOT_EXCEPTION", exc_type=type(snapshot_exc).__name__))
+                    sink.emit_gate(
+                        GateTrace(
+                            decision_date=decision_date, gate="SNAPSHOT_EXCEPTION", exc_type=type(snapshot_exc).__name__
+                        )
+                    )
                 except Exception:
                     pass
 
@@ -341,7 +351,14 @@ class BacktestEngine:
             regime_snap = None
             if self.regimes is not None:
                 regime_snap = self.regimes.get(decision_date)
-            ctx = DecisionContext(decision_date=decision_date, regime=regime_snap, capital=equity_start, held=dict(current_weights), rules=rules, championship_sleeve=championship_sleeve_from_cache(self, decision_date))
+            ctx = DecisionContext(
+                decision_date=decision_date,
+                regime=regime_snap,
+                capital=equity_start,
+                held=dict(current_weights),
+                rules=rules,
+                championship_sleeve=championship_sleeve_from_cache(self, decision_date),
+            )
             score_exc: Exception | None = None
             try:
                 scores = model.score(snapshot, ctx)
@@ -352,7 +369,11 @@ class BacktestEngine:
                 scores = {}
             if sink.enabled and score_exc is not None:
                 try:
-                    sink.emit_gate(GateTrace(decision_date=decision_date, gate="SCORE_EXCEPTION", exc_type=type(score_exc).__name__))
+                    sink.emit_gate(
+                        GateTrace(
+                            decision_date=decision_date, gate="SCORE_EXCEPTION", exc_type=type(score_exc).__name__
+                        )
+                    )
                 except Exception:
                     pass
             if sink.enabled and not scores:
@@ -453,10 +474,18 @@ class BacktestEngine:
                         )
                     except TypeError:
                         try:
-                            alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed, theme_states=theme_states)
+                            alloc = model.allocate(
+                                scores,
+                                regime=regime_str,
+                                leverage_allowed=lev_allowed,
+                                inverse_allowed=inv_allowed,
+                                theme_states=theme_states,
+                            )
                         except TypeError:
                             try:
-                                alloc = model.allocate(scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed)
+                                alloc = model.allocate(
+                                    scores, regime=regime_str, leverage_allowed=lev_allowed, inverse_allowed=inv_allowed
+                                )
                             except TypeError:
                                 alloc = model.allocate(scores)
                     alloc_result = alloc
@@ -490,11 +519,17 @@ class BacktestEngine:
                 try:
                     score_failed_flag = bool(score_exc is not None or not scores or allocate_failed)
                     # wiring anchor for intent
-                    resolve_portfolio_intent(alloc_result, current_weights=current_weights, score_failed=score_failed_flag)
+                    resolve_portfolio_intent(
+                        alloc_result, current_weights=current_weights, score_failed=score_failed_flag
+                    )
                     if used_allocate_path:
-                        intent = resolve_portfolio_intent(alloc_result, current_weights=current_weights, score_failed=score_failed_flag)  # type: ignore[arg-type]
+                        intent = resolve_portfolio_intent(
+                            alloc_result, current_weights=current_weights, score_failed=score_failed_flag
+                        )  # type: ignore[arg-type]
                     else:
-                        intent = resolve_portfolio_intent(raw_weights, current_weights=current_weights, score_failed=score_failed_flag)
+                        intent = resolve_portfolio_intent(
+                            raw_weights, current_weights=current_weights, score_failed=score_failed_flag
+                        )
                     # apply crash cash wiring: if intent is cash via apply_crash_cash path minimal, keep as is
                 except Exception:
                     intent = HOLD_INTENT
@@ -518,14 +553,20 @@ class BacktestEngine:
                     raw_weights = {}
                 # if intent weights empty, build zero target from current holdings + scores for wiring test
                 if not raw_weights:
-                    combined = set(current_weights.keys()) | set(scores.keys()) if isinstance(scores, dict) else set(current_weights.keys())
+                    combined = (
+                        set(current_weights.keys()) | set(scores.keys())
+                        if isinstance(scores, dict)
+                        else set(current_weights.keys())
+                    )
                     if combined:
                         target = {k: 0.0 for k in combined}
                     else:
                         target = {}
                 else:
                     try:
-                        target = normalize_weights(raw_weights, max_weight=filt.max_position_weight) if raw_weights else {}
+                        target = (
+                            normalize_weights(raw_weights, max_weight=filt.max_position_weight) if raw_weights else {}
+                        )
                     except Exception:
                         target = {}
                     if not target and current_weights:
@@ -578,7 +619,9 @@ class BacktestEngine:
                     score_result=scores,
                     alloc_result=alloc_result,
                     current_weights=current_weights,
-                    score_failed=bool(score_exc is not None or (not scores_is_intent and not scores) or allocate_failed),
+                    score_failed=bool(
+                        score_exc is not None or (not scores_is_intent and not scores) or allocate_failed
+                    ),
                 )
 
             # Trace emission per session (only when enabled)

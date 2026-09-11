@@ -9,9 +9,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
-CUTOFF_AUC_THRESHOLDS: Final[tuple[float, ...]] = (0.40, 0.45, 0.50, 0.55, 0.60)
-CUTOFF_AUC_LOW: Final[float] = 0.40
-CUTOFF_AUC_HIGH: Final[float] = 0.55
+from src.core.config import config_value
+
+CUTOFF_AUC_THRESHOLDS: Final[tuple[float, ...]] = tuple(
+    config_value("gates", "cutoff_auc", "thresholds", required=True)
+)
+CUTOFF_AUC_LOW: Final[float] = CUTOFF_AUC_THRESHOLDS[0]
+CUTOFF_AUC_HIGH: Final[float] = CUTOFF_AUC_THRESHOLDS[3]
 CUTOFF_AUC_IS_PRODUCTION_GATE: Final[bool] = True
 INACTIVE_PARTICIPATION_IS_PRODUCTION_GATE: Final[bool] = False
 ATTACK_RUIN_MAX: Final[float] = 0.05
@@ -67,7 +71,9 @@ def cutoff_auc_score(returns: Sequence[float], thresholds: Sequence[float] = CUT
     return float(total / float(len(thr)))
 
 
-def mean_smooth_cutoff_utility(returns: Sequence[float], *, low: float = CUTOFF_AUC_LOW, high: float = CUTOFF_AUC_HIGH) -> float:
+def mean_smooth_cutoff_utility(
+    returns: Sequence[float], *, low: float = CUTOFF_AUC_LOW, high: float = CUTOFF_AUC_HIGH
+) -> float:
     ret = list(returns)
     if len(ret) == 0:
         raise ValueError("returns empty")
@@ -82,7 +88,9 @@ def mean_smooth_cutoff_utility(returns: Sequence[float], *, low: float = CUTOFF_
     return float(total / float(len(ret)))
 
 
-def opportunity_conditioned_capture(strategy: Sequence[float], oracle: Sequence[float], *, threshold: float = 0.50) -> float:
+def opportunity_conditioned_capture(
+    strategy: Sequence[float], oracle: Sequence[float], *, threshold: float = CUTOFF_AUC_THRESHOLDS[2]
+) -> float:
     from src.research.feasibility_metrics import capture_intersection
 
     s = list(strategy)
@@ -130,7 +138,15 @@ def resolve_attack_sleeve(sleeve: str | None, *, inactive_participation: bool = 
     return "CASH"
 
 
-def apply_attack_sleeve_route(*, sleeve: str | None, mom60_scores: Mapping[str, float] | object, rebound_scores: Mapping[str, float] | object, production_gate: bool, inactive_scores: Mapping[str, float] | object | None = None, inactive_participation: bool = False) -> Mapping[str, float] | object:
+def apply_attack_sleeve_route(
+    *,
+    sleeve: str | None,
+    mom60_scores: Mapping[str, float] | object,
+    rebound_scores: Mapping[str, float] | object,
+    production_gate: bool,
+    inactive_scores: Mapping[str, float] | object | None = None,
+    inactive_participation: bool = False,
+) -> Mapping[str, float] | object:
     from src.portfolio.intent import CASH_INTENT
 
     if not production_gate:
@@ -149,7 +165,15 @@ def apply_attack_sleeve_route(*, sleeve: str | None, mom60_scores: Mapping[str, 
     return CASH_INTENT
 
 
-def evaluate_attack_policy(*, candidate_returns: Sequence[float], incumbent_returns: Sequence[float], oracle_returns: Sequence[float], active: Sequence[bool], execution_parity: bool, gross_violation_count: int | None) -> AttackPolicyResult:
+def evaluate_attack_policy(
+    *,
+    candidate_returns: Sequence[float],
+    incumbent_returns: Sequence[float],
+    oracle_returns: Sequence[float],
+    active: Sequence[bool],
+    execution_parity: bool,
+    gross_violation_count: int | None,
+) -> AttackPolicyResult:
     from src.tournament.distribution import ruin_probability as _ruin_probability
     from src.tournament.objective.reports import GROSS_METRIC_UNAVAILABLE
 
@@ -158,9 +182,25 @@ def evaluate_attack_policy(*, candidate_returns: Sequence[float], incumbent_retu
     orac = list(oracle_returns)
     act = list(active)
     if len(cand) == 0 or len(inc) == 0 or len(orac) == 0 or len(act) == 0:
-        return AttackPolicyResult(status="INSUFFICIENT_EVIDENCE", failures=("MISSING_ARTIFACT",), candidate_smooth_active=0.0, incumbent_smooth_active=0.0, capture=0.0, inactive_false_positive_loss=0.0, ruin_probability=0.0)
+        return AttackPolicyResult(
+            status="INSUFFICIENT_EVIDENCE",
+            failures=("MISSING_ARTIFACT",),
+            candidate_smooth_active=0.0,
+            incumbent_smooth_active=0.0,
+            capture=0.0,
+            inactive_false_positive_loss=0.0,
+            ruin_probability=0.0,
+        )
     if not (len(cand) == len(inc) == len(orac) == len(act)):
-        return AttackPolicyResult(status="INSUFFICIENT_EVIDENCE", failures=("MISSING_ARTIFACT",), candidate_smooth_active=0.0, incumbent_smooth_active=0.0, capture=0.0, inactive_false_positive_loss=0.0, ruin_probability=0.0)
+        return AttackPolicyResult(
+            status="INSUFFICIENT_EVIDENCE",
+            failures=("MISSING_ARTIFACT",),
+            candidate_smooth_active=0.0,
+            incumbent_smooth_active=0.0,
+            capture=0.0,
+            inactive_false_positive_loss=0.0,
+            ruin_probability=0.0,
+        )
     has_nonfinite = False
     for v in cand + inc + orac:
         if not isinstance(v, (int, float)):
@@ -168,11 +208,35 @@ def evaluate_attack_policy(*, candidate_returns: Sequence[float], incumbent_retu
         elif not math.isfinite(float(v)):
             has_nonfinite = True
     if has_nonfinite:
-        return AttackPolicyResult(status="INSUFFICIENT_EVIDENCE", failures=("MISSING_ARTIFACT",), candidate_smooth_active=0.0, incumbent_smooth_active=0.0, capture=0.0, inactive_false_positive_loss=0.0, ruin_probability=0.0)
+        return AttackPolicyResult(
+            status="INSUFFICIENT_EVIDENCE",
+            failures=("MISSING_ARTIFACT",),
+            candidate_smooth_active=0.0,
+            incumbent_smooth_active=0.0,
+            capture=0.0,
+            inactive_false_positive_loss=0.0,
+            ruin_probability=0.0,
+        )
     if gross_violation_count is None:
-        return AttackPolicyResult(status="INSUFFICIENT_EVIDENCE", failures=(GROSS_METRIC_UNAVAILABLE,), candidate_smooth_active=0.0, incumbent_smooth_active=0.0, capture=0.0, inactive_false_positive_loss=0.0, ruin_probability=0.0)
+        return AttackPolicyResult(
+            status="INSUFFICIENT_EVIDENCE",
+            failures=(GROSS_METRIC_UNAVAILABLE,),
+            candidate_smooth_active=0.0,
+            incumbent_smooth_active=0.0,
+            capture=0.0,
+            inactive_false_positive_loss=0.0,
+            ruin_probability=0.0,
+        )
     if not any(act):
-        return AttackPolicyResult(status="INSUFFICIENT_EVIDENCE", failures=("INSUFFICIENT_ACTIVE",), candidate_smooth_active=0.0, incumbent_smooth_active=0.0, capture=0.0, inactive_false_positive_loss=0.0, ruin_probability=0.0)
+        return AttackPolicyResult(
+            status="INSUFFICIENT_EVIDENCE",
+            failures=("INSUFFICIENT_ACTIVE",),
+            candidate_smooth_active=0.0,
+            incumbent_smooth_active=0.0,
+            capture=0.0,
+            inactive_false_positive_loss=0.0,
+            ruin_probability=0.0,
+        )
     failures: list[str] = []
     if not execution_parity:
         failures.append("EXECUTION_PARITY")
@@ -191,8 +255,24 @@ def evaluate_attack_policy(*, candidate_returns: Sequence[float], incumbent_retu
         failures.append("INACTIVE_ACTIVITY")
     if inactive_false_positive_loss(cand, act) > 0.0:
         failures.append("INACTIVE_LOSS")
-    capture = float(opportunity_conditioned_capture(cand, orac, threshold=0.50))
+    capture = float(opportunity_conditioned_capture(cand, orac, threshold=CUTOFF_AUC_THRESHOLDS[2]))
     loss = float(inactive_false_positive_loss(cand, act))
     if failures:
-        return AttackPolicyResult(status="FAIL", failures=tuple(failures), candidate_smooth_active=float(cand_smooth), incumbent_smooth_active=float(inc_smooth), capture=float(capture), inactive_false_positive_loss=float(loss), ruin_probability=float(ruin))
-    return AttackPolicyResult(status="PASS", failures=(), candidate_smooth_active=float(cand_smooth), incumbent_smooth_active=float(inc_smooth), capture=float(capture), inactive_false_positive_loss=float(loss), ruin_probability=float(ruin))
+        return AttackPolicyResult(
+            status="FAIL",
+            failures=tuple(failures),
+            candidate_smooth_active=float(cand_smooth),
+            incumbent_smooth_active=float(inc_smooth),
+            capture=float(capture),
+            inactive_false_positive_loss=float(loss),
+            ruin_probability=float(ruin),
+        )
+    return AttackPolicyResult(
+        status="PASS",
+        failures=(),
+        candidate_smooth_active=float(cand_smooth),
+        incumbent_smooth_active=float(inc_smooth),
+        capture=float(capture),
+        inactive_false_positive_loss=float(loss),
+        ruin_probability=float(ruin),
+    )

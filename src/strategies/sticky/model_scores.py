@@ -17,7 +17,9 @@ from src.universe.instruments import resolve_leverage
 from src.strategies.sticky.model_config import StickyLeaderConfig, name_excluded
 
 
-def collapse_plus2_by_family(scores: Mapping[str, float], snapshot: pl.DataFrame, adv_col: str = "trading_value") -> dict[str, float]:
+def collapse_plus2_by_family(
+    scores: Mapping[str, float], snapshot: pl.DataFrame, adv_col: str = "trading_value"
+) -> dict[str, float]:
     if not scores:
         return {}
     if snapshot is None or not isinstance(snapshot, pl.DataFrame):
@@ -253,7 +255,17 @@ def apply_sticky_leader(
     return out
 
 
-def inactive_leader_scores(snapshot: pl.DataFrame, *, capital: float, max_order_to_adv: float, min_weight: float, score_col: str = "rv_20", max_single_weight: float = 0.95, max_gross_exposure: float = 1.90, adv_col: str = "trading_value") -> dict[str, float]:
+def inactive_leader_scores(
+    snapshot: pl.DataFrame,
+    *,
+    capital: float,
+    max_order_to_adv: float,
+    min_weight: float,
+    score_col: str = "rv_20",
+    max_single_weight: float = 0.95,
+    max_gross_exposure: float = 1.90,
+    adv_col: str = "trading_value",
+) -> dict[str, float]:
     try:
         cap = float(capital)  # type: ignore[arg-type]
     except (TypeError, ValueError):
