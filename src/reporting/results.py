@@ -255,7 +255,11 @@ def rebuild_runs_registry(paths: DataPaths) -> int:
     data_results_dir = paths.root / "results"
     data_results_dir.mkdir(parents=True, exist_ok=True)
     runs_pq_path = data_results_dir / "runs.parquet"
-    df = pl.DataFrame(records)
+    # 초창기 실행에는 없던 신규 지표(win_bar_*)가 뒤늦게 추가되어, 앞쪽 레코드가
+    # 전부 None인 컬럼이 흔하다. infer_schema_length 기본값(100)만 보면 그런
+    # 컬럼을 Null 타입으로 확정해버려 뒤에서 실제 값이 나오면 ComputeError가 난다.
+    # 전체 레코드를 스캔해 타입을 확정한다.
+    df = pl.DataFrame(records, infer_schema_length=None)
     df.write_parquet(runs_pq_path, compression="zstd")
     return len(records)
 

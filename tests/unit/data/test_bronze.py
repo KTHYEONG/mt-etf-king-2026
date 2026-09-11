@@ -145,3 +145,57 @@ def test_SCENARIO_DSR_02_migrate_plain(tmp_path: Path) -> None:  # noqa: N802
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         gz_data = json.load(f)
     assert gz_data["rows"] == rec_plain["rows"]
+
+
+def test_migrate_deletes_plain_when_gz_already_exists_and_content_matches(tmp_path: Path) -> None:
+    """gz가 이미 있어도 내용이 같으면 레거시 plain을 삭제한다."""
+    import gzip
+    import json
+
+    paths = DataPaths(root=tmp_path)
+    store = BronzeStore(paths)
+    plain_path = tmp_path / "raw/krx/etp/etf_bydd_trd/2026/20260830.json"
+    plain_path.parent.mkdir(parents=True, exist_ok=True)
+    rec = {
+        "endpoint": "etp/etf_bydd_trd",
+        "bas_dd": "20260830",
+        "row_count": 1,
+        "rows": [{"BAS_DD": "20260830", "NAV": "111"}],
+    }
+    plain_path.write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+    gz_path = paths.bronze("etp/etf_bydd_trd", date(2026, 8, 30))
+    gz_path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(gz_path, "wt", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False))
+
+    res = store.migrate_plain_to_gzip("etp/etf_bydd_trd", delete_plain=True)
+
+    assert res["skipped_existing_gz"] == 1
+    assert res["deleted_plain"] == 1
+    assert res["migrated"] == 0
+    assert not plain_path.exists()
+    assert gz_path.exists()
+
+
+def test_migrate_keeps_plain_when_gz_content_mismatches(tmp_path: Path) -> None:
+    """gz가 이미 있는데 내용이 다르면 임의로 지우지 않는다(fail-closed)."""
+    import gzip
+    import json
+
+    paths = DataPaths(root=tmp_path)
+    store = BronzeStore(paths)
+    plain_path = tmp_path / "raw/krx/etp/etf_bydd_trd/2026/20260831.json"
+    plain_path.parent.mkdir(parents=True, exist_ok=True)
+    plain_path.write_text(
+        json.dumps({"row_count": 1, "rows": [{"NAV": "222"}]}, ensure_ascii=False), encoding="utf-8"
+    )
+    gz_path = paths.bronze("etp/etf_bydd_trd", date(2026, 8, 31))
+    gz_path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(gz_path, "wt", encoding="utf-8") as f:
+        f.write(json.dumps({"row_count": 1, "rows": [{"NAV": "DIFFERENT"}]}, ensure_ascii=False))
+
+    res = store.migrate_plain_to_gzip("etp/etf_bydd_trd", delete_plain=True)
+
+    assert res["skipped_existing_gz"] == 1
+    assert res["deleted_plain"] == 0
+    assert plain_path.exists()
