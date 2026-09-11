@@ -18,6 +18,22 @@ def _stock_panel(sessions: list[date], above_ma: list[bool]) -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
+def test_market_breadth_phantom_session_does_not_null_propagate_ma() -> None:
+    """A market-wide phantom session must not null out breadth_ma20-style ratios for the next
+    ma_window real trading sessions (rolling_mean with min_samples=w counts physical rows, same
+    defect class as add_trend)."""
+    sessions = session_dates(date(2026, 1, 2), 15)
+    closes = [100.0 + i for i in range(15)]
+    closes[10] = None
+    panel = pl.DataFrame({"date": sessions, "ticker": ["A"] * 15, "close": closes})
+    panel = panel.filter(pl.col("date") <= sessions[11])
+
+    out = market_breadth(panel, sessions[11], ma_window=3, high_window=3)
+
+    assert out.height == 1
+    assert out.select("breadth_ma20").item() == 1.0
+
+
 def test_scenario_05_08_market_and_cluster_breadth() -> None:
     """SCENARIO-05-08"""
     sessions = session_dates(date(2026, 1, 2), 25)
