@@ -173,7 +173,7 @@ flowchart TD
   * `pydantic` / `pydantic-settings`: 환경설정 스키마 검증 및 정적 타입 강제
   * `tenacity` / `httpx`: KRX API 호출 시 지수 백오프 및 연결 타임아웃 제어
   * `lightgbm`: 단면 랭킹 머신러닝 Alpha 모델 학습 및 추론
-* **보안 도구**:
-  * `sops` CLI + `age` 비대칭 키: `.env.enc` 비밀값의 프로세스 메모리 직접 복호화
+* **환경설정**:
+  * `.env` (git 비추적, `pydantic-settings` dotenv 소스): 비밀값을 평문 파일로 로컬/서버에 직접 배치
 * **외부 통신**:
   * 한국거래소 오픈 API (`https://data-dbg.krx.co.kr/svc/apis`)

@@ -13,19 +13,17 @@ def test_missing_key_raises_and_secret_hidden(
     tmp_path: Path,
 ) -> None:
     """SCENARIO-01-04: Settings 비밀키 fail-closed 및 노출 방지."""
-    missing_enc = tmp_path / "missing.env.enc"
-    monkeypatch.setenv("MT_ETF_ENV_ENC", str(missing_enc))
+    missing_env = tmp_path / "missing.env"
     # Ensure key absent
     monkeypatch.delenv("KRX_OPENAPI_KEY", raising=False)
-    monkeypatch.delenv("KRX_OPENAPI_KEY ", raising=False)
     clear_settings_caches()
     with pytest.raises(ValidationError):
-        Settings()
+        Settings(_env_file=missing_env)
 
     # With key set
     monkeypatch.setenv("KRX_OPENAPI_KEY", "SECRET123")
     clear_settings_caches()
-    s = Settings()
+    s = Settings(_env_file=missing_env)
     assert s.krx_openapi_key.get_secret_value() == "SECRET123"
     assert "SECRET123" not in repr(s)
     assert "SECRET123" not in str(s)
