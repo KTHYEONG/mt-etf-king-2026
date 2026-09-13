@@ -23,13 +23,6 @@ flowchart LR
     C --> D["Champion Strategy\n(모멘텀 + 급락반등 앵커)"]
     D --> E["Next-Open Fill\n(익일 시가 체결 검증)"]
     E --> F["Daily HTS Guide\n(일일 실전 주문 권고)"]
-
-    style A fill:#f8f9fa,stroke:#6c757d,stroke-width:1px
-    style B fill:#e9ecef,stroke:#495057,stroke-width:1px
-    style C fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
-    style D fill:#fff3e0,stroke:#f57c00,stroke-width:1px
-    style E fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1px
-    style F fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
 ```
 
 ---
@@ -118,11 +111,6 @@ flowchart TD
     end
 
     KRX --> Provider
-
-    classDef store fill:#f5f5f5,stroke:#333,stroke-width:1px;
-    classDef gate fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
-    class Bronze,Silver,Gold store;
-    class Gates gate;
 ```
 
 ---

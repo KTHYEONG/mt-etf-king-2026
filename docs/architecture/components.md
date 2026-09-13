@@ -48,12 +48,6 @@ flowchart TD
         Orchestrator -.-> Features
         StateManager --> Dashboard
     end
-
-    style SS1 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px
-    style SS2 fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
-    style SS3 fill:#fff3e0,stroke:#f57c00,stroke-width:1px
-    style SS4 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1px
-    style SS5 fill:#e8f5e9,stroke:#388e3c,stroke-width:1px
 ```
 
 ---
