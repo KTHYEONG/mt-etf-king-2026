@@ -6,7 +6,7 @@
 
 ## 1. System Goal & Objective Function
 
-본 시스템은 장기 자산 배분이나 샤프 지수(Sharpe Ratio) 극대화를 목표로 하는 일반 퀀트 시스템이 아닙니다.  
+본 시스템은 일반적인 펀드 운용(Sharpe 지수 극대화, 변동성 최소화)과 근본적으로 다른 경제적 목적을 가집니다.  
 **약 36거래일의 단기 모의투자 대회 환경에서 1위(대상) 또는 2위(최우수상) 순위에 진입할 확률을 극대화**하는 것을 단일 경제적 목표로 삼습니다.
 
 ```text
@@ -16,12 +16,12 @@ Primary Economic Objective: Maximize P(rank in {1, 2}) over 36 trading sessions
 ### 대회 상금 구조와 효용 함수의 비대칭성
 대회 상금 구조는 순위에 대한 계단 함수(Step Function)입니다.
 
-$$\\mathbb{E}[\\text{Prize}] = 10{,}000{,}000 \\cdot P(\\text{rank}=1) + 5{,}000{,}000 \\cdot P(\\text{rank}=2) + 1{,}000{,}000 \\cdot P(\\text{category top}=1)$$
+$$\mathbb{E}[\text{Prize}] = 10{,}000{,}000 \cdot P(\text{rank}=1) + 5{,}000{,}000 \cdot P(\text{rank}=2) + 1{,}000{,}000 \cdot P(\text{category top}=1)$$
 
 * 3위와 400위의 상금 보상은 **0원으로 동일**합니다.
-* 따라서 표준편차를 최소화하고 샤프를 높이는 전통적 분산 포트폴리오는 연율 5~10% 수준의 온건한 수익에 머물러 대회 우승 가능성이 0에 수렴합니다.
-* 시스템은 우측 꼬리 확률 $P(R_{36d} > \\theta)$ ($\\theta \\in \\{30\\%, 40\\%, 50\\%, 60\\%\\}$)를 전략 채택의 주요 대리 목적함수(Adoption Proxy)로 사용합니다.
-* 단, 36세션 중 극단적 손실(-25% 이하)을 입으면 대회 잔여기간 내 회복이 불가능하므로, 엄격한 파산 제약(Ruin Constraint, G2a: $P(R_{36d} < -25\\%) \\le 5\\%$)을 하드 게이트로 병행 적용합니다.
+* 따라서 포트폴리오 변동성을 낮추고 샤프 지수를 높이는 전통적 분산 포트폴리오는 연율 5~10% 수준의 온건한 수익에 머물러 대회 우승 가능성이 0에 수렴합니다.
+* 시스템은 우측 꼬리 확률 $P(R_{36d} > \theta)$ ($\theta \in \{30\%, 40\%, 50\%, 60\%\}$)를 전략 채택의 주요 대리 목적함수(Adoption Proxy)로 사용합니다.
+* 단, 36세션 중 극단적 손실(-25% 이하)을 입으면 잔여 기간 내 회복이 불가능하므로, 엄격한 **파산 제약(Ruin Constraint, G2a: $P(R_{36d} < -25\%) \le 5\%$)**을 하드 게이트로 병행 적용합니다.
 
 ---
 
@@ -30,150 +30,145 @@ $$\\mathbb{E}[\\text{Prize}] = 10{,}000{,}000 \\cdot P(\\text{rank}=1) + 5{,}000
 | 구분 | 포함 범위 (In-Scope) | 배제 범위 (Out-of-Scope) |
 | :--- | :--- | :--- |
 | **자산군** | KRX 상장 국내 ETF (지수, 섹터, 레버리지) | 개별 주식, 선물·옵션 직접 매매, 해외 직투 |
-| **운용사 필터** | 대회 후원 10개 운용사 발행 ETF (`configs/sponsor_brands.yaml`) | 비후원사 ETF (배포 모드 한정) |
+| **운용사 필터** | 대회 후원 10개 운용사 발행 ETF | 비후원사 ETF (배포 모드 한정) |
 | **타임프레임** | 일별 봉(Daily Bar) 기반 시계열 분석 및 일별 리밸런싱 | 틱(Tick)·분(Minute) 단위 인트라데이 초단타 |
-| **체결 모델** | $t$일 장 마감(15:30) 후 시그널 산출 $\\to$ $t+1$일 시가(09:00 Open) 체결 | 당일 종가 동시체결 (Same-bar Fill) |
-| **실행 방식** | 포트폴리오 목표 수량/금액 자동 산출 $\\to$ 코스콤 HTS 수동 주문 | 전산 자동 주문(DMA/API 주문 연동) |
+| **체결 모델** | $t$일 장 마감(15:30) 후 시그널 산출 $\to$ $t+1$일 시가(09:00 Open) 체결 | 당일 종가 동시체결 (Same-bar Fill) |
+| **실행 방식** | 포트폴리오 목표 수량/금액 자동 산출 $\to$ 코스콤 HTS 수동 주문 | 전산 자동 주문(DMA/API 주문 연동) |
 | **머신러닝** | 얕은 트리 기반 GBDT Ranker (엄격한 용량 제약) | 심층 신경망(Deep Learning), 강화학습(RL) |
 
 ---
 
 ## 3. High-Level Architecture
 
-시스템은 **Signal(Alpha) $\\neq$ Portfolio(Allocation) $\\neq$ Tournament Policy(Overlay)** 원칙에 따라 관심사를 엄격히 분리합니다.
+시스템은 **Signal(Alpha) $\neq$ Portfolio(Allocation) $\neq$ Tournament Policy(Overlay)** 원칙에 따라 관심사를 계층별로 엄격히 분리합니다.
 
 ```mermaid
 flowchart TD
-    subgraph External ["외부 환경 (External Environment)"]
+    subgraph S_EXT ["External Environment"]
         KRX["KRX Open API\n(etp/etf_bydd_trd, idx/kospi_dd_trd)"]
-        SOPS[".env.enc (SOPS + Age)"]
-        HTS["코스콤 모의투자 HTS"]
+        HTS["코스콤 모의투자 HTS (운영자 수동 주문)"]
     end
 
-    subgraph L0_L1 ["L0-L1 Data & Infrastructure"]
-        Settings["src/core/settings.py\n(In-Memory Decryption)"]
-        Calendar["src/core/calendar.py\n(XKRX TradingCalendar)"]
-        Provider["src/data/providers/krx.py\n(RateLimiter + QuotaLedger)"]
-        Bronze[("Bronze Store\ndata/raw/krx/.../*.json.gz")]
-        Silver[("Silver Store\ndata/normalized/*.parquet")]
-        Validator["src/data/validation.py\n(PanelValidator)"]
+    subgraph S_DATA ["Layer 0-1: Data Ingestion & Storage"]
+        Provider["KRX OpenAPI Provider\n(RateLimiter + QuotaLedger)"]
+        Bronze[("Bronze Store\n불변 Raw JSON Gzip")]
+        Normalizer["Silver Normalizer & Validator\n(DatasetSchema Strict Typing)"]
+        Silver[("Silver Store\netf_daily.parquet")]
+
+        Provider --> Bronze --> Normalizer --> Silver
     end
 
-    subgraph L2_L3 ["L2-L3 Universe & Feature Pipeline"]
-        Universe["src/universe/provider.py\n(PointInTimeUniverse: Structural / Deployment)"]
-        Master["src/universe/instruments.py\n(InstrumentMaster & LeverageFamily)"]
-        PITGuard["src/features/pit.py\n(assert_pit & align_session_grid)"]
-        Features[("Gold Feature Store\ndata/features/etf_features.parquet")]
+    subgraph S_FEAT ["Layer 2-3: Universe & Feature Pipeline"]
+        Calendar["XKRX Trading Calendar\n(세션 그리드 정렬)"]
+        Universe["Point-in-Time Universe\n(Sponsor Brand + ADV >= 1억 Filter)"]
+        PITGuard["PIT Runtime Guard\n(assert_pit Fail-closed)"]
+        FeatureEng["Vectorized Feature Engine\n(Momentum, Volatility, Regime)"]
+        Gold[("Gold Feature Store\netf_features.parquet")]
+
+        Silver --> Universe --> FeatureEng
+        Calendar -.-> FeatureEng
+        PITGuard -.-> FeatureEng
+        FeatureEng --> Gold
     end
 
-    subgraph L4_L5 ["L4-L5 Alpha & Portfolio Strategy"]
-        Alpha["src/strategies/sticky/model.py\n(Cross-sectional Scoring & Ranker)"]
-        Selection["src/portfolio/selection.py\n(Family & Theme Deduplication)"]
-        Sizing["src/portfolio/sizing.py\n(Concentrated Top-1 + Cash Buffer)"]
-        State["src/portfolio/state.py\n(PositionState Machine)"]
+    subgraph S_ALPHA ["Layer 4-5: Alpha & Portfolio Allocation"]
+        Alpha["Alpha Model & Ranker\n(sticky.mom60 + Crash Rebound Anchor)"]
+        Selection["Cluster-Aware Selection\n(Family Deduplication)"]
+        Sizing["Portfolio Sizing & Constraints\n(Top-1 Concentrated 95% + ADV Cap)"]
+        State["Position State Machine\n(Continuity Check & Min-Hold Guard)"]
+
+        Gold --> Alpha --> Selection --> Sizing --> State
     end
 
-    subgraph L6_L7 ["L6-L7 Backtest & Tournament Harness"]
-        Execution["src/backtest/execution.py\n(NextOpenExecution & Liquidity Cap)"]
-        Engine["src/backtest/engine.py\n(SessionCacheRegistry)"]
-        TournamentSim["src/tournament/simulator.py\n(Rolling 36-Day Distribution Engine)"]
-        Gates["src/tournament/objective_core.py\n(G1/G2a Gates & LOYO Verification)"]
+    subgraph S_EVAL ["Layer 6-7: Backtest & Tournament Validation"]
+        Execution["Next-Open Execution Simulator\n(t+1 Open Fill + Slippage Grid)"]
+        Engine["Backtest Engine & Session Cache"]
+        Simulator["Rolling 36D Tournament Simulator\n(2,000+ Historic Windows)"]
+        Gates{"Objective Gates\nG1: Tail Outperformance\nG2a: Ruin Probability Cap"}
+
+        State --> Execution --> Engine --> Simulator --> Gates
     end
 
-    subgraph L8_Ops ["L8 Operations & Production"]
-        Batch["src/cli/commands/pipeline.py\n(daily-refresh)"]
-        Decide["src/cli/commands/decide/render.py\n(Portfolio Decision Dashboard)"]
-        StateStore[("data/state/*.json\n(Position Continuity)")]
+    subgraph S_OPS ["Layer 8: Daily Operations & CLI"]
+        CLI["CLI Orchestrator (mt-etf)\n(daily-refresh / decide)"]
+        Dashboard["Decision Dashboard\n(Target Shares & Amount Guide)"]
+
+        CLI -.-> Provider
+        CLI -.-> FeatureEng
+        State --> Dashboard --> HTS
     end
 
-    SOPS --> Settings
     KRX --> Provider
-    Provider --> Bronze
-    Bronze --> Silver
-    Silver --> Validator
-    Validator --> Universe
-    Universe --> Master
-    Silver --> PITGuard
-    Master --> PITGuard
-    PITGuard --> Features
-    Features --> Alpha
-    Alpha --> Selection
-    Selection --> Sizing
-    Sizing --> State
-    State --> StateStore
-    State --> Execution
-    Execution --> Engine
-    Engine --> TournamentSim
-    TournamentSim --> Gates
 
-    Calendar -.-> Provider
-    Calendar -.-> PITGuard
-    Calendar -.-> Execution
-
-    Batch --> Provider
-    Batch --> Features
-    Batch --> Decide
-    Decide --> HTS
+    classDef store fill:#f8f9fa,stroke:#495057,stroke-width:1px;
+    classDef gate fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
+    class Bronze,Silver,Gold store;
+    class Gates gate;
 ```
 
 ---
 
-## 4. Core Components Summary
+## 4. Layered Architecture Breakdown
 
-| Layer | 디렉터리 / 모듈 | 핵심 책임 (Responsibility) |
-| :--- | :--- | :--- |
-| **L0 Core** | [`src/core/`](../../src/core) | SOPS 인메모리 복호화, XKRX 세션 달력, 불변 경로(`DataPaths`), 태그 로깅 |
-| **L1 Data** | [`src/data/`](../../src/data) | KRX Open API 연동(토큰버킷 레이트리밋, 일일 쿼터), 불변 Bronze(`.json.gz`), 타입 정규화 Silver Parquet |
-| **L2 Universe** | [`src/universe/`](../../src/universe) | Point-in-Time 유니버스 판정, 종목 마스터(`InstrumentMaster`), 동일 지수 레버리지 패밀리 그룹화 |
-| **L3 Features** | [`src/features/`](../../src/features) | 모멘텀·변동성·자금흐름·시장브레드스·시장국면(Regime) 벡터 연산, 엄격한 `assert_pit` 가드 |
-| **L4 Alpha** | [`src/strategies/`](../../src/strategies), [`src/alpha/`](../../src/alpha) | 단면 상대강도 랭킹, 챔피언 전략(`sticky.mom60_post_crash_anchor`), 머신러닝 GBDT Ranker |
-| **L5 Portfolio** | [`src/portfolio/`](../../src/portfolio) | 동일 패밀리 중복 제거, Top-1 집중 비중 산출(최대 95%), 유동성(ADV 5%) 제약, 상태 전이 머신 |
-| **L6 Backtest** | [`src/backtest/`](../../src/backtest) | $t$일 종가 시그널 $\\to$ $t+1$일 시가 체결(`NextOpenExecution`), 슬리피지·수수료 그리드, 그리드 캐싱 |
-| **L7 Tournament** | [`src/tournament/`](../../src/tournament) | 36거래일 롤링 윈도우(2,000+개) 전수 시뮬레이션, G1/G2a 게이트 판정, 연도별 LOYO 검증 |
-| **L8 Ops & CLI** | [`src/cli/`](../../src/cli), [`deploy/`](../../deploy) | 15개 서브커맨드 CLI(`mt-etf`), 마감 후 16:00 배치(`daily-refresh`), systemd 타이머 서비스 |
+시스템을 구성하는 9개 계층의 핵심 책임과 설계 불변식입니다.
+
+| Layer | 계층명 | 주요 역할 및 책임 | 핵심 설계 원칙 및 불변식 |
+| :--- | :--- | :--- | :--- |
+| **L0** | **Infrastructure** | 시스템 설정 로드, XKRX 거래소 캘린더 동기화, 불변 디렉터리 경로 관리 | 파일 경로 하드코딩 금지, 거래일 캘린더 단일 진실천(Single Source of Truth) |
+| **L1** | **Ingestion** | KRX Open API 일일 시세 수집, 토큰 버킷 속도 제어, 불변 Bronze 영속화 | API 쿼터 초과 방지, 원본 데이터 가공 없는 Write-Once 압축 보관 |
+| **L2** | **Normalization** | 결측치 및 타입 정규화, Silver Parquet 증분 병합 | 결측 공백(`""`)을 0이 아닌 `None` 디코딩, 휴장일 더미 레코드 자동 격리 |
+| **L3** | **PIT Features** | 상장/생존 필터링, 모멘텀/변동성/시장국면 고속 벡터 연산 | `assert_pit` 런타임 가드(미래 데이터 참조 시 즉시 중단), 팬텀 세션 NaN 전파 방어 |
+| **L4** | **Alpha Scoring** | 60일 모멘텀 랭킹 및 급락 후 반등 앵커 룰 평가 | 단면 상대강도 랭킹 산출, 시장 국면별 동적 슬리브 라우팅 |
+| **L5** | **Portfolio Policy** | 동일 기초지수 레버리지 패밀리 중복 제거, Top-1 집중 비중 산출 | 팩터 중복 베팅 차단, ADV 5% 참여율 상한, 최소 2세션 보유 가드 |
+| **L6** | **Execution Engine** | 익일 개장 시가($t+1$ Open) 체결 시뮬레이션 및 슬리피지/수수료 반영 | Same-bar Fill 가정 배제, 거래정지 및 시가 결측 종목 체결 불가 판정 |
+| **L7** | **Tournament Harness** | 2,000+개 롤링 36D 윈도우 시뮬레이션, G1/G2a 하드 게이트 판정 | 연도별 Out-of-Sample(LOYO) 검증, 파산 위험($P(R<-25\%) \le 5\%$) 강제 |
+| **L8** | **Daily Operations** | 장 마감 후 원스톱 자동 배치 및 터미널 HTS 주문 가이드 렌더링 | 프로세스 재시작 간 포지션 연속성 검증, 일일 의사결정 JSON 아티팩트 보관 |
 
 ---
 
 ## 5. End-to-End Runtime Flow
 
-시스템의 정기 운영(Daily Batch) 및 전략 리서치 실행 흐름은 다음 7단계를 따릅니다.
+매일 15:30 정규 장 마감 후 16:00 KST에 수행되는 일일 배치 파이프라인의 엔드투엔드 처리 흐름입니다.
 
-1. **Bronze 수집 (`cmd_ingest`)**:
-   * KRX OpenAPI에서 당일 ETF 일별 매매실적 및 KOSPI 일별 시세를 JSON envelope으로 수집하여 `data/raw/krx/.../{YYYYMMDD}.json.gz`에 저장합니다.
-   * 토큰 버킷 기반 rate limiter(초당 2~5회)와 `krx_quota.json`을 통해 일일 호출 쿼터 소진 시 즉시 작업을 일시 중단합니다.
+```mermaid
+flowchart TD
+    Step1["1. Raw Data Ingestion\n(16:00 KST: KRX OpenAPI -> Bronze Gzip JSON)"]
+    Step2["2. Silver Normalization\n(Schema Validation, Empty String -> None, Parquet)"]
+    Step3["3. PIT Universe Filter\n(Deployment Mode: Sponsor Brand + ADV >= 1억)"]
+    Step4["4. Gold Feature Generation\n(assert_pit Guard -> Vectorized Momentum & Regime)"]
+    Step5["5. Champion Alpha Scoring\n(sticky.mom60 + Crash Rebound Anchor Rule)"]
+    Step6["6. Portfolio Sizing & Constraints\n(Family Dedup -> Top-1 Concentrated 95% -> ADV Cap)"]
+    Step7["7. State Continuity Check\n(Position Continuity Verification -> Fail-Closed)"]
+    Step8["8. Daily Order Guide Output\n(Render HTS Decision Guide & Persist Artifact)"]
 
-2. **Silver 정규화 (`cmd_normalize`)**:
-   * 휴장일 응답(1,163행 공백 가격), 빈 응답 등 이상 데이터를 fail-closed로 필터링하고, `DatasetSchema`를 통해 엄격한 타입 캐스팅을 수행합니다.
-   * `data/normalized/etf_daily.parquet` 및 `index_daily.parquet`로 증분(incremental) 병합합니다.
+    Step1 --> Step2 --> Step3 --> Step4 --> Step5 --> Step6 --> Step7 --> Step8
 
-3. **PIT Universe 필터링 (`PointInTimeUniverse`)**:
-   * $t$ 시점에 실제 상장되어 거래된 종목(`first_seen` $\\le t \\le$ `last_seen`), 유효 종가 존재, 60세션 이상의 히스토리, 후원 운용사 브랜드 일치 여부, 20일 평균 거래대금(ADV $\\ge$ 1억 원)을 순차 필터링합니다.
+    style Step1 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px
+    style Step2 fill:#e9ecef,stroke:#495057,stroke-width:1px
+    style Step3 fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
+    style Step4 fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
+    style Step5 fill:#fff3e0,stroke:#f57c00,stroke-width:1px
+    style Step6 fill:#fff3e0,stroke:#f57c00,stroke-width:1px
+    style Step7 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1px
+    style Step8 fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+```
 
-4. **Gold Feature 연산 (`cmd_features`)**:
-   * `assert_pit(frame, decision_date)`를 강제 통과한 후 모멘텀(3, 5, 10, 20, 40, 60일), 변동성, 자금유입률, 마켓 브레드스, 5단계 시장 국면(STRONG_RISK_OFF ~ STRONG_RISK_ON)을 Polars로 고속 벡터 연산하여 `etf_features.parquet`를 빌드합니다.
-
-5. **Alpha 시그널 및 포트폴리오 산출 (`cmd_decide`)**:
-   * 챔피언 전략(`sticky.mom60_post_crash_anchor`)이 지수 모멘텀 및 급락 후 반등 앵커 룰을 평가하여 최선호 종목을 선정합니다.
-   * `ClusterAwareSelection`이 동일 지수 레버리지 패밀리(1X, 2X, -1X, -2X) 중복을 1개로 압축하고, ADV 5% 참여율 한도 및 최대 단일 비중 95% 제약을 적용합니다.
-
-6. **체결 상태 승계 및 영속화 (`PositionState`)**:
-   * `data/state/{model}_position.json`에 보관된 이전 보유 종목과 연속성을 대조합니다.
-   * 연속성이 훼손되었을 경우 안전을 위해 작업을 중단(fail-closed)하며, 최소 보유 세션(2일) 및 갭 임계값을 적용하여 불필요한 매매 회전율(Turnover)을 방지합니다.
-
-7. **HTS 주문 가이드 생성 및 배치 완료**:
-   * 결정일 종가 기준 권장 매매 수량(주) 및 주문 금액을 터미널에 렌더링하고 `results/decide_daily/{date}.json`에 아티팩트로 저장합니다.
+1. **Bronze 수집**: KRX OpenAPI에서 당일 ETF 매매실적 및 KOSPI 시세를 수집하여 불변 압축 파일로 영속화합니다. 일일 호출 쿼터 소진 시 작업을 즉시 일시 중단합니다.
+2. **Silver 정규화**: 휴장일 더미 레코드를 제외하고, 스키마 검증을 거쳐 고성능 Parquet 포맷으로 일별 증분 병합합니다.
+3. **PIT Universe 필터링**: 당일 실제 상장 거래 종목 중 후원 10개 운용사 브랜드 및 유동성(ADV $\ge$ 1억 원) 조건을 만족하는 적격 종목군을 확정합니다.
+4. **Gold Feature 연산**: `assert_pit` 가드로 시계열 정합성을 확인한 후, 모멘텀·변동성·시장국면 피처를 Polars 벡터 연산으로 고속 생성합니다.
+5. **Alpha 시그널 산출**: 챔피언 전략이 시장 국면(LOTTERY_ON vs CRASH_REBOUND)에 맞춰 최우선 순위 종목을 선정합니다.
+6. **포트폴리오 비중 배분**: 동일 지수 레버리지 패밀리 중복을 단일 종목으로 압축하고, Top-1 집중(95%) 및 ADV 5% 참여율 한도를 적용합니다.
+7. **체결 상태 승계 및 영속화**: 이전 보유 포지션과의 연속성을 대조하고 최소 보유 세션(2일)을 적용하여 불필요한 매매 회전율을 차단합니다.
+8. **HTS 주문 가이드 생성**: 당일 종가 기준 권장 매매 수량(주) 및 주문 금액을 터미널 대시보드에 렌더링하고 아티팩트로 저장하여 익일 09:00 장 시작 전 운영자의 정확한 주문 입력을 지원합니다.
 
 ---
 
-## 6. External Dependencies
+## 6. External Dependencies & Technology Stack
 
-* **런타임 라이브러리**:
-  * `exchange-calendars`: 한국거래소(XKRX) 공휴일 및 개장일 캘린더 기준 소스
-  * `polars` / `pyarrow`: 대규모 일별 패널의 고속 벡터화 처리 및 Parquet 입출력
-  * `pydantic` / `pydantic-settings`: 환경설정 스키마 검증 및 정적 타입 강제
-  * `tenacity` / `httpx`: KRX API 호출 시 지수 백오프 및 연결 타임아웃 제어
-  * `lightgbm`: 단면 랭킹 머신러닝 Alpha 모델 학습 및 추론
-* **환경설정**:
-  * `.env` (git 비추적, `pydantic-settings` dotenv 소스): 비밀값을 평문 파일로 로컬/서버에 직접 배치
-* **외부 통신**:
-  * 한국거래소 오픈 API (`https://data-dbg.krx.co.kr/svc/apis`)
+* **시계열 & 캘린더 엔진**: `exchange-calendars` (XKRX 거래일 단일 기준점)
+* **초고속 컬럼너 컴퓨팅**: `polars`, `pyarrow` (Zero-copy In-Memory 벡터 연산 및 Parquet 입출력)
+* **환경설정 & 타입 검증**: `pydantic`, `pydantic-settings` (엄격한 스키마 검증 및 정적 타이핑)
+* **통신 & 복원력 제어**: `httpx`, `tenacity` (KRX API 토큰 버킷 레이트 리미터 및 지수 백오프)
+* **머신러닝 벤치마크**: `lightgbm` (단면 랭킹 GBDT LambdaRank)
+* **외부 통신 엔드포인트**: 한국거래소 오픈 API (`https://data-dbg.krx.co.kr/svc/apis`)
