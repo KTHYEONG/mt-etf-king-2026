@@ -41,11 +41,6 @@ flowchart LR
     end
 
     L1 --> L2 --> L3 --> L4
-
-    style L1 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px
-    style L2 fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
-    style L3 fill:#fff3e0,stroke:#f57c00,stroke-width:1px
-    style L4 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1px
 ```
 
 ---
@@ -60,10 +55,6 @@ flowchart TD
     Q1 -->|"퀀트 리서치 / 금융공학"| M1["overview.md (목적함수 수식화)\ndesign-decisions.md (ADR-01, ADR-04)"]
     Q1 -->|"데이터 엔지니어링 / 시계열 무결성"| M2["data-flow.md (시간축 무결성 & 스키마)\nBronze -> Silver -> Gold 파이프라인"]
     Q1 -->|"소프트웨어 아키텍처 / 시스템 설계"| M3["components.md (5대 서브시스템 구조)\nFail-closed 상태머신 & 계약 설계"]
-
-    style M1 fill:#e8f5e9,stroke:#388e3c,stroke-width:1px
-    style M2 fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
-    style M3 fill:#fff3e0,stroke:#f57c00,stroke-width:1px
 ```
 
 | 검토 초점 | 추천 문서 | 핵심 확인 포인트 |

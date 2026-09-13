@@ -17,13 +17,6 @@ flowchart LR
     Port -->|"Continuity Check\nMin-Hold 2 Days"| State[("State Ledger\nPosition JSON")]
     Port -->|"t+1 Open Fill Simulation"| Backtest["Backtest NAV & Gate Status"]
     State -->|"Render Target Shares/Amount"| Guide["Daily HTS Order Guide"]
-
-    style API fill:#f8f9fa,stroke:#6c757d,stroke-width:1px
-    style Bronze fill:#e9ecef,stroke:#495057,stroke-width:1px
-    style Silver fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
-    style Gold fill:#fff3e0,stroke:#f57c00,stroke-width:1px
-    style Port fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1px
-    style Guide fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
 ```
 
 | 파이프라인 단계 | 입력 (Input) | 핵심 처리 및 무결성 제약 | 출력 (Output) |

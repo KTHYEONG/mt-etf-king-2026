@@ -99,11 +99,6 @@ flowchart TD
     end
 
     KRX --> Provider
-
-    classDef store fill:#f8f9fa,stroke:#495057,stroke-width:1px;
-    classDef gate fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
-    class Bronze,Silver,Gold store;
-    class Gates gate;
 ```
 
 ---
@@ -142,15 +137,6 @@ flowchart TD
     Step8["8. Daily Order Guide Output\n(Render HTS Decision Guide & Persist Artifact)"]
 
     Step1 --> Step2 --> Step3 --> Step4 --> Step5 --> Step6 --> Step7 --> Step8
-
-    style Step1 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px
-    style Step2 fill:#e9ecef,stroke:#495057,stroke-width:1px
-    style Step3 fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
-    style Step4 fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
-    style Step5 fill:#fff3e0,stroke:#f57c00,stroke-width:1px
-    style Step6 fill:#fff3e0,stroke:#f57c00,stroke-width:1px
-    style Step7 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1px
-    style Step8 fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
 ```
 
 1. **Bronze 수집**: KRX OpenAPI에서 당일 ETF 매매실적 및 KOSPI 시세를 수집하여 불변 압축 파일로 영속화합니다. 일일 호출 쿼터 소진 시 작업을 즉시 일시 중단합니다.
