@@ -334,3 +334,90 @@ def test_cmd_daily_refresh_index_stage_failure_short_circuits(tmp_path) -> None:
         rc = cmd_daily_refresh(args)
 
     assert rc == 1
+
+
+def test_resolve_pipeline_target_session_pre_market_weekday() -> None:
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+    from unittest.mock import MagicMock
+    from src.cli.commands.pipeline import resolve_pipeline_target_session
+
+    kst = ZoneInfo("Asia/Seoul")
+    now_dt = datetime(2026, 9, 15, 8, 30, tzinfo=kst)
+    cal_mock = MagicMock()
+    cal_mock.is_session.side_effect = lambda d: d in (date(2026, 9, 11), date(2026, 9, 14), date(2026, 9, 15))
+    cal_mock.sessions.side_effect = lambda s, e: [d for d in [date(2026, 9, 11), date(2026, 9, 14), date(2026, 9, 15)] if s <= d <= e]
+
+    target = resolve_pipeline_target_session(now=now_dt, calendar=cal_mock)
+    assert target == date(2026, 9, 14)
+
+    target_explicit = resolve_pipeline_target_session(as_of=date(2026, 9, 15), now=now_dt, calendar=cal_mock)
+    assert target_explicit == date(2026, 9, 14)
+
+
+def test_resolve_pipeline_target_session_post_market_weekday() -> None:
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+    from unittest.mock import MagicMock
+    from src.cli.commands.pipeline import resolve_pipeline_target_session
+
+    kst = ZoneInfo("Asia/Seoul")
+    now_dt = datetime(2026, 9, 15, 16, 0, tzinfo=kst)
+    cal_mock = MagicMock()
+    cal_mock.is_session.side_effect = lambda d: d in (date(2026, 9, 11), date(2026, 9, 14), date(2026, 9, 15))
+    cal_mock.sessions.side_effect = lambda s, e: [d for d in [date(2026, 9, 11), date(2026, 9, 14), date(2026, 9, 15)] if s <= d <= e]
+
+    target = resolve_pipeline_target_session(now=now_dt, calendar=cal_mock)
+    assert target == date(2026, 9, 15)
+
+
+def test_resolve_pipeline_target_session_explicit_past_and_future() -> None:
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+    from unittest.mock import MagicMock
+    from src.cli.commands.pipeline import resolve_pipeline_target_session
+
+    kst = ZoneInfo("Asia/Seoul")
+    now_dt = datetime(2026, 9, 15, 8, 30, tzinfo=kst)
+    cal_mock = MagicMock()
+    cal_mock.is_session.side_effect = lambda d: d in (date(2026, 9, 10), date(2026, 9, 11), date(2026, 9, 14), date(2026, 9, 15))
+    cal_mock.sessions.side_effect = lambda s, e: [d for d in [date(2026, 9, 10), date(2026, 9, 11), date(2026, 9, 14), date(2026, 9, 15)] if s <= d <= e]
+
+    target_past = resolve_pipeline_target_session(as_of=date(2026, 9, 10), now=now_dt, calendar=cal_mock)
+    assert target_past == date(2026, 9, 10)
+
+    target_future = resolve_pipeline_target_session(as_of=date(2026, 9, 20), now=now_dt, calendar=cal_mock)
+    assert target_future is None
+
+
+def test_cmd_daily_refresh_wiring_uses_time_aware_target_session(tmp_path) -> None:
+    import argparse
+    from datetime import date
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+    import polars as pl
+    from src.cli.commands.pipeline import cmd_daily_refresh
+
+    silver_dir = tmp_path / "normalized"
+    silver_dir.mkdir(parents=True)
+    pl.DataFrame({"date": [date(2018, 1, 2), date(2026, 9, 14)]}, schema={"date": pl.Date}).write_parquet(silver_dir / "etf_daily.parquet")
+
+    args = argparse.Namespace(dataset=None, as_of="2026-09-15", lookback_days=5, decide=True, output_dir=None)
+    mock_resolve = MagicMock(return_value=date(2026, 9, 14))
+    decide_mock = MagicMock(return_value=0)
+    ingest_mock = MagicMock(return_value=0)
+
+    with (
+        patch("src.cli.commands.pipeline.resolve_pipeline_target_session", mock_resolve),
+        patch("src.cli.commands.data.cmd_ingest", ingest_mock),
+        patch("src.cli.commands.data.cmd_normalize", MagicMock(return_value=0)),
+        patch("src.cli.commands.features.cmd_features", MagicMock(return_value=0)),
+        patch("src.cli.commands.decide.cmd_decide", decide_mock),
+        patch("src.core.settings.get_settings", return_value=SimpleNamespace(data_root=tmp_path)),
+    ):
+        rc = cmd_daily_refresh(args)
+
+    assert rc == 0
+    mock_resolve.assert_called_once_with(as_of=date(2026, 9, 15))
+    decide_call = decide_mock.call_args.args[0]
+    assert decide_call.date == "2026-09-14"

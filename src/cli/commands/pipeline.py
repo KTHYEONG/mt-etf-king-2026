@@ -3,11 +3,44 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date, timedelta
-from typing import Final
+from datetime import date, datetime, time, timedelta
+from typing import TYPE_CHECKING, Final
+from zoneinfo import ZoneInfo
+
+if TYPE_CHECKING:
+    from src.core.calendar import TradingCalendar
 
 _INDEX_INGEST_DATASET: Final[str] = "kospi_index"
 _INDEX_NORMALIZE_DATASET: Final[str] = "index_daily"
+_REGULAR_CLOSE: Final[time] = time(15, 30)
+
+
+def resolve_pipeline_target_session(
+    as_of: date | None = None,
+    *,
+    now: datetime | None = None,
+    calendar: TradingCalendar | None = None,
+) -> date | None:
+    """Resolve the pipeline target session with KST time-awareness."""
+    kst = ZoneInfo("Asia/Seoul")
+    now_kst = datetime.now(kst) if now is None else now.astimezone(kst)
+    today = now_kst.date()
+    if calendar is None:
+        from src.core.calendar import get_calendar
+
+        calendar = get_calendar()
+    requested = as_of if as_of is not None else today
+    if requested > today:
+        return None
+    if requested < today:
+        sessions = calendar.sessions(requested - timedelta(days=21), requested)
+        if not sessions:
+            return None
+        return sessions[-1]
+    if now_kst.time() >= _REGULAR_CLOSE and calendar.is_session(today):
+        return today
+    sessions = calendar.sessions(today - timedelta(days=21), today)
+    return sessions[-1 - int(sessions[-1] == today)]
 
 
 def cmd_daily_refresh(args: argparse.Namespace) -> int:
@@ -24,15 +57,15 @@ def cmd_daily_refresh(args: argparse.Namespace) -> int:
     as_of_raw = getattr(args, "as_of", None)
     lookback_days = getattr(args, "lookback_days", 10) or 10
 
-    if as_of_raw is None:
-        as_of = date.today()
-    else:
-        try:
-            as_of = date.fromisoformat(as_of_raw)
-        except ValueError:
-            return 1
+    try:
+        as_of = None if as_of_raw is None else date.fromisoformat(as_of_raw)
+    except ValueError:
+        return 1
 
-    sessions = get_calendar().sessions(as_of - timedelta(days=21), as_of)
+    target = resolve_pipeline_target_session(as_of=as_of)
+    if target is None:
+        return 1
+    sessions = get_calendar().sessions(target - timedelta(days=21), target)
     if not sessions:
         return 1
     end = sessions[-1]
