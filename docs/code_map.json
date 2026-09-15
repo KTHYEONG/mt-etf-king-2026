@@ -276,9 +276,6 @@
   "src/core/settings.py": {
     "testing": "tests/unit/core/test_settings.py"
   },
-  "src/core/sops_env.py": {
-    "testing": "tests/unit/core/test_sops_env.py"
-  },
   "src/core/trace.py": {
     "testing": "tests/unit/core/test_trace.py"
   },

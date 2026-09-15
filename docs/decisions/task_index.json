@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "ADR_20260915_LATE_PUBLISHING_PIPELINE_RECOVERY",
+      "date": "2026-09-15",
+      "adr_id": "ADR_20260915_ADR_20260915_LATE_PUBLISHING_PIPELINE_RECOVERY",
+      "domain": "ops",
+      "title": "KRX 공시 지연 대응 시간 인지형 파이프라인 복구 및 장전 타이머 추가",
+      "why": "KRX 일별 원장 공시가 22시 이후로 지연될 시 당일 파이프라인이 fail-closed되어 익일 장전 의사결정이 누락되는 취약점이 존재했다.",
+      "resolution": "15:30 장 마감 기준 시간 인지형 타깃 세션 분기를 추가하고 systemd timer에 08:30 KST 장전 자동 복구 스케줄을 등록했다.",
+      "impact": "KRX 야간 공시 지연 시에도 수동 개입 없이 09:00 장 시작 전 전일 의사결정 파일을 100% 자동 생성한다."
+    },
+    {
       "task_id": "TASK_STRATEGY_CEILING_PROBE",
       "date": "2026-09-11",
       "adr_id": "ADR_20260911_STRATEGY_CEILING_PROBE",
