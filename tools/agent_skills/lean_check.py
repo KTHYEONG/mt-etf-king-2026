@@ -11,7 +11,6 @@ import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any
 
 JsonDiag = dict[str, Any]
@@ -314,53 +313,113 @@ def _iter_contract_entries(contract: dict[str, Any]) -> list[dict[str, Any]]:
     return entries
 
 
-def _wiring_literal_spans(source: str, tree: ast.AST) -> list[tuple[int, int]]:
-    """Absolute [start, end) character offsets of every string-literal AST node in `source`."""
-    line_starts = [0]
-    for line in source.splitlines(keepends=True):
-        line_starts.append(line_starts[-1] + len(line))
-    spans: list[tuple[int, int]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if node.end_lineno is None or node.end_col_offset is None:
-                continue
-            start = line_starts[node.lineno - 1] + node.col_offset
-            end = line_starts[node.end_lineno - 1] + node.end_col_offset
-            spans.append((start, end))
-    return spans
+def _parse_markdown_spec(content: str) -> dict[str, Any]:
+    contract: dict[str, Any] = {
+        "target_file": "",
+        "changes": [],
+        "wiring": [],
+        "scenarios": [],
+    }
 
+    target_sections = re.split(r"(?m)^##\s+Target:\s*`?([^\n`]+)`?", content)
+    if len(target_sections) > 1:
+        for i in range(1, len(target_sections), 2):
+            target_file = target_sections[i].strip()
+            if not contract["target_file"]:
+                contract["target_file"] = target_file
+            body = target_sections[i + 1]
+            body_clean = re.split(r"(?m)^##\s+", body)[0]
+            py_blocks = re.findall(r"```[a-zA-Z0-9_-]*\s*(.*?)\s*```", body_clean, re.DOTALL)
+            for block in py_blocks:
+                try:
+                    tree = ast.parse(block)
+                    for node in ast.iter_child_nodes(tree):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                            kind = "class" if isinstance(node, ast.ClassDef) else "function"
+                            contract["changes"].append(
+                                {
+                                    "name": node.name,
+                                    "target_file": target_file,
+                                    "kind": kind,
+                                    "signature": f"{node.name}(...)",
+                                }
+                            )
+                except Exception:
+                    for m in re.finditer(r"^(?:def|class|fn|function|pub\s+fn)\s+([a-zA-Z_][a-zA-Z0-9_]*)", block, re.MULTILINE):
+                        contract["changes"].append(
+                            {
+                                "name": m.group(1),
+                                "target_file": target_file,
+                                "kind": "class" if block.startswith("class") else "function",
+                            }
+                        )
 
-def verify_wiring(path: Path, symbol: str, anchor: str) -> tuple[bool, str]:
-    """Reject a wiring anchor that only appears inside a string literal (a dead comment/mock),
-    accepting only an anchor that appears in genuine executable source."""
-    try:
-        source = Path(path).read_text(encoding="utf-8")
-    except OSError as exc:
-        return False, f"cannot read {path}: {exc}"
-    try:
-        tree = ast.parse(source, filename=str(path))
-    except SyntaxError as exc:
-        return False, f"syntax error in {path}: {exc}"
-    literal_spans = _wiring_literal_spans(source, tree)
-    found_any = False
-    idx = source.find(anchor)
-    while idx != -1:
-        found_any = True
-        end_idx = idx + len(anchor)
-        inside_literal = any(s <= idx and end_idx <= e for s, e in literal_spans)
-        if not inside_literal:
-            return True, ""
-        idx = source.find(anchor, idx + 1)
-    if found_any:
-        return False, f"'{anchor}' for symbol '{symbol}' appears only inside string literal(s) in {path}"
-    return False, f"'{anchor}' for symbol '{symbol}' not found in {path}"
+    wiring_sections = re.split(r"(?m)^##\s+Wiring:\s*`?([^\n`]+)`?", content)
+    if len(wiring_sections) > 1:
+        for i in range(1, len(wiring_sections), 2):
+            caller_file = wiring_sections[i].strip()
+            body = re.split(r"(?m)^##\s+", wiring_sections[i + 1])[0]
+            anchor_match = re.search(r"-\s*Anchor:\s*`?([^\n`]+)`?", body)
+            anchor = anchor_match.group(1).strip() if anchor_match else ""
+            py_blocks = re.findall(r"```[a-zA-Z0-9_-]*\s*(.*?)\s*```", body, re.DOTALL)
+            import_sym = ""
+            invoc_expr = ""
+            if py_blocks:
+                code = py_blocks[0]
+                imp_match = re.search(r"^(?:from\s+\S+\s+import\s+\S+|import\s+\S+|use\s+\S+)", code, re.MULTILINE)
+                if imp_match:
+                    import_sym = imp_match.group(0)
+                for line in code.splitlines():
+                    line_s = line.strip()
+                    if line_s and not line_s.startswith(("#", "//", "from", "import", "use")):
+                        invoc_expr = line_s
+                        break
+            contract["wiring"].append(
+                {
+                    "caller_file": caller_file,
+                    "anchor": anchor,
+                    "import_symbol": import_sym,
+                    "invocation_expression": invoc_expr,
+                }
+            )
+
+    test_sections = re.split(r"(?m)^##\s+Test\s+Suite:\s*`?([^\n`]+)`?", content)
+    if len(test_sections) > 1:
+        for i in range(1, len(test_sections), 2):
+            target_test_file = test_sections[i].strip()
+            body = re.split(r"(?m)^##\s+", test_sections[i + 1])[0]
+            py_blocks = re.findall(r"```[a-zA-Z0-9_-]*\s*(.*?)\s*```", body, re.DOTALL)
+            for block in py_blocks:
+                try:
+                    tree = ast.parse(block)
+                    lines = block.splitlines()
+                    for node in ast.iter_child_nodes(tree):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            start_line = node.lineno - 1
+                            end_line = getattr(node, "end_lineno", len(lines))
+                            func_code = "\n".join(lines[start_line:end_line])
+                            contract["scenarios"].append(
+                                {
+                                    "scenario_id": node.name,
+                                    "target_test_file": target_test_file,
+                                    "test_skeleton": func_code,
+                                    "execution_command": f"pytest {target_test_file} -k {node.name}",
+                                }
+                            )
+                except Exception:
+                    pass
+
+    return contract
 
 
 def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int, list[JsonDiag]]:
     diagnostics: list[JsonDiag] = []
     try:
         with open(spec_path, encoding="utf-8") as f:
-            contract = json.load(f)
+            if spec_path.endswith(".md"):
+                contract = _parse_markdown_spec(f.read())
+            else:
+                contract = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
         return (
             1,
@@ -394,11 +453,23 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                 diagnostics.append(d)
             continue
         if not os.path.exists(fh):
+            if kind in ("deleted_file", "deleted_module", "deleted_path"):
+                continue
             d = {
                 "file": fh,
                 "line": 0,
                 "error": f"Spec: file not found ({kind} {name})",
                 "fix_hint": f"Create {fh}",
+            }
+            diagnostics.append(d)
+            continue
+
+        if kind in ("deleted_file", "deleted_module", "deleted_path"):
+            d = {
+                "file": fh,
+                "line": 0,
+                "error": f"Spec: {kind} '{fh}' still exists (should be deleted)",
+                "fix_hint": f"Delete {fh}",
             }
             diagnostics.append(d)
             continue
@@ -1135,7 +1206,7 @@ def main() -> None:
         spec_candidates = [
             os.path.join("docs/specs", f)
             for f in os.listdir("docs/specs")
-            if f.endswith("_contract.json") or f == "contract.json"
+            if f.endswith(("_contract.json", "_spec.md")) or f in ("contract.json", "spec.md")
         ]
         if spec_candidates:
             spec_candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
@@ -1168,7 +1239,10 @@ def main() -> None:
     if args.spec and os.path.isfile(args.spec):
         with contextlib.suppress(Exception):
             with open(args.spec, encoding="utf-8") as sf:
-                spec_data = json.load(sf)
+                if args.spec.endswith(".md"):
+                    spec_data = _parse_markdown_spec(sf.read())
+                else:
+                    spec_data = json.load(sf)
             for sc in spec_data.get("scenarios", []) or spec_data.get("tests", []):
                 ttf = _repo_relative(sc.get("target_test_file", ""))
                 if ttf and os.path.exists(ttf) and ttf not in test_files:
@@ -1283,14 +1357,11 @@ def main() -> None:
         # line numbers no longer match this file's current content.
         with contextlib.suppress(OSError):
             os.remove(cov_json_path)
-        # pytest-cov's --cov silently collects nothing for a bare file path,
-        # and the dotted module form makes coverage import the parent package
-        # before pytest starts (src.cli pulls exchange_calendars, whose C ext
-        # then fails "cannot load module more than once" in conftest). The
-        # containing directory is measured as a source dir without importing.
-        cov_modules = sorted({os.path.dirname(f) for f in src_files})
+        # pytest-cov's --cov silently collects nothing for a bare file path
+        # (coverage.py resolves it as a source, not a measured module) --
+        # the dotted module form is what actually attaches instrumentation.
         cov_args = [
-            *[f"--cov={m}" for m in cov_modules],
+            "--cov=src",
             f"--cov-report=json:{cov_json_path}",
         ]
     core_cmd = [
