@@ -269,9 +269,28 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 )
             except ValueError as exc:
                 logger.error(f"[SYS] decide status=fail error={exc!r}")
-                return 1
         else:
             order_estimates = {}
+        ticker_names: dict[str, str] = {}
+        if state.panel_loaded is not None and hasattr(state.panel_loaded, "columns"):
+            cols = set(state.panel_loaded.columns)
+            if "ticker" in cols and "name" in cols:
+                try:
+                    import polars as _pl_dec
+
+                    sub = state.panel_loaded
+                    if "date" in cols:
+                        sub_dt = sub.filter(_pl_dec.col("date") == decision_date)
+                        if sub_dt.height > 0:
+                            sub = sub_dt
+                    for row in sub.select(["ticker", "name"]).unique().iter_rows(named=True):
+                        t_val = str(row.get("ticker") or "")
+                        n_val = str(row.get("name") or "")
+                        if t_val and n_val:
+                            ticker_names[t_val] = n_val
+                except Exception:
+                    pass
+
         return render_decision(
             weights=dict(state.weights),
             decision_weights=state.decision_weights,
@@ -281,6 +300,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
             peak_is_locked=bool(state.peak_is_locked),
             house_money_is_locked=bool(state.house_money_is_locked),
             order_estimates=order_estimates,
+            ticker_names=ticker_names,
         )
     except Exception as exc:
         logger.error(f"[SYS] decide status=fail error={exc!r}")

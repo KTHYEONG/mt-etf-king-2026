@@ -67,6 +67,28 @@ def test_write_decision_artifact_omits_estimate_fields_when_none_given(tmp_path)
     assert "est_krw" not in item
 
 
+def test_write_decision_artifact_includes_korean_fields(tmp_path) -> None:
+    import json
+
+    dd = DailyDecision(
+        decision_date=date(2026, 9, 17),
+        weights={"122630": 0.95},
+        rationales={"122630": "WHY: 122630 weight=0.950 state=HOLD theme=ThemeA allocated via ClusterAwareSelection and confidence sizing"},
+    )
+    out_path = tmp_path / "decision.json"
+    write_decision_artifact(dd, out_path)
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    item = next(s for s in payload["selected"] if s["ticker"] == "122630")
+    assert item["name"] == "KODEX 레버리지"
+    assert "HOLD" in item["state"]
+    assert "보유" in item["state"]
+    assert "클러스터" in item["reason_ko"]
+    assert "95.0%" in item["reason_ko"]
+    assert item["weight"] == 0.95
+    assert "WHY:" in item["reason"]
+
+
 import pytest
 
 
@@ -74,3 +96,4 @@ import pytest
 def test_SCENARIO_hyphen_wrapper(scenario_id: str) -> None:  # noqa: N802
     if scenario_id == "SCENARIO-08-14":
         test_SCENARIO_08_14_rationale_and_dashboard()
+
