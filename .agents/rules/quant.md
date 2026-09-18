@@ -1,64 +1,35 @@
 ---
 trigger:
   - on_label: ["quant"]
-  - on_file_path_regex: "src/.*(etf|portfolio|allocation|rebalance|execution|data|backtest|alpha|feature).*"
-  - on_file_path_glob: ["src/**/etf/**/*.py", "src/**/portfolio/**/*.py", "src/**/allocation/**/*.py", "src/**/rebalance/**/*.py", "src/**/data/**/*.py", "src/**/alpha/**/*.py", "src/**/backtest/**/*.py"]
+  - on_file_path_regex: "src/.*"
+  - on_file_path_glob: ["src/**/*.py"]
 priority: 10
 ---
 
-# Tournament Quant & ETF Engineering Directives
+# Quantitative Engineering Core Directives
 
-> **Never leak future information, preserve the reality of capital flows and execution viability, guard against validation leakage and overfitting, and prioritize economic correctness over specific implementation mechanics.**
+> **The primary directive is maximizing net geometric compounding growth ($g = \mathbb{E}[\ln(1 + r_{\text{net}})]$) that is fully reproducible in live execution without phantom alpha. Maximize autonomous reasoning and algorithmic creativity within five non-negotiable constitutional pillars.**
 
-This document defines quantitative and financial directives for the **36-session ETF Tournament Research & Trading System** (Money Today ETF King 2026).
+## 1. Temporal Causality (The Arrow of Time)
+- **Point-in-Time Availability:** Every signal, feature, universe selection, and portfolio decision at time $T$ must consume strictly data observable prior to or at time $T$.
+- **Zero Lookahead:** Executing on bar close $T$ using signals derived from the same bar's close, or referencing unreleased future data, is a fatal causality violation.
+- **Perturbation Invariance:** Verification must prove that corrupting or randomizing future data ($t > T$) alters historical decisions at or before time $T$ by zero.
 
-## 0. Tournament Objective & Decision Philosophy
-1. **Distribution Optimization Over Scalar Metrics:**
-   - The primary adoption proxy is the 36-session exceedance curve $P(R_{36d} > \theta)$ for $\theta \in \{0.30,0.40,0.50,0.60\}$, with ruin cap $P(R_{36d} < -25\%) \le 5\%$. Championship score is a weighted diagnostic of that curve, not $P(\text{win})$.
-   - Do not replace adoption gates with $F(r)^N$, a synthetic N-IID competitor field, or daily Monte Carlo $P(\text{rank}=1)$. Window-aligned `win_rate` vs implemented rivals is diagnostic only.
-   - Overlay that fails non-inferiority vs raw (primary scenario CI) must not be live. Identity/raw is the P27 candidate; P26 house-money stays a frozen comparison path.
-   - Mean, Sharpe ratio, or long-term CAGR are secondary diagnostic metrics; they must never override 36-session return distribution criteria (G1~G5 gates).
-2. **Strict Layer Separation (ARCH-1 / INV-24):**
-   - Keep `Signal (Alpha)` $\to$ `Portfolio (Allocation/Sizing)` $\to$ `Tournament Policy (Regime/Overlay)` strictly decoupled.
-   - Alpha models select theme/index keys; exposure selectors choose leverage vehicles (1X, 2X, -1X, -2X).
-3. **Fail-Closed & Empirical Realism:**
-   - Never extrapolate unverified rules. Treat missing/unknown rules as discrete scenarios (primary vs fallback).
+## 2. Universe & Selection Integrity (Point-in-Time Reality)
+- **Historical Universe Reconstruction:** Never evaluate strategies on historical windows using present-day survival criteria. The investable universe at time $T$ must reflect real-world constituents at time $T$, including subsequently delisted, bankrupt, or suspended assets.
+- **Selection Bias Elimination:** Screening filters and dynamic universe logic must only ingest information certified as known at rebalancing time $T$.
 
-## 1. Portfolio Sizing & Effective Exposure
-- **Concentrated Momentum Allocation:**
-   - Optimize for concentrated sizing (Top 1~3 holdings, max single weight $\le 80\%$, min cash buffer $\ge 5\%$) to capture explosive sector moves.
-   - Dynamic exit on leadership deterioration (momentum score drop $\ge 30\%$, drawdowns $\le -15\%$).
-- **Effective Gross Exposure Invariant (INV-18):**
-   - Apply exposure constraints to **effective leverage exposure**, NOT raw weights:
-     $$\text{Gross Exposure} = \sum |w_i \times \text{multiplier}_i| \le 1.60$$
-   - Enforce single-holding constraint per underlying index family (INV-17): $\max(\text{count}(\text{family})) \le 1$.
-- **Leverage & Inverse Realism (INV-14, INV-19):**
-   - Use actual ETF price series for leverage/inverse backtesting; NEVER synthesize via index return $\times$ multiplier (preserves volatility drag).
-   - If multiplier confidence is low or unverified, fail-closed to 1X exposure.
+## 3. Execution Friction & Capacity Realism
+- **Net Friction Integrity:** Never evaluate strategies under zero-friction illusions. All performance metrics must account for realistic execution drag: commissions, statutory taxes, bid-ask spreads, slippage, and financing/borrow costs.
+- **Market Impact & Capacity Constraints:** Never assume infinite liquidity or instant fills. Position sizing must respect market depth and Average Daily Volume (ADV) participation limits to prevent illusory alpha that collapses under scale.
+- **Zero Magic Numbers:** Never hardcode strategy thresholds, fee schedules, or filter cutoffs as numeric literals in business logic. Parameters must be declared as typed, configurable contracts (`Spec`/`Config`).
 
-## 2. Universe & Eligibility Invariants
-- **Sponsor Universe Boundary (INV-20, INV-21):**
-   - Strategy adoption, ML models, and live execution must operate strictly on the **10 Tournament Sponsor ETF Universe** (`configs/sponsor_brands.yaml`).
-   - Structural analysis across all KRX ETFs is permitted only for hypothesis generation.
-- **Liquidity & Execution Capacity (INV-11):**
-   - Ensure capital capacity (1.0B KRW initial capital) conforms to ADV limits:
-     $$\text{Order Value} \le \text{ADV}_{20} \times \text{participation\_rate} \quad (\text{participation\_rate} \le 1\%\sim 2\%)$$
-   - Discard illiquid candidates before calculating signals.
+## 4. Multiple Testing & Overfitting Resistance
+- **Statistical Humility:** Never present backtest metrics from repeated trial-and-error as independent discoveries without explicit statistical haircuts or adjustments for trial multiplicity.
+- **Parameter Surface Robustness:** Never rely on isolated parameter spikes ("knife-edge alpha"). Parameter sensitivity must demonstrate stable performance plateaus across neighboring regimes.
+- **Strict Out-of-Sample Isolation:** Maintain strict temporal separation between discovery/training and evaluation. Never leak validation statistics back into model formulation.
 
-## 3. Microstructure & Point-in-Time Execution
-- **Strict Timestamp & Execution Mechanics (INV-10):**
-   - Signals generated at $close(t)$ MUST execute at $open(t+1)$ (next-day market opening). Same-bar look-ahead cheats are strictly prohibited.
-- **Realistic Friction & Cost Drag (INV-12):**
-   - Apply transaction taxes, broker commissions, and bid-ask / liquidity slippage directly at the fill event.
-- **Point-in-Time (PIT) Data Integrity (INV-7, INV-8, INV-9):**
-   - Use strict XKRX session calendar only (`core/calendar.py`). Avoid generic business-day generators (`bdate_range`).
-   - Cross-sectional ranking, z-scores, and normalizations must strictly use cross-sectional data available at date $t$.
-
-## 4. Deterministic & Safe Numerical Computation
-- **Numerical Edge Cases & Invariants:**
-   - Handle zero-division, empty series, and infinite returns according to genuine financial/auction reality rather than masking with arbitrary normal defaults.
-- **Distribution Stability & Non-Stationarity:**
-   - Calculate rolling 36-session statistics using overlapping window corrections ($n_{\text{effective}}$).
-   - Track giveback metrics (median & q90) and drawdown profiles for every strategy evaluation.
-- **Principles Over Mechanics:**
-   - Prioritize sound tournament mechanics and structural invariance over rigid dogma around specific function recipes.
+## 5. Tail-Risk & Ruin Prevention (Deterministic Fail-Closed)
+- **Conservation Law:** Total portfolio equity and cash balance changes must reconcile exactly with realized transactions, fees, taxes, and financing cash flows with zero numerical leakage.
+- **Deterministic Fail-Closed:** On unrecoverable data anomalies or feed disruptions, never substitute arbitrary normal defaults. Safely abort execution (`NO_TRADE`), preserve capital, and protect against catastrophic ruin.
+- **Non-Gaussian Survival:** Never evaluate risk assuming pure Gaussian returns. Systems must survive fat-tailed drawdowns, liquidity freezes, and regime shifts.
