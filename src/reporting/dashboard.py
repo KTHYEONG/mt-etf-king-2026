@@ -79,10 +79,77 @@ def render_dashboard(decision: DailyDecision) -> str:
     return "\n".join(lines)
 
 
+_STATE_KO_MAP: dict[str, str] = {
+    "HOLD": "보유유지(HOLD)",
+    "BUY": "신규매수(BUY)",
+    "NEW": "신규매수(BUY)",
+    "TRIM": "비중축소(TRIM)",
+    "EXIT": "전량매도(EXIT)",
+    "SELL": "전량매도(EXIT)",
+    "CASH": "현금화(CASH)",
+}
+
+_KNOWN_ETF_NAMES: dict[str, str] = {
+    "122630": "KODEX 레버리지",
+    "233740": "KODEX 코스닥150레버리지",
+    "069500": "KODEX 200",
+    "114800": "KODEX 인버스",
+    "252670": "KODEX 200선물인버스2X",
+    "412570": "TIGER Fn반도체TOP10",
+    "451060": "ACE 미국배당다우존스",
+    "494310": "PLUS 고배당주",
+    "488080": "ACE 미국빅테크TOP7 Plus",
+}
+
+
+def _parse_state_and_reason_ko(ticker: str, weight: float, raw_reason: str) -> tuple[str, str]:
+    import re
+
+    m_state = re.search(r"state=([A-Za-z0-9_]+)", raw_reason)
+    raw_state = m_state.group(1).upper() if m_state else "HOLD"
+    state_ko = _STATE_KO_MAP.get(raw_state, f"{raw_state}")
+
+    weight_pct = f"{float(weight) * 100:.1f}%"
+    reasons: list[str] = []
+
+    if "ClusterAwareSelection" in raw_reason and "confidence sizing" in raw_reason:
+        reasons.append("클러스터 중복 제거 및 모델 확신도 산정에 따라")
+    elif "ClusterAwareSelection" in raw_reason:
+        reasons.append("클러스터 분산 선택 알고리즘에 따라")
+    elif "confidence sizing" in raw_reason:
+        reasons.append("확신도 기반 비중 산정에 따라")
+
+    if "peak_lock" in raw_reason:
+        reasons.append("고점 대비 보호 장치(Peak Lock) 발동으로")
+    if "house_money" in raw_reason:
+        reasons.append("수익금 보호 잠금(House Money) 발동으로")
+
+    if raw_state == "HOLD":
+        action_ko = "기존 포지션 보유 유지"
+    elif raw_state in ("BUY", "NEW"):
+        action_ko = "신규 매수 편입"
+    elif raw_state == "TRIM":
+        action_ko = "기존 비중 축소"
+    elif raw_state in ("EXIT", "SELL"):
+        action_ko = "전량 매도 청산"
+    elif raw_state == "CASH":
+        action_ko = "전량 현금화"
+    else:
+        action_ko = f"상태 {raw_state}"
+
+    if reasons:
+        reason_ko = f"{' '.join(reasons)} 비중 {weight_pct} 배분, {action_ko}"
+    else:
+        reason_ko = f"목표 비중 {weight_pct} 배분 ({action_ko})"
+
+    return state_ko, reason_ko
+
+
 def write_decision_artifact(
     decision: DailyDecision,
     path: Path,
     order_estimates: Mapping[str, object] | None = None,
+    ticker_names: Mapping[str, str] | None = None,
 ) -> Path:
     # ensure parent
     try:
@@ -111,7 +178,21 @@ def write_decision_artifact(
                 reason = reason + " state=HOLD"
             if "WHY" not in reason:
                 reason = f"WHY: {reason}"
-            item: dict[str, object] = {"ticker": ticker, "weight": float(w), "reason": reason}
+
+            state_ko, reason_ko = _parse_state_and_reason_ko(ticker, float(w), reason)
+            name = ""
+            if ticker_names and ticker in ticker_names:
+                name = str(ticker_names[ticker])
+            elif ticker in _KNOWN_ETF_NAMES:
+                name = _KNOWN_ETF_NAMES[ticker]
+
+            item: dict[str, object] = {
+                "ticker": ticker,
+                "name": name,
+                "weight": float(w),
+                "state": state_ko,
+                "reason_ko": reason_ko,
+            }
             if order_estimates and ticker in order_estimates:
                 est = order_estimates[ticker]
                 shares = getattr(est, "est_shares", None)
@@ -120,6 +201,7 @@ def write_decision_artifact(
                     item["est_shares"] = shares
                 if krw is not None:
                     item["est_krw"] = krw
+            item["reason"] = reason
             selected.append(item)
     except Exception:
         selected = []
@@ -135,5 +217,6 @@ def write_decision_artifact(
             json.dump(payload, f, ensure_ascii=False, indent=2)
     except Exception:
         # fallback: try write
-        Path(path).write_text(json.dumps(payload), encoding="utf-8")
+        Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return Path(path)
+
