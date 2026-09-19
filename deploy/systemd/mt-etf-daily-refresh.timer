@@ -6,15 +6,17 @@ Description=Run mt-etf-daily-refresh every trading weekday evening (KST)
 # KRX 휴장일(주말/공휴일)에도 매번 실행되지만, daily-refresh 자체가
 # get_calendar()로 최근 거래일이 없으면 fail-closed(rc=1)하므로 무해하다.
 #
-# 2026-09-11 실측: KRX etf_bydd_trd/kospi_dd_trd가 당일 basDd를 16시에도
-# 아직 게시하지 않는 경우가 있어(ADR_20260911_KRX_PENDING_BACKFILL_RETRY),
-# 20/22시 재시도를 추가한다. bronze pending 수정(BackfillResult.pending)
-# 덕분에 재시도는 안전하게 멱등적으로 동작한다(이미 성공한 날짜는 다시
-# 없어지지 않고, 아직 미게시인 날짜만 재조회한다).
-OnCalendar=Mon..Fri *-*-* 08:30:00 Asia/Seoul
+# 2026-09-11/18 실측: KRX etf_bydd_trd/kospi_dd_trd가 당일 basDd를 16/20/22시에도
+# 아직 게시하지 않는 경우가 있다(ADR_20260911_KRX_PENDING_BACKFILL_RETRY).
+# 1) 평일 심야(23:30) 재시도 추가
+# 2) 금요일 장 마감 후 KRX 지연 시 토요일/주말에도 직전 거래일 결정을 완결할 수 있도록
+#    아침 08:30 점검을 매일(Mon..Sun) 실행하고, 토요일 11:00 2차 재시도를 둔다.
+OnCalendar=*-*-* 08:30:00 Asia/Seoul
+OnCalendar=Sat *-*-* 11:00:00 Asia/Seoul
 OnCalendar=Mon..Fri *-*-* 16:00:00 Asia/Seoul
 OnCalendar=Mon..Fri *-*-* 20:00:00 Asia/Seoul
 OnCalendar=Mon..Fri *-*-* 22:00:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 23:30:00 Asia/Seoul
 Persistent=true
 AccuracySec=5min
 
