@@ -599,3 +599,59 @@ def test_apply_live_exposure_and_capacity_limits_skips_tickers_with_no_adv_histo
     )
 
     assert "412570" in out
+
+
+def test_resolve_prior_sticky_state_same_day_rerun_preserves_prior_session(tmp_path) -> None:
+    from src.tournament.live_decision import persist_sticky_state, resolve_prior_sticky_state
+
+    p = tmp_path / "sticky_position.json"
+    day1 = date(2026, 9, 17)
+    day2 = date(2026, 9, 18)
+
+    # 1. Day 1 decision persisted
+    persist_sticky_state(p, decision_date=day1, held="122630", held_weight=0.95, hold_len=1)
+
+    # 2. Day 2 first run: resolves day 1 state
+    held, weight, hold_len = resolve_prior_sticky_state(p, prior_session=day1)
+    assert (held, weight, hold_len) == ("122630", 0.95, 1)
+
+    # Day 2 decision persisted (now file has as_of = day2)
+    persist_sticky_state(p, decision_date=day2, held="122630", held_weight=0.95, hold_len=2)
+
+    # 3. Day 2 second run (rerun / same-day retry): MUST still resolve day 1 state correctly!
+    held_rerun, weight_rerun, hold_len_rerun = resolve_prior_sticky_state(p, prior_session=day1)
+    assert (held_rerun, weight_rerun, hold_len_rerun) == ("122630", 0.95, 1)
+
+    # Persist again on rerun
+    persist_sticky_state(p, decision_date=day2, held="122630", held_weight=0.95, hold_len=2)
+
+    # Still resolves day 1 state
+    held_rerun2, weight_rerun2, hold_len_rerun2 = resolve_prior_sticky_state(p, prior_session=day1)
+    assert (held_rerun2, weight_rerun2, hold_len_rerun2) == ("122630", 0.95, 1)
+
+
+def test_resolve_prior_sticky_state_fallback_from_artifact(tmp_path) -> None:
+    import json
+    from src.tournament.live_decision import resolve_prior_sticky_state
+
+    state_file = tmp_path / "state" / "sticky_position.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    # File already overwritten with day 2, but has no history (legacy file)
+    state_file.write_text(json.dumps({"as_of": "2026-09-18", "held": None, "held_weight": 0.0, "hold_len": 0}))
+
+    # Create prior session decision artifact in results/decide_daily
+    art_dir = tmp_path / "results" / "decide_daily"
+    art_dir.mkdir(parents=True, exist_ok=True)
+    art_file = art_dir / "2026-09-17.json"
+    art_file.write_text(json.dumps({
+        "as_of": "2026-09-17",
+        "selected": [{"ticker": "122630", "weight": 0.95, "name": "KODEX 레버리지"}]
+    }))
+
+    # Should fallback to the artifact and recover 122630
+    held, weight, hold_len = resolve_prior_sticky_state(
+        state_file, prior_session=date(2026, 9, 17), artifact_dirs=[art_dir]
+    )
+    assert held == "122630"
+    assert weight == 0.95
+    assert hold_len == 1
