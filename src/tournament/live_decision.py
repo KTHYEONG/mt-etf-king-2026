@@ -78,72 +78,182 @@ def resolve_prior_trading_session(panel: pl.DataFrame, *, decision_date: date) -
     return max(prior)
 
 
-def resolve_prior_sticky_state(state_path: Path, *, prior_session: date | None) -> tuple[str | None, float, int]:
+def _parse_and_validate_sticky_entry(entry: object) -> tuple[str | None, float, int] | None:
+    if not isinstance(entry, dict):
+        return None
+    held_raw = entry.get("held")
+    weight_raw = entry.get("held_weight")
+    hold_len_raw = entry.get("hold_len")
+    if held_raw is None:
+        return (None, 0.0, 0)
+    if not isinstance(held_raw, str):
+        return None
+    if isinstance(weight_raw, bool):
+        return None
+    try:
+        weight = float(weight_raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(weight):
+        return None
+    if isinstance(hold_len_raw, bool):
+        return None
+    if isinstance(hold_len_raw, float) and not hold_len_raw.is_integer():
+        return None
+    try:
+        hold_len = int(hold_len_raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if hold_len < 0:
+        return None
+    return (held_raw, float(weight), int(hold_len))
+
+
+def resolve_prior_sticky_state(
+    state_path: Path,
+    *,
+    prior_session: date | None,
+    artifact_dirs: Sequence[Path] | None = None,
+) -> tuple[str | None, float, int]:
     if prior_session is None:
         return (None, 0.0, 0)
+    p = Path(state_path)
+    if not p.exists():
+        return (None, 0.0, 0)
+
     try:
-        raw = Path(state_path).read_text(encoding="utf-8")
-    except OSError:
+        raw = p.read_text(encoding="utf-8")
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            return (None, 0.0, 0)
+        data = parsed
+    except (OSError, json.JSONDecodeError):
         return (None, 0.0, 0)
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return (None, 0.0, 0)
-    if not isinstance(data, dict):
-        return (None, 0.0, 0)
+
+    prior_key = prior_session.isoformat()
     as_of_raw = data.get("as_of")
-    held_raw = data.get("held")
-    weight_raw = data.get("held_weight")
-    hold_len_raw = data.get("hold_len")
     if not isinstance(as_of_raw, str):
         return (None, 0.0, 0)
     try:
         as_of = date.fromisoformat(as_of_raw)
     except ValueError:
         return (None, 0.0, 0)
-    if as_of != prior_session:
+
+    if as_of == prior_session:
+        res = _parse_and_validate_sticky_entry(data)
+        return res if res is not None else (None, 0.0, 0)
+
+    # If as_of is earlier than prior_session (a gap/discontinuity), fail closed
+    if as_of < prior_session:
         return (None, 0.0, 0)
-    if held_raw is None:
-        return (None, 0.0, 0)
-    if not isinstance(held_raw, str):
-        return (None, 0.0, 0)
-    if isinstance(weight_raw, bool):
-        return (None, 0.0, 0)
-    try:
-        weight = float(weight_raw)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return (None, 0.0, 0)
-    if not math.isfinite(weight):
-        return (None, 0.0, 0)
-    if isinstance(hold_len_raw, bool):
-        return (None, 0.0, 0)
-    if isinstance(hold_len_raw, float) and not hold_len_raw.is_integer():
-        return (None, 0.0, 0)
-    try:
-        hold_len = int(hold_len_raw)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return (None, 0.0, 0)
-    if hold_len < 0:
-        return (None, 0.0, 0)
-    return (held_raw, float(weight), int(hold_len))
+
+    # Here, as_of > prior_session (e.g. state was already updated for today on earlier run):
+    # 1. State history lookup (preserves prior position across same-day re-executions)
+    history = data.get("history")
+    if isinstance(history, dict) and prior_key in history:
+        res = _parse_and_validate_sticky_entry(history[prior_key])
+        if res is not None:
+            return res
+
+    # 2. Fallback to decision artifacts if state was overwritten without history on same-day rerun
+    dirs_to_check: list[Path] = []
+    if artifact_dirs:
+        dirs_to_check.extend(artifact_dirs)
+    dirs_to_check.extend([
+        Path("results/decide_daily"),
+        Path("data/state/decisions"),
+    ])
+    if p.parent != Path():
+        dec_sub = p.parent / "decisions"
+        if dec_sub not in dirs_to_check:
+            dirs_to_check.append(dec_sub)
+
+    for d in dirs_to_check:
+        candidates = [
+            d / f"{prior_key}.json",
+            d / f"{prior_session.strftime('%Y%m%d')}_decision.json",
+        ]
+        for cand in candidates:
+            if cand.exists():
+                try:
+                    art = json.loads(cand.read_text(encoding="utf-8"))
+                    if isinstance(art, dict):
+                        sel = art.get("selected")
+                        if isinstance(sel, list):
+                            if len(sel) == 0:
+                                return (None, 0.0, 0)
+                            first = sel[0]
+                            if isinstance(first, dict) and "ticker" in first:
+                                tkr = str(first["ticker"])
+                                w = float(first.get("weight", 1.0))
+                                return (tkr, w, 1)
+                        w_map = art.get("weights")
+                        if isinstance(w_map, dict):
+                            if len(w_map) == 0:
+                                return (None, 0.0, 0)
+                            first_tkr = next(iter(w_map))
+                            return (str(first_tkr), float(w_map[first_tkr]), 1)
+                except Exception:
+                    continue
+
+    return (None, 0.0, 0)
 
 
 def persist_sticky_state(
-    state_path: Path, *, decision_date: date, held: str | None, held_weight: float, hold_len: int
+    state_path: Path,
+    *,
+    decision_date: date,
+    held: str | None,
+    held_weight: float,
+    hold_len: int,
 ) -> None:
-    payload = {
-        "as_of": decision_date.isoformat(),
+    p = Path(state_path)
+    history: dict[str, Any] = {}
+    if p.exists():
+        try:
+            old_raw = p.read_text(encoding="utf-8")
+            old_data = json.loads(old_raw)
+            if isinstance(old_data, dict):
+                old_hist = old_data.get("history")
+                if isinstance(old_hist, dict):
+                    history = dict(old_hist)
+                old_as_of = old_data.get("as_of")
+                if isinstance(old_as_of, str) and old_as_of != decision_date.isoformat():
+                    old_held = old_data.get("held")
+                    if old_held is not None or "held" in old_data:
+                        history[old_as_of] = {
+                            "held": old_held,
+                            "held_weight": float(old_data.get("held_weight", 0.0)),
+                            "hold_len": int(old_data.get("hold_len", 0)),
+                        }
+        except Exception:
+            history = {}
+
+    current_entry = {
         "held": held,
         "held_weight": float(held_weight),
         "hold_len": int(hold_len),
     }
+    history[decision_date.isoformat()] = current_entry
+
+    if len(history) > 60:
+        sorted_keys = sorted(history.keys())
+        for k in sorted_keys[:-60]:
+            del history[k]
+
+    payload: dict[str, Any] = {
+        "as_of": decision_date.isoformat(),
+        "held": held,
+        "held_weight": float(held_weight),
+        "hold_len": int(hold_len),
+        "history": history,
+    }
     try:
-        p = Path(state_path)
         if p.parent != Path():
             p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(payload), encoding="utf-8")
+        p.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     except OSError as exc:
-        logger.warning(f"[SYS] persist_sticky_state failed {exc!r}")
+        logger.warning(f"[SYS] persist_sticky_state failed path={p} error={exc!r}")
         return None
     return None
 
