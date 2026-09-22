@@ -364,85 +364,186 @@ def test_resolve_prior_sticky_state_round_trips_via_persist(tmp_path) -> None:
 
 
 
-def test_resolve_prior_sticky_state_fails_closed_on_discontinuity_or_corruption(tmp_path) -> None:
-    from src.tournament.live_decision import persist_sticky_state, resolve_prior_sticky_state
+def test_resolve_prior_sticky_state_raises_on_ledger_gap(tmp_path) -> None:
+    from src.tournament.live_decision import StateDiscontinuityError, persist_sticky_state, resolve_prior_sticky_state
 
-    missing = tmp_path / "missing.json"
-    assert resolve_prior_sticky_state(missing, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: persisted as_of does not match the requested prior_session (a gap) -> reset
     p = tmp_path / "gap.json"
-    persist_sticky_state(p, decision_date=date(2026, 9, 4), held="412570", held_weight=1.0, hold_len=3)
-    assert resolve_prior_sticky_state(p, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+    persist_sticky_state(p, decision_date=date(2026, 9, 16), held="122630", held_weight=0.95, hold_len=4)
 
-    # Then: malformed JSON -> reset
+    # 상세 메시지에 경로/요청 세션/원장 최신 세션이 모두 남아야 한다.
+    with pytest.raises(StateDiscontinuityError) as excinfo:
+        resolve_prior_sticky_state(p, prior_session=date(2026, 9, 17))
+    message = str(excinfo.value)
+    assert str(p) in message
+    assert "2026-09-17" in message
+    assert "2026-09-16" in message
+
+    with pytest.raises(StateDiscontinuityError):
+        resolve_prior_sticky_state(p, prior_session=date(2026, 9, 8))
+
+
+def test_resolve_prior_sticky_state_raises_on_missing_or_malformed_ledger(tmp_path) -> None:
+    from src.tournament.live_decision import StateDiscontinuityError, resolve_prior_sticky_state
+
+    prior = date(2026, 9, 8)
+    malformed = {
+        "corrupt": "{not valid json",
+        "not_a_dict": "[1, 2, 3]",
+        "non_string_as_of": '{"as_of": 20260908, "held": "412570", "held_weight": 1.0, "hold_len": 1}',
+        "unparseable_as_of": '{"as_of": "not-a-date", "held": "412570", "held_weight": 1.0, "hold_len": 1}',
+    }
+    for name, raw in malformed.items():
+        path = tmp_path / f"{name}.json"
+        path.write_text(raw, encoding="utf-8")
+        with pytest.raises(StateDiscontinuityError):
+            resolve_prior_sticky_state(path, prior_session=prior)
+
+    with pytest.raises(StateDiscontinuityError):
+        resolve_prior_sticky_state(tmp_path / "missing.json", prior_session=prior)
+
+
+def test_resolve_prior_sticky_state_raises_on_invalid_entry(tmp_path) -> None:
+    import json
+
+    from src.tournament.live_decision import StateDiscontinuityError, resolve_prior_sticky_state
+
+    prior = date(2026, 9, 8)
+    invalid_histories = {
+        "nonfinite_history_weight": {
+            "as_of": "2026-09-08",
+            "history": {"2026-09-08": {"held": "412570", "held_weight": float("nan"), "hold_len": 1}},
+        },
+        "invalid_legacy_entry": {"as_of": "2026-09-08", "held": 412570, "held_weight": 1.0, "hold_len": 1},
+    }
+    for name, payload in invalid_histories.items():
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(StateDiscontinuityError):
+            resolve_prior_sticky_state(path, prior_session=prior)
+
+
+def test_resolve_prior_sticky_state_returns_genuine_cash_entry(tmp_path) -> None:
+    import json
+
+    from src.tournament.live_decision import resolve_prior_sticky_state
+
+    prior = date(2026, 9, 8)
+    history_ledger = tmp_path / "history_cash.json"
+    history_ledger.write_text(
+        json.dumps({
+            "as_of": "2026-09-08",
+            "history": {"2026-09-08": {"held": None, "held_weight": 0.0, "hold_len": 0}},
+        }),
+        encoding="utf-8",
+    )
+    legacy_ledger = tmp_path / "legacy_cash.json"
+    legacy_ledger.write_text(
+        json.dumps({"as_of": "2026-09-08", "held": None, "held_weight": 0.0, "hold_len": 0}),
+        encoding="utf-8",
+    )
+
+    assert resolve_prior_sticky_state(history_ledger, prior_session=prior) == (None, 0.0, 0)
+    assert resolve_prior_sticky_state(legacy_ledger, prior_session=prior) == (None, 0.0, 0)
+
+
+def test_resolve_prior_sticky_state_bootstraps_without_prior_session(tmp_path) -> None:
+    from src.tournament.live_decision import resolve_prior_sticky_state
+
+    assert resolve_prior_sticky_state(tmp_path / "missing.json", prior_session=None) == (None, 0.0, 0)
+
+
+def test_resolve_prior_sticky_state_prefers_history_entry_when_as_of_is_ahead(tmp_path) -> None:
+    import json
+
+    from src.tournament.live_decision import resolve_prior_sticky_state
+
+    p = tmp_path / "ahead.json"
+    p.write_text(
+        json.dumps({
+            "as_of": "2026-09-21",
+            "held": "069510",
+            "held_weight": 0.95,
+            "hold_len": 1,
+            "history": {
+                "2026-09-18": {"held": "122630", "held_weight": 0.95, "hold_len": 3},
+                "2026-09-21": {"held": "069510", "held_weight": 0.95, "hold_len": 1},
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    assert resolve_prior_sticky_state(p, prior_session=date(2026, 9, 18)) == ("122630", 0.95, 3)
+    assert resolve_prior_sticky_state(p, prior_session=date(2026, 9, 21)) == ("069510", 0.95, 1)
+
+
+def test_resolve_prior_sticky_state_reads_legacy_top_level_entry(tmp_path) -> None:
+    import json
+
+    from src.tournament.live_decision import resolve_prior_sticky_state
+
+    p = tmp_path / "legacy.json"
+    p.write_text(
+        json.dumps({"as_of": "2026-09-08", "held": "412570", "held_weight": 0.83, "hold_len": 5}),
+        encoding="utf-8",
+    )
+
+    assert resolve_prior_sticky_state(p, prior_session=date(2026, 9, 8)) == ("412570", 0.83, 5)
+
+
+def test_sticky_state_latest_session_returns_newest_recorded_session(tmp_path) -> None:
+    import json
+
+    from src.tournament.live_decision import persist_sticky_state, sticky_state_latest_session
+
+    assert sticky_state_latest_session(tmp_path / "missing.json") is None
+
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(
+        json.dumps({"as_of": "2026-09-16", "held": "122630", "held_weight": 0.95, "hold_len": 1}),
+        encoding="utf-8",
+    )
+    assert sticky_state_latest_session(legacy) == date(2026, 9, 16)
+
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(
+        json.dumps({
+            "as_of": "2026-09-11",
+            "held": "122630",
+            "held_weight": 0.95,
+            "hold_len": 1,
+            "history": {
+                "2026-09-16": {"held": "122630", "held_weight": 0.95, "hold_len": 1},
+                "2026-09-18": {"held": "122630", "held_weight": 0.95, "hold_len": 2},
+            },
+        }),
+        encoding="utf-8",
+    )
+    assert sticky_state_latest_session(ledger) == date(2026, 9, 18)
+
+    persisted = tmp_path / "persisted.json"
+    persist_sticky_state(persisted, decision_date=date(2026, 9, 21), held="122630", held_weight=0.95, hold_len=1)
+    assert sticky_state_latest_session(persisted) == date(2026, 9, 21)
+
+
+def test_sticky_state_latest_session_raises_on_unreadable_or_undated_ledger(tmp_path) -> None:
+    import json
+
+    from src.tournament.live_decision import StateDiscontinuityError, sticky_state_latest_session
+
     corrupt = tmp_path / "corrupt.json"
     corrupt.write_text("{not valid json", encoding="utf-8")
-    assert resolve_prior_sticky_state(corrupt, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+    with pytest.raises(StateDiscontinuityError):
+        sticky_state_latest_session(corrupt)
 
-    # Then: prior_session=None (no prior trading session resolvable) -> reset without touching disk
-    assert resolve_prior_sticky_state(p, prior_session=None) == (None, 0.0, 0)
-
-    # Then: valid JSON that is not a dict (e.g. a list) -> reset
     not_a_dict = tmp_path / "not_a_dict.json"
     not_a_dict.write_text("[1, 2, 3]", encoding="utf-8")
-    assert resolve_prior_sticky_state(not_a_dict, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
+    with pytest.raises(StateDiscontinuityError):
+        sticky_state_latest_session(not_a_dict)
 
-    # Then: as_of present but not a string -> reset
-    bad_as_of = tmp_path / "bad_as_of.json"
-    bad_as_of.write_text('{"as_of": 20260908, "held": "412570", "held_weight": 1.0, "hold_len": 1}', encoding="utf-8")
-    assert resolve_prior_sticky_state(bad_as_of, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: as_of is a string but not a valid ISO date -> reset (date.fromisoformat ValueError)
-    unparseable_as_of = tmp_path / "unparseable_as_of.json"
-    unparseable_as_of.write_text('{"as_of": "not-a-date", "held": "412570", "held_weight": 1.0, "hold_len": 1}', encoding="utf-8")
-    assert resolve_prior_sticky_state(unparseable_as_of, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: held_weight present but not convertible to float (e.g. a string) -> reset
-    unconvertible_weight = tmp_path / "unconvertible_weight.json"
-    unconvertible_weight.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": "abc", "hold_len": 1}', encoding="utf-8")
-    assert resolve_prior_sticky_state(unconvertible_weight, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: hold_len present but not convertible to int (e.g. a string) -> reset
-    unconvertible_hold_len = tmp_path / "unconvertible_hold_len.json"
-    unconvertible_hold_len.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": 1.0, "hold_len": "abc"}', encoding="utf-8")
-    assert resolve_prior_sticky_state(unconvertible_hold_len, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: held present but not None/str (e.g. a number) -> reset
-    bad_held = tmp_path / "bad_held.json"
-    bad_held.write_text('{"as_of": "2026-09-08", "held": 412570, "held_weight": 1.0, "hold_len": 1}', encoding="utf-8")
-    assert resolve_prior_sticky_state(bad_held, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: held explicitly null (legitimate CASH state) -> reset to (None, 0.0, 0), same result
-    null_held = tmp_path / "null_held.json"
-    null_held.write_text('{"as_of": "2026-09-08", "held": null, "held_weight": 0.0, "hold_len": 0}', encoding="utf-8")
-    assert resolve_prior_sticky_state(null_held, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: held_weight is a bool (not a legitimate numeric) -> reset
-    bool_weight = tmp_path / "bool_weight.json"
-    bool_weight.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": true, "hold_len": 1}', encoding="utf-8")
-    assert resolve_prior_sticky_state(bool_weight, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: held_weight is non-finite -> reset
-    nonfinite_weight = tmp_path / "nonfinite_weight.json"
-    nonfinite_weight.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": NaN, "hold_len": 1}', encoding="utf-8")
-    assert resolve_prior_sticky_state(nonfinite_weight, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: hold_len is a bool -> reset
-    bool_hold_len = tmp_path / "bool_hold_len.json"
-    bool_hold_len.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": 1.0, "hold_len": true}', encoding="utf-8")
-    assert resolve_prior_sticky_state(bool_hold_len, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: hold_len is negative -> reset
-    negative_hold_len = tmp_path / "negative_hold_len.json"
-    negative_hold_len.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": 1.0, "hold_len": -1}', encoding="utf-8")
-    assert resolve_prior_sticky_state(negative_hold_len, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
-    # Then: hold_len is a non-integer float -> reset
-    fractional_hold_len = tmp_path / "fractional_hold_len.json"
-    fractional_hold_len.write_text('{"as_of": "2026-09-08", "held": "412570", "held_weight": 1.0, "hold_len": 1.5}', encoding="utf-8")
-    assert resolve_prior_sticky_state(fractional_hold_len, prior_session=date(2026, 9, 8)) == (None, 0.0, 0)
-
+    undated = tmp_path / "undated.json"
+    undated.write_text(json.dumps({"as_of": "not-a-date", "history": {"not-a-date": {"held": None}}}), encoding="utf-8")
+    with pytest.raises(StateDiscontinuityError):
+        sticky_state_latest_session(undated)
 
 def test_persist_sticky_state_degrades_safely_on_write_failure(tmp_path, caplog) -> None:
     from src.tournament.live_decision import persist_sticky_state
@@ -630,28 +731,123 @@ def test_resolve_prior_sticky_state_same_day_rerun_preserves_prior_session(tmp_p
     assert (held_rerun2, weight_rerun2, hold_len_rerun2) == ("122630", 0.95, 1)
 
 
-def test_resolve_prior_sticky_state_fallback_from_artifact(tmp_path) -> None:
+def test_persist_sticky_state_never_rewinds_as_of(tmp_path) -> None:
     import json
-    from src.tournament.live_decision import resolve_prior_sticky_state
 
-    state_file = tmp_path / "state" / "sticky_position.json"
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    # File already overwritten with day 2, but has no history (legacy file)
-    state_file.write_text(json.dumps({"as_of": "2026-09-18", "held": None, "held_weight": 0.0, "hold_len": 0}))
+    from src.tournament.live_decision import persist_sticky_state, resolve_prior_sticky_state
 
-    # Create prior session decision artifact in results/decide_daily
-    art_dir = tmp_path / "results" / "decide_daily"
-    art_dir.mkdir(parents=True, exist_ok=True)
-    art_file = art_dir / "2026-09-17.json"
-    art_file.write_text(json.dumps({
-        "as_of": "2026-09-17",
-        "selected": [{"ticker": "122630", "weight": 0.95, "name": "KODEX 레버리지"}]
-    }))
+    p = tmp_path / "ledger.json"
+    for session, ticker in (
+        (date(2026, 9, 17), "122630"),
+        (date(2026, 9, 18), "122630"),
+        (date(2026, 9, 21), "069510"),
+    ):
+        persist_sticky_state(p, decision_date=session, held=ticker, held_weight=0.95, hold_len=1)
 
-    # Should fallback to the artifact and recover 122630
-    held, weight, hold_len = resolve_prior_sticky_state(
-        state_file, prior_session=date(2026, 9, 17), artifact_dirs=[art_dir]
+    persist_sticky_state(p, decision_date=date(2026, 9, 18), held="233740", held_weight=1.0, hold_len=7)
+
+    payload = json.loads(p.read_text(encoding="utf-8"))
+    assert payload["as_of"] == "2026-09-21"
+    assert payload["held"] == "069510"
+    assert payload["hold_len"] == 1
+    assert payload["history"]["2026-09-18"] == {"held": "233740", "held_weight": 1.0, "hold_len": 7}
+    assert resolve_prior_sticky_state(p, prior_session=date(2026, 9, 21)) == ("069510", 0.95, 1)
+
+
+def test_persist_sticky_state_migrates_legacy_ledger(tmp_path) -> None:
+    import json
+
+    from src.tournament.live_decision import persist_sticky_state
+
+    p = tmp_path / "legacy.json"
+    p.write_text(
+        json.dumps({"as_of": "2026-09-17", "held": "122630", "held_weight": 0.95, "hold_len": 3}),
+        encoding="utf-8",
     )
-    assert held == "122630"
-    assert weight == 0.95
-    assert hold_len == 1
+
+    persist_sticky_state(p, decision_date=date(2026, 9, 18), held="122630", held_weight=0.95, hold_len=4)
+
+    payload = json.loads(p.read_text(encoding="utf-8"))
+    assert set(payload["history"]) == {"2026-09-17", "2026-09-18"}
+    assert payload["history"]["2026-09-17"] == {"held": "122630", "held_weight": 0.95, "hold_len": 3}
+    assert payload["as_of"] == "2026-09-18"
+
+
+def test_persist_sticky_state_keeps_only_the_newest_sessions(tmp_path) -> None:
+    import json
+
+    from src.tournament.live_decision import STICKY_STATE_HISTORY_MAX, persist_sticky_state
+
+    p = tmp_path / "ledger.json"
+    sessions = [date(2026, 1, 5) + timedelta(days=i) for i in range(STICKY_STATE_HISTORY_MAX + 5)]
+    for session in sessions:
+        persist_sticky_state(p, decision_date=session, held="122630", held_weight=0.95, hold_len=1)
+
+    payload = json.loads(p.read_text(encoding="utf-8"))
+    assert set(payload["history"]) == {s.isoformat() for s in sessions[-STICKY_STATE_HISTORY_MAX:]}
+    assert payload["as_of"] == sessions[-1].isoformat()
+
+
+def test_persist_sticky_state_restarts_when_existing_ledger_is_unreadable(tmp_path, caplog) -> None:
+    import json
+    import logging
+
+    from src.tournament.live_decision import persist_sticky_state
+
+    p = tmp_path / "corrupt.json"
+    p.write_text("{not valid json", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="src.tournament.live_decision"):
+        persist_sticky_state(p, decision_date=date(2026, 9, 18), held="122630", held_weight=0.95, hold_len=1)
+
+    payload = json.loads(p.read_text(encoding="utf-8"))
+    assert set(payload["history"]) == {"2026-09-18"}
+    assert payload["as_of"] == "2026-09-18"
+    assert any("unreadable" in record.getMessage() for record in caplog.records)
+
+
+def test_pending_catchup_sessions_lists_the_gap_in_ascending_order(tmp_path) -> None:
+    from src.tournament.live_decision import pending_catchup_sessions, persist_sticky_state
+
+    grid = [date(2026, 9, 16), date(2026, 9, 17), date(2026, 9, 18), date(2026, 9, 21)]
+    panel = pl.DataFrame([{"date": d, "ticker": "122630"} for d in grid], schema={"date": pl.Date, "ticker": pl.String})
+    p = tmp_path / "ledger.json"
+    persist_sticky_state(p, decision_date=date(2026, 9, 16), held="122630", held_weight=0.95, hold_len=1)
+
+    assert pending_catchup_sessions(p, panel, target_session=date(2026, 9, 21)) == [
+        date(2026, 9, 17),
+        date(2026, 9, 18),
+    ]
+
+
+def test_pending_catchup_sessions_empty_when_current_ahead_or_missing(tmp_path) -> None:
+    from src.tournament.live_decision import pending_catchup_sessions, persist_sticky_state
+
+    grid = [date(2026, 9, 16), date(2026, 9, 17), date(2026, 9, 18), date(2026, 9, 21)]
+    panel = pl.DataFrame([{"date": d, "ticker": "122630"} for d in grid], schema={"date": pl.Date, "ticker": pl.String})
+    target = date(2026, 9, 21)
+
+    assert pending_catchup_sessions(tmp_path / "missing.json", panel, target_session=target) == []
+
+    current = tmp_path / "current.json"
+    persist_sticky_state(current, decision_date=date(2026, 9, 18), held="122630", held_weight=0.95, hold_len=1)
+    assert pending_catchup_sessions(current, panel, target_session=target) == []
+
+    ahead = tmp_path / "ahead.json"
+    persist_sticky_state(ahead, decision_date=target, held="122630", held_weight=0.95, hold_len=1)
+    assert pending_catchup_sessions(ahead, panel, target_session=target) == []
+
+
+def test_pending_catchup_sessions_skips_phantom_sessions(tmp_path) -> None:
+    from src.tournament.live_decision import pending_catchup_sessions, persist_sticky_state
+
+    grid = [date(2026, 9, 16), date(2026, 9, 17), date(2026, 9, 21)]
+    panel = pl.DataFrame([{"date": d, "ticker": "122630"} for d in grid], schema={"date": pl.Date, "ticker": pl.String})
+    p = tmp_path / "ledger.json"
+    persist_sticky_state(p, decision_date=date(2026, 9, 16), held="122630", held_weight=0.95, hold_len=1)
+
+    pending = pending_catchup_sessions(p, panel, target_session=date(2026, 9, 21))
+
+    assert pending == [date(2026, 9, 17)]
+    assert date(2026, 9, 18) not in pending
+

@@ -26,6 +26,7 @@ def render_decision(
     house_money_is_locked: bool,
     order_estimates: Mapping[str, object] | None = None,
     ticker_names: Mapping[str, str] | None = None,
+    explanation_payload: Mapping[str, object] | None = None,
 ) -> int:
     """Format rationales, render the dashboard, write artifacts. Returns the exit code."""
     # use rationales from policy if available
@@ -42,7 +43,13 @@ def render_decision(
             rationales[ticker] = build_rationale(pos)
     # fail-closed: missing rationale or eligible 0 -> exit 1 already handled
     # handle peak lock cash case: inject CASH rationale if locked (P22 live 50%, keep 40% string for legacy wiring)
-    if not weights and house_money_is_locked:
+    _payload = explanation_payload if explanation_payload is not None else {}
+    _action_obj = _payload.get("action", {})
+    _action_code = _action_obj.get("code", "") if isinstance(_action_obj, Mapping) else ""
+    _reason_code = _payload.get("reason_code", "")
+    if not weights and _reason_code and _action_code:
+        rationales = {"CASH": f"WHY: {_reason_code} state={_action_code}"}
+    elif not weights and house_money_is_locked:
         rationales = {"CASH": "WHY: house_money late-lock remaining<=K state=CASH"}
     elif not weights and peak_is_locked:
         rationales = {"CASH": "WHY: peak_lock 50% triggered state=CASH"}
@@ -61,12 +68,38 @@ def render_decision(
     daily = DailyDecision(decision_date=decision_date, weights=weights, rationales=rationales)
     out = render_dashboard(daily)
     if order_estimates:
-        est_lines = ["추정 주문 수량 (decision_date 종가 기준, 실제 체결가와 다를 수 있음)"]
+        if explanation_payload is not None:
+            est_lines = ["목표 수량 (초기자본 10억·결정일 종가 기준, 보유 유지 시 주문 불필요)"]
+        else:
+            est_lines = ["추정 주문 수량 (decision_date 종가 기준, 실제 체결가와 다를 수 있음)"]
         for _tkr, _est in order_estimates.items():
             _shares = getattr(_est, "est_shares", None)
             _krw = getattr(_est, "est_krw", None)
             est_lines.append(f"{_tkr}: {_shares}주 {_krw}원")
         out = out + "\n" + "\n".join(est_lines)
+    if explanation_payload is not None and "explanation_error" not in explanation_payload:
+        _action_obj = explanation_payload.get("action", {})
+        _exec = explanation_payload.get("execution_date", None)
+        _rko = explanation_payload.get("reason_ko", "")
+        _qnote = explanation_payload.get("quantity_note_ko", "")
+        _anchors = explanation_payload.get("anchor_monitor", [])
+        if isinstance(_action_obj, Mapping) and _action_obj.get("code"):
+            _ako = _action_obj.get("ko", _action_obj.get("code"))
+            _frm = _action_obj.get("from", None)
+            _to = _action_obj.get("to", None)
+            out = out + f"\n액션: {_ako} ({_action_obj.get('code')}) {_frm} → {_to} 체결일: {_exec}"
+        if _rko:
+            out = out + f"\n사유: {_rko}"
+        if isinstance(_anchors, list):
+            for _row in _anchors:
+                if isinstance(_row, Mapping):
+                    out = out + (
+                        f"\n앵커 {_row.get('ticker')}: 종가 {_row.get('close')} "
+                        f"mom20 {_row.get('mom_20')} dd20 {_row.get('drawdown_20')} "
+                        f"손절가 {_row.get('stop_close')}"
+                    )
+        if _qnote:
+            out = out + f"\n{_qnote}"
     sys.stdout.write(out + "\n")
     logger.info(out)
     # also log ALGO style for uniformity
@@ -80,7 +113,10 @@ def render_decision(
         out_p = getattr(args, "output", None)
         if out_p:
             art_path = Path(str(out_p))
-        write_decision_artifact(daily, art_path, order_estimates=order_estimates, ticker_names=ticker_names)
+        write_decision_artifact(
+            daily, art_path, order_estimates=order_estimates, ticker_names=ticker_names,
+            explanation_payload=explanation_payload,
+        )
     except Exception as e:
         logger.warning(f"[SYS] write_decision_artifact failed {e!r}")
     # trace artifacts for decide

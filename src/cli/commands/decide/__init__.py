@@ -175,7 +175,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
             inv_allowed=_inv_allowed,
         )
         # Per-model allocation (split-fill has its own path; others share).
-        from src.tournament.live_decision import StalePanelInputError, StaleSleeveInputError
+        from src.tournament.live_decision import StalePanelInputError, StaleSleeveInputError, StateDiscontinuityError
 
         try:
             allocate_hook = _ALLOCATE_HOOKS.get(_model_arg or "")
@@ -191,6 +191,9 @@ def cmd_decide(args: argparse.Namespace) -> int:
                 state.weights = state.decision_weights.weights if hasattr(state.decision_weights, "weights") else {}
         except (StaleSleeveInputError, StalePanelInputError) as exc:
             logger.error(f"[SYS] decide status=fail reason=stale_sleeve_input {exc}")
+            return 1
+        except StateDiscontinuityError as exc:
+            logger.error(f"[SYS] decide status=fail reason=state_discontinuity {exc}")
             return 1
         # apply peak lock cash overlay if active
         _peak_is_locked = False
@@ -301,6 +304,11 @@ def cmd_decide(args: argparse.Namespace) -> int:
             house_money_is_locked=bool(state.house_money_is_locked),
             order_estimates=order_estimates,
             ticker_names=ticker_names,
+            explanation_payload=(
+                {"explanation_error": state.explanation_error}
+                if getattr(state, "explanation_error", None)
+                else getattr(state, "explanation_payload", None)
+            ),
         )
     except Exception as exc:
         logger.error(f"[SYS] decide status=fail error={exc!r}")
