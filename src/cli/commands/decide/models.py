@@ -48,6 +48,8 @@ class _DecideState:
     weights: dict[str, float] = field(default_factory=dict)
     peak_is_locked: bool = False
     house_money_is_locked: bool = False
+    explanation_payload: dict[str, object] | None = None
+    explanation_error: str | None = None
 
 
 DecideHook = Callable[[_DecideState], None]
@@ -262,6 +264,43 @@ def _hook_sticky_live_allocate(state: _DecideState, *, strategy_id: str) -> None
     persist_sticky_state(
         recomputed_path, decision_date=state.decision_date, held=new_held, held_weight=new_weight, hold_len=new_hold_len
     )
+    try:
+        from src.core.calendar import get_calendar
+        from src.tournament.live_explain import (
+            build_anchor_monitor,
+            explain_live_decision,
+            explanation_to_payload,
+            next_trading_session,
+        )
+
+        execution_date = next_trading_session(state.decision_date, get_calendar())
+        anchor_tickers: tuple[str, ...] = ()
+        if bool(getattr(model.config, "post_crash_anchor", False)):
+            anchor_tickers = tuple(getattr(model.config, "anchor_tickers", ()) or ())
+            stop_drawdown = float(model.config.anchor_stop_drawdown)
+            anchors = build_anchor_monitor(
+                panel,
+                decision_date=state.decision_date,
+                anchor_tickers=anchor_tickers,
+                stop_drawdown=stop_drawdown,
+            )
+        else:
+            anchors = ()
+        explanation = explain_live_decision(
+            decision_date=state.decision_date,
+            execution_date=execution_date,
+            sleeve=sleeve,
+            prior_held=held_ticker,
+            prior_weight=float(held_weight),
+            new_held=new_held,
+            new_weight=float(new_weight),
+            anchors=anchors,
+            anchor_tickers=anchor_tickers,
+        )
+        state.explanation_payload = dict(explanation_to_payload(explanation))
+    except Exception as exc:
+        logger.warning(f"[SYS] explain status=fail {exc!r}", exc_info=True)
+        state.explanation_error = repr(exc)
 
 
 def _hook_mom60_raw_allocate(state: _DecideState) -> None:

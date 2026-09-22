@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from datetime import date, datetime, time, timedelta
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
     from src.core.calendar import TradingCalendar
+
+logger = logging.getLogger(__name__)
 
 _INDEX_INGEST_DATASET: Final[str] = "kospi_index"
 _INDEX_NORMALIZE_DATASET: Final[str] = "index_daily"
@@ -114,6 +117,37 @@ def cmd_daily_refresh(args: argparse.Namespace) -> int:
         return 0
 
     output_dir = getattr(args, "output_dir", None) or "results/decide_daily"
+
+    from src.cli.commands.decide.models import _LIVE_STICKY_STRATEGIES, _sticky_live_state_name
+
+    if CHAMPION_STRATEGY in _LIVE_STICKY_STRATEGIES:
+        from src.data.panel import BACKTEST_PANEL_COLUMNS, load_backtest_panel
+        from src.tournament.live_decision import StateDiscontinuityError, pending_catchup_sessions
+
+        catchup_paths = DataPaths(root=get_settings().data_root)
+        state_path = catchup_paths.state(_sticky_live_state_name(CHAMPION_STRATEGY))
+        catchup_panel: Any = load_backtest_panel(catchup_paths, columns=BACKTEST_PANEL_COLUMNS)
+        try:
+            pending = pending_catchup_sessions(state_path, catchup_panel, target_session=end)
+        except StateDiscontinuityError as exc:
+            logger.error(f"[SYS] catchup status=fail reason=state_discontinuity {exc}")
+            return 1
+        for k, session in enumerate(pending, start=1):
+            rc = cmd_decide(
+                argparse.Namespace(
+                    model=CHAMPION_STRATEGY,
+                    date=session.isoformat(),
+                    panel=None,
+                    capital=None,
+                    output=f"{output_dir}/{session.isoformat()}.json",
+                    trace=False,
+                )
+            )
+            logger.info(f"[SYS] catchup model={CHAMPION_STRATEGY} session={session} k={k}/{len(pending)} rc={rc}")
+            if rc != 0:
+                logger.error(f"[SYS] catchup status=fail session={session}")
+                return 1
+
     output_path = f"{output_dir}/{end.isoformat()}.json"
     rc = cmd_decide(
         argparse.Namespace(

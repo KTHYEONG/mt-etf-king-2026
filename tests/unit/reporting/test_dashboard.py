@@ -97,3 +97,81 @@ def test_SCENARIO_hyphen_wrapper(scenario_id: str) -> None:  # noqa: N802
     if scenario_id == "SCENARIO-08-14":
         test_SCENARIO_08_14_rationale_and_dashboard()
 
+
+def test_write_decision_artifact_merges_hold_explanation(tmp_path) -> None:
+    import json
+    from types import SimpleNamespace
+
+    dd = DailyDecision(
+        decision_date=date(2026, 9, 21),
+        weights={"122630": 0.95},
+        rationales={"122630": "WHY: 122630 weight=0.950 state=HOLD"},
+    )
+    est = SimpleNamespace(est_shares=8328, est_krw=1.0)
+    payload_in = {
+        "execution_date": "2026-09-28",
+        "action": {"code": "HOLD", "ko": "보유 유지(주문 없음)", "from": "122630", "to": "122630"},
+        "regime": {"sleeve": "CRASH_REBOUND", "ko": "급락 후 반등"},
+        "reason_code": "ANCHOR_LATCH_HOLD",
+        "reason_ko": "보유 앵커 122630 유지",
+        "anchor_monitor": [],
+        "quantity_note_ko": "주문 불필요",
+    }
+    out_path = tmp_path / "decision.json"
+    write_decision_artifact(dd, out_path, order_estimates={"122630": est}, explanation_payload=payload_in)
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert payload["action"]["code"] == "HOLD"
+    item = next(s for s in payload["selected"] if s["ticker"] == "122630")
+    assert item["state"] == "보유 유지(주문 없음)"
+    assert item["reason_ko"] == "보유 앵커 122630 유지"
+    assert item["est_basis_ko"] == "초기자본·결정일 종가 기준 목표 수량"
+    assert item["est_shares"] == 8328
+
+
+def test_write_decision_artifact_cash_is_explicit(tmp_path) -> None:
+    import json
+
+    dd = DailyDecision(
+        decision_date=date(2026, 9, 21),
+        weights={},
+        rationales={"CASH": "WHY: ANCHOR_STOP_CASH state=SELL_ALL"},
+    )
+    payload_in = {
+        "execution_date": "2026-09-28",
+        "action": {"code": "SELL_ALL", "ko": "전량 매도", "from": "122630", "to": None},
+        "regime": {"sleeve": "CRASH_REBOUND", "ko": "급락 후 반등"},
+        "reason_code": "ANCHOR_STOP_CASH",
+        "reason_ko": "손절로 현금 전환",
+        "anchor_monitor": [],
+        "quantity_note_ko": "주문 불필요",
+    }
+    out_path = tmp_path / "decision.json"
+    write_decision_artifact(dd, out_path, explanation_payload=payload_in)
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert payload["selected"] == []
+    assert payload["action"]["code"] == "SELL_ALL"
+    assert payload["reason_code"] == "ANCHOR_STOP_CASH"
+
+
+def test_write_decision_artifact_falls_back_to_state_map_without_ko(tmp_path) -> None:
+    import json
+
+    dd = DailyDecision(
+        decision_date=date(2026, 9, 21),
+        weights={"122630": 0.95},
+        rationales={"122630": "WHY: 122630 weight=0.950 state=HOLD"},
+    )
+    payload_in = {
+        "action": {"code": "SWITCH", "from": "122630", "to": "233740"},
+        "reason_ko": "교체",
+    }
+    out_path = tmp_path / "decision.json"
+    write_decision_artifact(dd, out_path, explanation_payload=payload_in)
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    item = next(s for s in payload["selected"] if s["ticker"] == "122630")
+    assert item["state"] == "종목 교체(전량 매도 후 매수)"
+    assert item["reason_ko"] == "교체"
+

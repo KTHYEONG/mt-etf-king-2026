@@ -87,6 +87,9 @@ _STATE_KO_MAP: dict[str, str] = {
     "EXIT": "전량매도(EXIT)",
     "SELL": "전량매도(EXIT)",
     "CASH": "현금화(CASH)",
+    "SWITCH": "종목 교체(전량 매도 후 매수)",
+    "SELL_ALL": "전량 매도",
+    "STAY_CASH": "현금 유지(주문 없음)",
 }
 
 _KNOWN_ETF_NAMES: dict[str, str] = {
@@ -150,6 +153,7 @@ def write_decision_artifact(
     path: Path,
     order_estimates: Mapping[str, object] | None = None,
     ticker_names: Mapping[str, str] | None = None,
+    explanation_payload: Mapping[str, object] | None = None,
 ) -> Path:
     # ensure parent
     try:
@@ -206,6 +210,26 @@ def write_decision_artifact(
     except Exception:
         selected = []
     payload = {"as_of": as_of, "selected": selected}
+    if explanation_payload is not None:
+        payload = {**payload, **dict(explanation_payload)}
+        _action_ko = ""
+        _reason_ko = ""
+        _action_obj = explanation_payload.get("action")
+        if isinstance(_action_obj, Mapping):
+            _action_ko = str(_action_obj.get("ko", ""))
+            _action_code = str(_action_obj.get("code", ""))
+            if not _action_ko and _action_code:
+                _action_ko = _STATE_KO_MAP.get(_action_code, _action_code)
+        _reason_raw = explanation_payload.get("reason_ko", "")
+        _reason_ko = str(_reason_raw)
+        if _action_ko or _reason_ko:
+            for _item in selected:
+                if _action_ko:
+                    _item["state"] = _action_ko
+                if _reason_ko:
+                    _item["reason_ko"] = _reason_ko
+                if "est_shares" in _item:
+                    _item["est_basis_ko"] = "초기자본·결정일 종가 기준 목표 수량"
     # include portfolio_value if present
     try:
         if decision.portfolio_value is not None:
