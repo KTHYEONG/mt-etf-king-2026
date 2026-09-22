@@ -2,7 +2,10 @@
 Description=Run mt-etf-daily-refresh every trading weekday evening (KST)
 
 [Timer]
-# 세션 마감(15:30 KST) 이후 데이터 확정을 기다리는 여유를 둔 시각.
+# KRX는 T일 데이터를 T+1 오전에 게시하므로, 08:30~08:50 실행분은 09:00 장 시작 전
+# 마지막 기회다. 한 번의 08:30 KST 실행 실패는 세션을 영구히 건너뛰므로,
+# 결측 세션을 메우는 캐치업 기회를 08:40 / 08:50에 한 번씩 더 연다.
+#
 # KRX 휴장일(주말/공휴일)에도 매번 실행되지만, daily-refresh 자체가
 # get_calendar()로 최근 거래일이 없으면 fail-closed(rc=1)하므로 무해하다.
 #
@@ -12,6 +15,8 @@ Description=Run mt-etf-daily-refresh every trading weekday evening (KST)
 # 2) 금요일 장 마감 후 KRX 지연 시 토요일/주말에도 직전 거래일 결정을 완결할 수 있도록
 #    아침 08:30 점검을 매일(Mon..Sun) 실행하고, 토요일 11:00 2차 재시도를 둔다.
 OnCalendar=*-*-* 08:30:00 Asia/Seoul
+OnCalendar=*-*-* 08:40:00 Asia/Seoul
+OnCalendar=*-*-* 08:50:00 Asia/Seoul
 OnCalendar=Sat *-*-* 11:00:00 Asia/Seoul
 OnCalendar=Mon..Fri *-*-* 16:00:00 Asia/Seoul
 OnCalendar=Mon..Fri *-*-* 20:00:00 Asia/Seoul

@@ -9,12 +9,12 @@ cd "$REPO_ROOT"
 
 LOG_DIR="$REPO_ROOT/logs"
 mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/daily_refresh_$(date +%F).log"
+LOG_FILE="$LOG_DIR/daily_refresh_$(TZ=Asia/Seoul date +%F).log"
 
 UV_BIN="${UV_BIN:-$HOME/.local/bin/uv}"
 
 echo "[$(date -Iseconds)] daily_pipeline.sh start" >> "$LOG_FILE"
-"$UV_BIN" run mt-etf daily-refresh --decide --as-of "$(date +%F)" >> "$LOG_FILE" 2>&1
+"$UV_BIN" run mt-etf daily-refresh --decide >> "$LOG_FILE" 2>&1
 STATUS=$?
 echo "[$(date -Iseconds)] daily_pipeline.sh end status=$STATUS" >> "$LOG_FILE"
 
