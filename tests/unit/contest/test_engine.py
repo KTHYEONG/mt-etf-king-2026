@@ -184,7 +184,7 @@ def test_rank_metrics_on_ties() -> None:
     m = rank_metrics(ours, crowd)
     assert m["P1"] == pytest.approx(0.5)
     assert m["P2"] == pytest.approx(1.0)
-    assert m["P10"] == pytest.approx(1.0)
+    assert m["P_TOP10"] == pytest.approx(1.0)
     assert m["med_ret"] == pytest.approx(0.75)
     assert m["P_loss30"] == pytest.approx(0.0)
 

@@ -317,7 +317,7 @@ def decide_week(
             our_total_return_pct=entry.total_return_pct if entry else None,
             leaderboard_base_date=snapshot.base_date if snapshot else None,
             sessions_remaining=len(remaining), scores=(), inferred_leaders={},
-            warnings=tuple(["LEADERBOARD_STALE", *hold_warnings]),
+            warnings=("LEADERBOARD_STALE", *hold_warnings),
         )
 
     try:
@@ -350,7 +350,7 @@ def decide_week(
         our_rank, our_total = None, None
         warnings.append("OUTSIDE_TOP50")
 
-    realized = [s for s in calendar.sessions(start_date, decision_session)]
+    realized = list(calendar.sessions(start_date, decision_session))
     realized_rows = [panel.row(s) for s in realized]
     switch_day = len(realized_rows)
     n_remaining = len(remaining)
@@ -377,7 +377,7 @@ def decide_week(
             target_ticker=vehicles[current]["ticker"] if current in vehicles else None,
             target_weight=target_weight, our_rank=our_rank, our_total_return_pct=our_total,
             leaderboard_base_date=snapshot.base_date, sessions_remaining=n_remaining,
-            scores=(), inferred_leaders={u: v for u, v in inferred.items()},
+            scores=(), inferred_leaders=dict(inferred),
             warnings=tuple(warnings),
         )
 
@@ -441,13 +441,13 @@ def decide_week(
                 realized_base = _compound_legs(era_panel, realized_rows, realized_idx, target_weight, 1.0)
             else:
                 realized_base = 1.0
-            for cid, alias in eligible.items():
+            for cid in eligible:
                 path = result.ours[cid]
                 pinned = path / realized_base * our_equity
                 metrics = rank_metrics(pinned, result.crowd_equity)
                 per_candidate_p1[cid].append(metrics["P1"])
                 per_candidate_p2[cid].append(metrics["P2"])
-                per_candidate_p10[cid].append(metrics["P10"])
+                per_candidate_p10[cid].append(metrics["P_TOP10"])
                 per_candidate_ret[cid].append(metrics["med_ret"])
                 per_candidate_loss[cid].append(metrics["P_loss30"])
             elapsed = time.perf_counter() - t0
@@ -462,7 +462,7 @@ def decide_week(
         )
         for cid in eligible
     )
-    table = {cid: (s.p1_mean, s.p2_mean) for cid, s in zip(eligible, scores)}
+    table = {cid: (s.p1_mean, s.p2_mean) for cid, s in zip(eligible, scores, strict=True)}
     target_key, action = choose_target(table, current_key if current_key in table else None, min_gain)
     target_alias = eligible[target_key]
     execution = calendar.next_session(decision_session) if action == ContestAction.SWITCH else None
@@ -528,11 +528,11 @@ def render_decision_markdown(decision: ContestDecision, names: Mapping[str, str]
     lines.append("## 후보 점수")
     lines.append("| 후보 | P1 평균 | P1 최소 | P2 | P10 | 중앙값 수익률 | 손실30%확률 |")
     lines.append("|---|---|---|---|---|---|---|")
-    for s in decision.scores:
-        lines.append(
-            f"| {s.alias} | {s.p1_mean:.4f} | {s.p1_min:.4f} | {s.p2_mean:.4f} | {s.p10_mean:.4f} "
-            f"| {s.median_return:.4f} | {s.p_loss30:.4f} |"
-        )
+    lines.extend(
+        f"| {s.alias} | {s.p1_mean:.4f} | {s.p1_min:.4f} | {s.p2_mean:.4f} | {s.p10_mean:.4f} "
+        f"| {s.median_return:.4f} | {s.p_loss30:.4f} |"
+        for s in decision.scores
+    )
     if not decision.scores:
         lines.append("| (없음) | - | - | - | - | - | - |")
     lines.append("")
@@ -543,8 +543,7 @@ def render_decision_markdown(decision: ContestDecision, names: Mapping[str, str]
         lines.append("- 없음")
     lines.append("")
     lines.append("## 경고")
-    for warning in decision.warnings:
-        lines.append(f"- {warning}")
+    lines.extend(f"- {warning}" for warning in decision.warnings)
     if not decision.warnings:
         lines.append("- 없음")
     return "\n".join(lines) + "\n"
