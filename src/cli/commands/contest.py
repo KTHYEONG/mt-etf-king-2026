@@ -141,6 +141,50 @@ def _read_state_alias(state_path: Path) -> str | None:
     return alias if isinstance(alias, str) else None
 
 
+def _our_equity_override(
+    args: argparse.Namespace,
+    contest: dict[str, Any],
+    panel: Any,
+    archive_root: Path,
+    snapshot: Any,
+    session: date,
+    state_alias: str | None,
+) -> tuple[float, str] | None:
+    """Our equity when the leaderboard cannot supply it.
+
+    A user-entered `--our-return` (percent, as shown in the contest app) always wins. Otherwise, when the current
+    snapshot does not list us (outside the public top-50), compound the recorded holding from the last archived
+    session where we were visible. The estimate assumes that holding was held throughout, so it is tagged.
+    """
+    from src.contest.decision import realized_equity
+    from src.contest.leaderboard import latest_entry_on_or_before
+
+    manual = getattr(args, "our_return", None)
+    if manual is not None:
+        return 1.0 + float(manual) / 100.0, "OUR_RETURN_MANUAL"
+    nickname = str(contest.get("nickname", ""))
+    if snapshot is None or snapshot.base_date != session or snapshot.entry_for(nickname) is not None:
+        return None
+    if state_alias is None:
+        return None
+    seen = latest_entry_on_or_before(archive_root, nickname, session)
+    if seen is None:
+        return None
+    seen_date, entry = seen
+    try:
+        equity = realized_equity(
+            panel, state_alias, seen_date, session, 1.0 + entry.total_return_pct / 100.0,
+            float(contest["decision"]["target_weight"]),
+        )
+    except (KeyError, ValueError):
+        return None
+    logger.info(
+        f"[PORTFOLIO] contest_weekly our_equity=estimated from={seen_date.isoformat()} alias={state_alias} "
+        f"equity={equity:.6f}"
+    )
+    return equity, "OUR_RETURN_ESTIMATED"
+
+
 def _build_weekly_panel(contest: dict[str, Any], data_root: Path) -> Any:
     import polars as pl
 
@@ -196,7 +240,8 @@ def cmd_contest_weekly(args: argparse.Namespace) -> int:
         state_alias = _read_state_alias(state_path)
         n_worlds = int(getattr(args, "worlds", None) or decision_cfg["n_worlds"])
         contest_run = {**contest, "decision": {**decision_cfg, "n_worlds": n_worlds}}
-        decision = decide_week(panel, snapshot, session, calendar, contest_run, state_alias)
+        override = _our_equity_override(args, contest, panel, archive_root, snapshot, session, state_alias)
+        decision = decide_week(panel, snapshot, session, calendar, contest_run, state_alias, override)
     except Exception as exc:
         logger.error(f"[SYS] contest_weekly status=fail error={exc!r}")
         return 1

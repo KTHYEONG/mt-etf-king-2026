@@ -267,6 +267,27 @@ def latest_snapshot_on_or_before(archive_root: Path, session: date) -> Leaderboa
     return load_snapshot(archive_root, best)
 
 
+def latest_entry_on_or_before(archive_root: Path, user_name: str, session: date) -> tuple[date, LeaderboardEntry] | None:
+    """Most recent archived (base_date, entry) with base_date <= session in which `user_name` is visible, or None."""
+    if not archive_root.is_dir():
+        return None
+    dates: list[date] = []
+    for child in archive_root.iterdir():
+        if not child.is_dir() or len(child.name) != 8 or not child.name.isdigit():
+            continue
+        try:
+            candidate = date(int(child.name[0:4]), int(child.name[4:6]), int(child.name[6:8]))
+        except ValueError:
+            continue
+        if candidate <= session and (child / f"{_TOTAL_ENDPOINT}.json").is_file():
+            dates.append(candidate)
+    for base_date in sorted(dates, reverse=True):
+        entry = load_snapshot(archive_root, base_date).entry_for(user_name)
+        if entry is not None:
+            return base_date, entry
+    return None
+
+
 def infer_single_vehicle_holders(
     snapshot: LeaderboardSnapshot,
     vehicle_changes_pct: Mapping[str, float],
