@@ -688,5 +688,8 @@
   "src/main.py": {
     "architecture": "docs/architecture/design-decisions.md",
     "testing": "tests/unit/test_no_offsite_backup.py"
+  },
+  "src/contest/decision.py": {
+    "testing": "tests/unit/contest/test_decision.py"
   }
 }

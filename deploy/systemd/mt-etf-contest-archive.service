@@ -1,0 +1,14 @@
+[Unit]
+Description=mt-etf-king-2026 contest leaderboard archive (16:00 KST snapshot)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/mt-etf-king-2026
+ExecStart=%h/.local/bin/uv run mt-etf contest-archive
+Nice=10
+MemoryMax=512M
+StandardOutput=append:%h/mt-etf-king-2026/logs/contest_archive_%Y-%m-%d.log
+StandardError=append:%h/mt-etf-king-2026/logs/contest_archive_%Y-%m-%d.log
+
+[Install]
+WantedBy=default.target

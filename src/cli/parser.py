@@ -8,6 +8,7 @@ from typing import Final
 from src.cli.commands.backtest import cmd_backtest
 from src.cli.commands.champion_research import cmd_champion_research
 from src.cli.commands.config import cmd_calendar, cmd_config_check
+from src.cli.commands.contest import cmd_contest_archive, cmd_contest_seed_reference, cmd_contest_weekly
 from src.cli.commands.data import cmd_ingest, cmd_normalize
 from src.cli.commands.decide import cmd_decide
 from src.cli.commands.feasibility_audit import cmd_feasibility_audit
@@ -36,6 +37,9 @@ SUBCOMMANDS: Final[tuple[str, ...]] = (
     "storage-migrate",
     "champion-research",
     "feasibility-audit",
+    "contest-archive",
+    "contest-seed-reference",
+    "contest-weekly",
 )
 
 
@@ -122,6 +126,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_ref.add_argument("--decide", action="store_true", default=False, help="also compute+persist the champion-strategy order recommendation")
     p_ref.add_argument("--output-dir", required=False, default="results/decide_daily", dest="output_dir", help="decide artifact output dir")
     p_ref.set_defaults(func=cmd_daily_refresh)
+    # contest-archive
+    p_ca = sub.add_parser("contest-archive", help="archive MT contest leaderboard JSON snapshot")
+    p_ca.set_defaults(func=cmd_contest_archive)
+    # contest-seed-reference
+    p_csr = sub.add_parser("contest-seed-reference", help="seed single-stock reference OHLC for synthetic legs")
+    p_csr.set_defaults(func=cmd_contest_seed_reference)
+    # contest-weekly
+    p_cw = sub.add_parser("contest-weekly", help="weekly contest rank-objective decision")
+    p_cw.add_argument("--session", required=False, default=None, help="decision session YYYY-MM-DD (default: last session)")
+    p_cw.add_argument("--force", action="store_true", default=False, help="rewrite an existing card")
+    p_cw.add_argument("--worlds", type=int, required=False, default=None, help="override n_worlds for quick runs")
+    p_cw.set_defaults(func=cmd_contest_weekly)
     # storage-migrate
     p_mig = sub.add_parser("storage-migrate", help="migrate bronze plain JSON to gzip")
     p_mig.add_argument("--endpoint", required=False, default="etp/etf_bydd_trd", help="KRX endpoint to migrate")
