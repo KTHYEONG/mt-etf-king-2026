@@ -2,11 +2,12 @@
 
 > **머니투데이 제3회 ETF 투자왕 대회(2026) 우승을 목표로 설계된 토너먼트 특화 퀀트 리서치 및 일일 운용 파이프라인**
 
-[![Tests](https://img.shields.io/badge/Tests-1%2C210%20passed-success)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1%2C370%20passed-success)](tests/)
 [![Type Check](https://img.shields.io/badge/Type%20Check-mypy%20strict%20(0%20errors)-blue)](pyproject.toml)
 [![Engine](https://img.shields.io/badge/Engine-Polars%20%7C%20Parquet-orange)](src/)
 [![Execution](https://img.shields.io/badge/Execution-Next--Open%20Fill-purple)](docs/architecture/data-flow.md)
 [![Target](https://img.shields.io/badge/Tournament-MT%20ETF%20King%202026-gold)](docs/knowledge/mt-data-report.md)
+[![Live Mode](https://img.shields.io/badge/Live-Contest%20Rank%20Objective-red)](docs/architecture/design-decisions.md)
 
 ---
 
@@ -14,7 +15,10 @@
 
 본 프로젝트는 머니투데이 제3회 ETF 투자왕 대회(2026-09-21 ~ 2026-11-13, 36 거래세션, 초기 자본 10억 원)에서 **최상위 순위(1~2위) 진입 확률을 극대화**하기 위해 개발된 토너먼트 전용 퀀트 시스템입니다.
 
-일반적인 자산 운용(Sharpe 극대화, 저변동성 분산)과 달리, 단기 대회의 계단형 상금 구조에 맞추어 **36거래일 우측 꼬리 수익률($P(R_{36d} > 30\%)$) 극대화**를 핵심 목적함수로 정의했습니다. 한국거래소(KRX) Open API 데이터 수집부터 Point-in-Time 유니버스 선별, 벡터화 피처 연산, 국면 적응형 모멘텀 전략, 그리고 익일 시가 체결(Next-Open Fill) 시뮬레이션까지 전 과정을 단일 파이프라인으로 구현했습니다.
+일반적인 자산 운용(Sharpe 극대화, 저변동성 분산)과 달리, 단기 대회의 계단형 상금 구조에 맞추어 **36거래일 우측 꼬리 수익률($P(R_{36d} > 30\%)$) 극대화**를 리서치·백테스트 승격 목적함수로 정의했습니다. 한국거래소(KRX) Open API 데이터 수집부터 Point-in-Time 유니버스 선별, 벡터화 피처 연산, 국면 적응형 모멘텀 전략, 그리고 익일 시가 체결(Next-Open Fill) 시뮬레이션까지 전 과정을 단일 파이프라인으로 구현했습니다.
+
+> [!IMPORTANT]
+> **2026 대회 실전 라이브 오버라이드**: 위 임계값 확률 최적화 챔피언의 실측 $P(\text{rank}=1)$은 ~1,200명 참가자 대비 1~5%에 불과함을 확인했습니다(ADR-08). 실전 라이브 의사결정은 대회 순위표를 매일 아카이브하고 참가자 군중을 재현해 후보 종목별 $P(\text{rank}=1)$을 직접 추정하는 **`src/contest/` 주간 순위 상대 시뮬레이션**이 대체합니다. 상세는 [§4.1](#41-2026-대회-실전-라이브-오버라이드-contest-mode) 참고.
 
 ```mermaid
 flowchart LR
@@ -24,6 +28,7 @@ flowchart LR
     D --> E["Next-Open Fill\n(익일 시가 체결 검증)"]
     E --> F["Daily HTS Guide\n(일일 실전 주문 권고)"]
 ```
+*(리서치·백테스트 트랙. 2026 대회 실전 라이브는 §4.1의 순위 상대 오버라이드가 담당합니다.)*
 
 ---
 
@@ -58,6 +63,10 @@ flowchart LR
 
 * 🔄 **장 마감 후 원스톱 자동 배치 (`daily-refresh`)**
   * 매일 16:00 KST에 단일 CLI 명령 또는 systemd 타이머로 데이터 수집 $\to$ 정규화 $\to$ 피처 생성 $\to$ 익일 HTS 주문 가이드 산출까지 일괄 완료합니다.
+
+* 🏆 **대회 순위 상대 시뮬레이터 (`src/contest/`, ADR-08)**
+  * 대회 목적함수는 절대수익이 아니라 **~1,200명 참가자 대비 1위 확률**입니다. 임계값 확률 최적화 챔피언은 실측 $P(\text{rank}=1)$이 1~5%에 그쳐, 순위표를 매일 불변 아카이브하고 참가자 군중을 스테이셔너리 블록 부트스트랩으로 재현해 후보 종목별 $P(\text{rank}=1)$을 직접 추정하는 별도 계층으로 실전 결정을 대체했습니다.
+  * 매주 토요일 자동 실행(or-vps systemd), 5%p 히스테리시스 미만이면 종목을 유지하며, 순위표·패널 데이터가 정확히 일치하지 않으면 무조건 `NO_DATA`(전환 금지)로 Fail-closed 합니다.
 
 ---
 
@@ -115,6 +124,25 @@ flowchart TD
 
 ---
 
+## 4.1 2026 대회 실전 라이브 오버라이드 (Contest Mode)
+
+`configs/contest.yaml: contest.enabled=true`일 때, 위 챔피언 파이프라인(D~F)의 일일 `decide` 단계 대신 아래 주간 순위 상대 결정이 실전을 담당합니다. 데이터 수집·정규화·피처 생성(A~C)은 대회 모드와 무관하게 매일 그대로 수행됩니다.
+
+```mermaid
+flowchart LR
+    A["MT 순위표 JSON\n(etf/array/*, 16:00 KST)"] --> B["불변 아카이브\n(평일 16:40/17:40/20:40)"]
+    C["Gold Feature Store\n(~20개 대회 차량)"] --> D["Crowd Simulator\n(~1,200명 Bootstrap Worlds)"]
+    B --> E["decide_week\nP(rank1)/P(top2)/P(top10)"]
+    D --> E
+    E --> F["결정 카드\n(토요일 10:00/12:00, 일요일 10:00)"]
+```
+
+* **왜 필요한가**: 대회 상금은 1~2위에게만 지급되므로 진짜 목적함수는 임계값 초과 확률이 아니라 순위표 상대 1위 확률입니다. 실측 결과 챔피언 전략은 $P(\text{rank}=1)$ 1~5%에 그쳤고, 손절·비중 상한 등 변동성 축소 장치는 모두 예외 없이 이를 더 낮췄습니다(자세한 수치는 ADR-08).
+* **핵심 CLI**: `mt-etf contest-archive`(순위표 아카이브), `mt-etf contest-weekly`(결정 카드 산출).
+* **Fail-closed**: 순위표 기준일과 KRX 패널 세션이 정확히 일치하지 않으면 무조건 `NO_DATA`를 반환하고 종목을 바꾸지 않습니다(KRX 공식 종가는 T+1일 아침 공개).
+
+---
+
 ## 5. End-to-End Daily Pipeline
 
 장 마감 후 매일 16:00 KST에 수행되는 일일 운용 파이프라인의 입출력 흐름입니다.
@@ -150,11 +178,14 @@ sequenceDiagram
 | **5. State Continuity Guard** | 16:03 KST | 전일 포지션 승계 확인, 불필요한 매매 회전율 방지, Fail-closed | State Ledger $\to$ Validated Position |
 | **6. Decision Output** | 16:04 KST | 결정일 종가 기준 권장 매매 수량(주) 및 금액 HTS 가이드 발행 | `results/decide_daily/*.json` |
 
+> [!NOTE]
+> **2026 대회 모드**: 1~3단계는 매일 그대로 수행되지만, `contest.enabled=true`이면 4~6단계는 건너뛰고 §4.1의 주간 순위 상대 결정이 이를 대체합니다.
+
 ---
 
 ## 6. Empirical Results
 
-2018-01-02부터 2026-09-10까지 총 **2,097개 롤링 36거래일 윈도우**에서 실측된 공식 백테스트 결과입니다.
+2018-01-02부터 2026-09-10까지 총 **2,097개 롤링 36거래일 윈도우**에서 실측된 공식 백테스트 결과입니다. *(리서치·백테스트 승격 지표이며, ~1,200명 참가자 대비 실제 $P(\text{rank}=1)$은 §4.1·ADR-08의 별도 시뮬레이션으로 평가합니다.)*
 
 | 전략 모델 (Model Key) | 평가 윈도우 | $P(R_{36d} > 30\%)$ | $P(R_{36d} > 40\%)$ | $P(R_{36d} > 50\%)$ | 상위 5% 분위수 ($q_{95}$) | Worst 5% 꼬리손실 (CVaR) | Objective Gate |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -181,6 +212,7 @@ sequenceDiagram
 | **ADR-04** | **국면 적응 전략** | **급락 후 반등 앵커 슬리브** (`sticky.mom60_post_crash_anchor`) | 장기 모멘텀 단독 유지, 모멘텀 윈도우 전면 단기화 | 지수 급락 후 장기 모멘텀이 현금으로 과도하게 철수하는 결함 해결 ($P(R>30\%)$ +0.99%p 개선) |
 | **ADR-05** | **데이터 저장소** | **In-Memory Polars + Parquet 파일 시스템** | RDBMS (PostgreSQL), SQLite | 외부 DB 데몬 없이 재현 가능. 멀티스레드 컬럼너 엔진으로 수백만 행 수 초 내 벡터 연산 |
 | **ADR-06** | **머신러닝 범위** | **용량 제약형 GBDT Ranker** + Purged Walk-Forward CV | 심층 신경망 (LSTM, Transformer), 강화학습 | 금융 시계열의 실효 독립 표본($n_{\text{eff}} \approx 2,400$) 한계 극복 및 과적합 노이즈 방어 |
+| **ADR-08** | **대회 실전 목적함수** | **순위표 상대 시뮬레이션 기반 $P(\text{rank}=1)$ 직접 추정** (주간) | 우측 꼬리 임계값 확률 유지 (일일) | 임계값 확률 최적화의 실측 $P(\text{rank}=1)$이 1~5%에 그침을 확인, ~1,200명 군중 대비 상대적 우위로 목적함수 전환 |
 
 ---
 
@@ -209,6 +241,7 @@ src/
 ├── tournament/            # 36거래일 롤링 시뮬레이터, G1/G2a 게이트 판정, LOYO 교차 검증
 ├── execution/             # 체결 현금 회계 및 상태 전이 원장
 ├── reporting/             # 대시보드 렌더링, 꼬리 위험 포렌식 분석
+├── contest/               # [2026 Live] 순위표 아카이브, 군중 시뮬레이터, 주간 P(rank1) 결정
 └── cli/                   # mt-etf CLI 서브커맨드 인터페이스
 
 configs/                   # 전략 파라미터, 게이트 기준, 운용사 브랜드 설정 YAML
@@ -251,6 +284,12 @@ uv run mt-etf backtest --model sticky.mom60_post_crash_anchor --start 2018-01-02
 
 # 연도별 Out-of-Sample 강건성(LOYO) 검증
 uv run mt-etf loyo --run-id <RUN_ID>
+
+# [2026 Live] 대회 순위표 JSON 아카이브 (매일 16:00 KST 이후)
+uv run mt-etf contest-archive
+
+# [2026 Live] 주간 순위 상대 결정 카드 산출 (P(rank1)/P(top2)/P(top10))
+uv run mt-etf contest-weekly
 ```
 
 ---
@@ -262,5 +301,5 @@ uv run mt-etf loyo --run-id <RUN_ID>
 * **[`docs/architecture/README.md`](docs/architecture/README.md)**: 기술 아키텍처 문서군 인덱스 및 면접관 가이드
 * **[`docs/architecture/overview.md`](docs/architecture/overview.md)**: 시스템 목표, 계층 구조, 런타임 흐름 상세
 * **[`docs/architecture/data-flow.md`](docs/architecture/data-flow.md)**: 데이터 파이프라인 단계별 I/O, 시간 축 정합성 및 스키마 명세
-* **[`docs/architecture/components.md`](docs/architecture/components.md)**: 5대 핵심 서브시스템별 책임, 인터페이스 및 불변식
+* **[`docs/architecture/components.md`](docs/architecture/components.md)**: 6대 핵심 서브시스템별 책임, 인터페이스 및 불변식
 * **[`docs/architecture/design-decisions.md`](docs/architecture/design-decisions.md)**: 핵심 엔지니어링 의사결정 기록 (ADR)

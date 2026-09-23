@@ -17,6 +17,7 @@
 | **ADR-05** | **데이터 저장소 & 엔진** | • RDBMS (PostgreSQL)<br>• SQLite 파일 DB | **In-Memory Polars + Parquet 파일 시스템** | 외부 DB 데몬 없이 재현 가능. 멀티스레드 컬럼너 엔진으로 수백만 행 수 초 내 벡터 연산 |
 | **ADR-06** | **머신러닝 적용 범위** | • 심층 신경망 (LSTM, Transformer)<br>• 강화학습 (RL) 에이전트 | **용량 제약형 GBDT LambdaRank** + Purged Walk-Forward CV | 금융 시계열의 유효 독립 표본($n_{\text{eff}} \approx 2,400$) 한계 극복 및 시장 노이즈 과적합 방어 |
 | **ADR-07** | **시크릿 인증키 관리** | • SOPS + Age 인메모리 복호화 | **표준 `.env` (git 비추적) 환경변수 주입** | 실보안 이득 대비 과도한 도구 체인 오버헤드(바이너리, 키 관리)를 식별하고 실용적 회귀 |
+| **ADR-08** | **대회 실전 목적함수 전환** | • 우측 꼬리 임계값 확률($P(R>30\%)$) 유지 | **순위표 상대 시뮬레이션 기반 $P(\text{rank}=1)$ 직접 추정 + 주간 의사결정** | 실측 결과 임계값 확률 최적화 전략의 $P(\text{rank}=1)$이 1~5%에 그침을 확인, ~1,200명 군중 대비 상대적 우위를 직접 겨냥하도록 실행 계층을 재설계 |
 
 ---
 
@@ -137,6 +138,27 @@
 
 ---
 
+### ADR-08: Contest-Mode Rank-Objective Pivot (Weekly Crowd-Relative Simulation vs Daily Threshold Optimization)
+
+* **의사결정 (Decision)**:
+  대회 실전 라이브 의사결정을, ADR-01/04의 임계값 확률 최적화 챔피언 전략(`sticky.mom60_post_crash_anchor`, 일일 실행)에서 **`src/contest/` 모듈의 주간 순위 상대 시뮬레이터**(약 1,200명 참가자 군중을 재현해 후보 종목별 $P(\text{rank}=1)$을 직접 추정)로 전환합니다. `configs/contest.yaml`의 `contest.enabled=true`일 때 일일 챔피언 `decide` 단계는 건너뛰고, 매주 토요일 산출되는 결정 카드가 이를 대체합니다.
+
+* **배경 및 맥락 (Context)**:
+  대회 상금은 1~2위에게만 지급되므로 진짜 목적함수는 $P(R_{36d} > \theta)$가 아니라 **약 1,200명(자율형 495명)의 실시간 순위표 대비 1위 확률**입니다. 2018~2026년 과거 대회 기간 재현 및 2026년 실제 순위표(9/23 기준)에서 출발한 전방 시뮬레이션 결과, 기존 챔피언 전략(손절·95% 상한 포함)의 $P(\text{rank}=1)$은 **1~5%**에 불과했습니다. 손절이나 비중 상한 같은 변동성 축소 장치는 모두 예외 없이 $P(\text{rank}=1)$을 낮췄는데, 1위가 되려면 위험조정수익이 아니라 극단적 꼬리 결과가 필요하기 때문입니다.
+
+* **선택 근거 (Rationale)**:
+  * 실제 종가 데이터(KRX)와 순위표 스냅샷(MT `etf/array/*.json`, 매일 16:00 KST 이후 수집·불변 아카이브)을 합쳐 ~1,200명 군중(자율형 레버리지·인버스 허용, 비자율형 1배 상당)을 스테이셔너리 블록 부트스트랩으로 재현합니다.
+  * 후보 종목(유동성 필터 통과 종목)별로 같은 시뮬레이션 경로에서 $P(\text{rank}=1)$·$P(\text{top}2)$·$P(\text{top}10)$을 산출하고, 현재 보유 대비 5%p 이상 개선될 때만 종목 전환을 권고하는 히스테리시스를 둡니다(`switch_min_p1_gain`).
+  * 손절/일일 재평가를 의도적으로 배제했습니다 — 시뮬레이션상 손절은 매 시나리오에서 $P(\text{rank}=1)$을 절반 이하로 낮췄습니다.
+
+* **엔지니어링 트레이드오프 (Trade-offs)**:
+  * KRX 공식 종가는 T+1일 아침에야 공개되므로(ADR-02와 무관한 별도 지연), 매주 토요일 실행 시점에는 금요일 데이터가 자연스럽게 준비되지만 순위표 기준일과 정확히 일치하지 않으면 카드는 안전하게 `NO_DATA`를 반환합니다(전환 금지, fail-closed).
+  * 주중 반응이 없어 손실 위험(-30% 이하 확률 약 10~20%)을 그대로 감수합니다. 이는 위험 관리가 아니라 순위 목적함수에 맞춘 의도적 설계입니다.
+  * 실제 주문 집행은 여전히 운영자가 HTS에 수동 입력합니다(자동 주문 미실행).
+
+---
+
 ## 3. Deployment Operations
 
 * **Offsite Backup**: no offsite backup by design (short-lived deployment, ~8 weeks); state lives only on or-vps (Drive backup removed 2026-09-23).
+* **Contest-Mode Automation**: 순위표 아카이브(`mt-etf-contest-archive.timer`, 평일 16:40/17:40/20:40 KST)와 주간 결정(`mt-etf-contest-weekly.timer`, 토요일 10:00/12:00·일요일 10:00 KST)이 or-vps systemd user 타이머로 상시 자동화되어 있습니다(2026-09-23 배포).

@@ -1,6 +1,6 @@
 # Component Architecture & Subsystems
 
-본 문서는 시스템을 구성하는 핵심 모듈들의 책임(Responsibility), 상호작용 인터페이스, 불변식(Invariants) 및 예외 방어 메커니즘을 5대 핵심 서브시스템 단위로 정리합니다.
+본 문서는 시스템을 구성하는 핵심 모듈들의 책임(Responsibility), 상호작용 인터페이스, 불변식(Invariants) 및 예외 방어 메커니즘을 6대 핵심 서브시스템 단위로 정리합니다.
 
 ---
 
@@ -47,6 +47,16 @@ flowchart TD
         Orchestrator -.-> Provider
         Orchestrator -.-> Features
         StateManager --> Dashboard
+    end
+
+    subgraph SS6 ["6. Contest Rank-Objective Subsystem (2026 Live Override)"]
+        Archive["LeaderboardArchive\n(MT JSON 불변 스냅샷)"]
+        Sim["VehiclePanel + Crowd Simulator\n(~1,200명 순위 상대 시뮬레이션)"]
+        WeeklyDecision["decide_week\n(P(rank1) 후보 스코어링)"]
+
+        Archive --> Sim --> WeeklyDecision
+        Features -.-> Sim
+        WeeklyDecision -.->|"contest.enabled=true 시 대체"| Orchestrator
     end
 ```
 
@@ -109,3 +119,16 @@ flowchart TD
 | **`PositionStateManager`** | • 포지션 영속화 및 연속성 검증<br>• 최소 보유 세션 가드 | **In**: 확정 포지션, 결정 일자<br>**Out**: 포지션 상태 JSON (`data/state/`) | • **연속성 훼손 시 Fail-Closed**: 전일 상태와 불일치 시 주문 생성 중단<br>• **최소 보유 기간(2일)**: 불필요한 매매 회전율(Turnover) 방지 |
 | **`DailyRefreshOrchestrator`** | • 원스톱 일일 배치 실행<br>• CLI 명령 라우팅 | **In**: CLI 옵션 (`--as-of`, `--decide`)<br>**Out**: 파이프라인 일괄 완주 | • **원스톱 실행**: 수집 $\to$ 정규화 $\to$ 피처 $\to$ 의사결정 순차 자동화<br>• **systemd 연동**: 장 마감 후 자동 스케줄링 지원 |
 | **`DecisionRenderer`** | • 최종 HTS 주문 가이드 출력 | **In**: 포트폴리오 목표 비중, 당일 종가<br>**Out**: 터미널 대시보드 및 JSON 아티팩트 | • **정수 주수 변환**: 주문 수량(주) 및 예상 체결 금액을 운영자 가이드로 제공 |
+
+---
+
+## 7. Subsystem 6: Contest Rank-Objective Decision (2026 Live Override)
+
+머니투데이 대회 실전 라이브 의사결정을 담당하는 계층입니다(`src/contest/`). `configs/contest.yaml: contest.enabled=true`일 때 Subsystem 5의 일일 챔피언 `decide` 단계를 대체합니다 — 목적함수가 임계값 초과 확률이 아니라 **약 1,200명 참가자 대비 $P(\text{rank}=1)$**이기 때문입니다(ADR-08).
+
+| 컴포넌트 | 핵심 책임 | 핵심 인터페이스 (Input / Output) | 장애 방어 및 불변식 (Fail-Closed) |
+| :--- | :--- | :--- | :--- |
+| **`leaderboard.py`** | • MT 순위표 JSON 5종 수집 및 불변 아카이브<br>• 단일종목 보유자 역추정 | **In**: MT `etf/array/*.json` 엔드포인트<br>**Out**: `data/contest/leaderboard/<baseDt>/*.json` | • **Write-Once**: 동일 `baseDt` 재수집 시 내용 불일치하면 즉시 예외(`LeaderboardConflictError`), 덮어쓰기 금지<br>• **전량 성공 원칙**: 5개 엔드포인트 중 하나라도 실패하면 아무 것도 저장하지 않음 |
+| **`panel.py` / `reference.py`** | • KRX 실체결 종가 + 상장 전 구간 합성(일일 리셋 2배) 병합<br>• 대회 차량군(~20종) 패널 구성 | **In**: Silver 패널, 단일종목 기초자산(하이닉스·삼성전자) 참조 데이터<br>**Out**: `VehiclePanel` (gap/intraday 레그) | • **대회 구간 결측 Fail-Closed**: 대회 시작일 이후 거래 가능 차량에 결측 세션이 있으면 `PanelGapError` |
+| **`engine.py` / `crowd.py`** | • 스테이셔너리 블록 부트스트랩 세계 생성<br>• ~1,200명 군중(자율형 레버리지 허용 vs 비자율형 1배) 병렬 시뮬레이션 | **In**: `VehiclePanel`, 순위표 스냅샷<br>**Out**: 군중 최종 평가액 `[A, W]`, 후보별 우리 평가액 `[W]` | • **No-Lookahead**: 결정일 $d$는 종가 $\le d-1$만 참조<br>• **Common Random Numbers**: 모든 후보가 동일 세계·동일 군중 경로에서 비교됨 |
+| **`decision.py` (`decide_week`)** | • 후보 종목별 $P(\text{rank}=1)$·$P(\text{top}2)$·$P(\text{top}10)$ 산출<br>• 전환/유지 판정 및 한글 결정 카드 렌더링 | **In**: `VehiclePanel`, 순위표 스냅샷, 이전 결정 상태<br>**Out**: `ContestDecision`, `results/contest_weekly/*.{json,md}` | • **순위표 기준일 불일치 시 Fail-Closed**: `NO_DATA`(전환 금지)<br>• **히스테리시스**: 최선 후보가 현재 보유 대비 `switch_min_p1_gain`(기본 5%p) 이상 우월할 때만 `SWITCH` |

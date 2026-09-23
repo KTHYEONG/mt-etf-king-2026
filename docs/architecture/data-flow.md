@@ -29,6 +29,32 @@ flowchart LR
 | **6. Portfolio & Overlay** | Alpha Scores + 이전 포지션 상태 | 동일 지수 레버리지 패밀리 중복 제거, Top-1 집중(최대 95%), ADV 5% 참여율 한도 | 종목별 목표 비중 (Target Weights) |
 | **7. Execution & Output** | Target Weights + 시가 패널 | 익일 시가 체결 시뮬레이션(백테스트) 또는 HTS 입력용 수량/금액 렌더링(라이브) | 백테스트 성과 / `results/decide_daily/*.json` |
 
+> [!NOTE]
+> **2026 대회 모드**: `contest.enabled=true`이면 6~7단계(챔피언 알파 → 포트폴리오 → 일일 결정)는 건너뛰고 대신 아래 §4의 순위 상대 데이터 흐름이 실전 결정을 산출합니다. 1~5단계(Bronze~Gold)는 대회 모드와 무관하게 계속 수행됩니다.
+
+---
+
+## 4. Contest-Mode Data Flow (Rank-Objective Live Override)
+
+Bronze~Gold 파이프라인과 병렬로, 머니투데이 순위표를 별도 소스로 수집·아카이브하여 참가자 군중을 재현하고 후보 종목별 $P(\text{rank}=1)$을 산출하는 흐름입니다(ADR-08).
+
+```mermaid
+flowchart LR
+    MT["MT Leaderboard JSON\n(etf/array/*, 16:00 KST 스냅샷)"] -->|"평일 16:40/17:40/20:40 KST\n전량 성공 원칙"| Arch[("Leaderboard Archive\ndata/contest/leaderboard/<baseDt>/")]
+    Gold[("Gold Feature Store\netf_features.parquet")] --> Panel["VehiclePanel\n(~20개 대회 차량 gap/intraday)"]
+    Arch --> Decide["decide_week\nP(rank1)/P(top2)/P(top10)"]
+    Panel --> Sim["Crowd Simulator\n(~1,200명 Bootstrap Worlds)"]
+    Sim --> Decide
+    Decide -->|"토요일 10:00/12:00, 일요일 10:00 KST"| Card[("결정 카드\nresults/contest_weekly/*.json, *.md")]
+```
+
+| 단계 | 입력 | 핵심 처리 및 무결성 제약 | 출력 |
+| :--- | :--- | :--- | :--- |
+| **1. Leaderboard Archive** | MT `etf/array/*.json` (5종) | 5개 엔드포인트 전량 성공해야 저장(부분 실패 시 무저장), 동일 `baseDt` 재수집 시 불일치하면 즉시 예외(Write-Once) | `data/contest/leaderboard/<baseDt>/*.json` |
+| **2. Vehicle Panel** | Silver `etf_daily`/`index_daily` + 단일종목 상장 전 합성 데이터 | 대회 시작일 이후 거래 가능 차량 결측 시 `PanelGapError`(Fail-closed) | `VehiclePanel` (gap/intraday 레그) |
+| **3. Crowd Simulation** | `VehiclePanel`, 순위표 스냅샷 | 스테이셔너리 블록 부트스트랩, 결정일 $d$는 종가 $\le d-1$만 참조, 모든 후보가 Common Random Numbers로 비교됨 | 군중 평가액 `[A, W]`, 후보별 우리 평가액 `[W]` |
+| **4. Weekly Decision** | 시뮬레이션 결과, 이전 결정 상태 | 순위표 기준일이 패널 세션과 불일치하면 `NO_DATA`, 최선 후보가 현재 보유 대비 5%p 이상 우월해야 `SWITCH` | `ContestDecision` → `results/contest_weekly/*.{json,md}` |
+
 ---
 
 ## 2. Temporal Integrity & Timestamp Architecture
@@ -100,9 +126,13 @@ data/
 │   └── index_daily.parquet           # 지수 일별 OHLCV, 시가총액
 ├── features/                         # [Gold Tier] 피처 엔지니어링 패널 (Parquet)
 │   └── etf_features.parquet          # 모멘텀, 변동성, 브레드스, 시장국면 결합
-└── state/                            # [Operational Tier] 런타임 연속성 상태 (JSON)
-    ├── krx_quota.json                # API 일일 호출량 추적
-    └── sticky_mom60_post_crash_anchor_position.json
+├── state/                            # [Operational Tier] 런타임 연속성 상태 (JSON)
+│   ├── krx_quota.json                # API 일일 호출량 추적
+│   └── sticky_mom60_post_crash_anchor_position.json
+├── reference/                        # [Contest Tier] 단일종목 상장 전 합성용 참조 데이터
+│   └── single_stock_daily.parquet    # 하이닉스·삼성전자 일별 OHLC (1회 시딩)
+└── contest/leaderboard/              # [Contest Tier] MT 순위표 불변 아카이브
+    └── <baseDt>/*.json               # etfRankTotal 등 5종 스냅샷 (Write-Once)
 ```
 
 ### Silver Tier: `etf_daily.parquet` 핵심 스키마
