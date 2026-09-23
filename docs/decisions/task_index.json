@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_20260923_GDRIVE_BACKUP_REMOVAL",
+      "date": "2026-09-23",
+      "adr_id": "ADR_20260923_20260923_GDRIVE_BACKUP_REMOVAL",
+      "domain": "infra",
+      "title": "mt-etf-king-2026 Google Drive 백업 완전 제거",
+      "why": "or-vps에서 일일 확인만 하면 되고 약 8주 후 중단될 단기 배포라 오프사이트 백업이 불필요한데도 호스트 공용 스크립트가 매일 약 510MB를 재업로드하고 있었다",
+      "resolution": "설계 문서에 무백업 결정을 기록하고 deploy/scripts 자산이 rclone/gdrive를 참조하지 않음을 강제하는 가드 테스트를 추가했다",
+      "impact": "불필요한 일일 Drive 재업로드가 제거되고 향후 백업 코드가 실수로 재도입되는 것을 테스트가 막는다",
+      "caveat": "호스트 스크립트에서 mt-etf 항목 제거와 기존 Drive 사본(live/, projects/) 삭제는 후속 운영 단계로 남아있다"
+    },
+    {
       "task_id": "TASK_LIVE_STATE_LEDGER",
       "date": "2026-09-22",
       "adr_id": "ADR_20260922_LIVE_STATE_LEDGER",

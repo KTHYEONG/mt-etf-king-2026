@@ -134,3 +134,9 @@
 * **선택 근거 (Rationale)**:
   * 단일 운영자 모의투자 시스템 환경에서 외부 바이너리 의존성(`sops`)과 개인키 배포 절차는 유지보수 비용을 불필요하게 가중시킵니다.
   * 저장소에 비밀키가 유출되지 않는 표준 `.env` 관리만으로 보안 요구사항을 충분히 충족할 수 있어 실용주의적 관점에서 간소화했습니다.
+
+---
+
+## 3. Deployment Operations
+
+* **Offsite Backup**: no offsite backup by design (short-lived deployment, ~8 weeks); state lives only on or-vps (Drive backup removed 2026-09-23).
