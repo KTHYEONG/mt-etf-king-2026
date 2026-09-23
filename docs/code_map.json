@@ -684,5 +684,9 @@
   },
   "src/universe/tournament.py": {
     "testing": "tests/unit/universe/test_tournament.py"
+  },
+  "src/main.py": {
+    "architecture": "docs/architecture/design-decisions.md",
+    "testing": "tests/unit/test_no_offsite_backup.py"
   }
 }
