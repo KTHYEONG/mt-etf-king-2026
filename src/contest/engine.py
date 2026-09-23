@@ -54,7 +54,7 @@ class CrowdSpec:
     @property
     def n_agents(self) -> int:
         """Number of crowd agents."""
-        return int(len(self.kind))
+        return len(self.kind)
 
 
 @dataclass
@@ -120,7 +120,7 @@ def simulate_contest(
     crowd: CrowdSpec,
     actions: Mapping[str, Callable[[int, np.ndarray], np.ndarray]],
     weights: Mapping[str, Sequence[float]],
-    on_day_end: Callable[[int, "SimState"], None] | None,
+    on_day_end: Callable[[int, SimState], None] | None,
     seed: int,
 ) -> SimResult:
     """Run crowd agents and our candidate action paths jointly over every world.
@@ -211,12 +211,12 @@ def simulate_contest(
 
 
 def rank_metrics(ours: np.ndarray, crowd_equity: np.ndarray) -> dict[str, float]:
-    """P1 (no agent strictly above us), P2, P10, median return, P(loss > 30%)."""
+    """P1 (no agent strictly above us), P2, P_TOP10, median return, P(loss > 30%)."""
     better = (crowd_equity.astype(np.float64) > ours[None, :].astype(np.float64)).sum(axis=0)
     return {
         "P1": float((better == 0).mean()),
         "P2": float((better <= 1).mean()),
-        "P10": float((better <= 9).mean()),
+        "P_TOP10": float((better <= 9).mean()),
         "med_ret": float(np.median(ours) - 1),
         "P_loss30": float((ours < 0.70).mean()),
     }
