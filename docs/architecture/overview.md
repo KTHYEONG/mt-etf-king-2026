@@ -20,8 +20,11 @@ $$\mathbb{E}[\text{Prize}] = 10{,}000{,}000 \cdot P(\text{rank}=1) + 5{,}000{,}0
 
 * 3위와 400위의 상금 보상은 **0원으로 동일**합니다.
 * 따라서 포트폴리오 변동성을 낮추고 샤프 지수를 높이는 전통적 분산 포트폴리오는 연율 5~10% 수준의 온건한 수익에 머물러 대회 우승 가능성이 0에 수렴합니다.
-* 시스템은 우측 꼬리 확률 $P(R_{36d} > \theta)$ ($\theta \in \{30\%, 40\%, 50\%, 60\%\}$)를 전략 채택의 주요 대리 목적함수(Adoption Proxy)로 사용합니다.
+* 시스템은 우측 꼬리 확률 $P(R_{36d} > \theta)$ ($\theta \in \{30\%, 40\%, 50\%, 60\%\}$)를 전략 채택(리서치·백테스트 승격 판정)의 주요 대리 목적함수(Adoption Proxy)로 사용합니다.
 * 단, 36세션 중 극단적 손실(-25% 이하)을 입으면 잔여 기간 내 회복이 불가능하므로, 엄격한 **파산 제약(Ruin Constraint, G2a: $P(R_{36d} < -25\%) \le 5\%$)**을 하드 게이트로 병행 적용합니다.
+
+> [!NOTE]
+> **2026 대회 실전 라이브 오버라이드 (ADR-08)**: 위 임계값 확률은 리서치·백테스트 승격 기준이며, 실측 결과 이를 최적화한 챔피언 전략의 실제 $P(\text{rank}=1)$은 ~1,200명 참가자 대비 1~5%에 그쳤습니다. 실전 라이브 의사결정은 `configs/contest.yaml: contest.enabled=true`일 때 `src/contest/` 모듈의 **주간 순위 상대 시뮬레이션**(참가자 군중 재현 → 후보별 $P(\text{rank}=1)$ 직접 추정)이 담당하며, 일일 챔피언 `decide` 단계를 대체합니다. 자세한 내용은 [`design-decisions.md#adr-08`](design-decisions.md)와 [`components.md §7`](components.md) 참고.
 
 ---
 
@@ -34,6 +37,7 @@ $$\mathbb{E}[\text{Prize}] = 10{,}000{,}000 \cdot P(\text{rank}=1) + 5{,}000{,}0
 | **타임프레임** | 일별 봉(Daily Bar) 기반 시계열 분석 및 일별 리밸런싱 | 틱(Tick)·분(Minute) 단위 인트라데이 초단타 |
 | **체결 모델** | $t$일 장 마감(15:30) 후 시그널 산출 $\to$ $t+1$일 시가(09:00 Open) 체결 | 당일 종가 동시체결 (Same-bar Fill) |
 | **실행 방식** | 포트폴리오 목표 수량/금액 자동 산출 $\to$ 코스콤 HTS 수동 주문 | 전산 자동 주문(DMA/API 주문 연동) |
+| **실행 주기** | 리서치 챔피언(일일) / **대회 모드(주간, ADR-08)** | 대회 모드 활성 중 주중 재평가·손절 (의도적 배제) |
 | **머신러닝** | 얕은 트리 기반 GBDT Ranker (엄격한 용량 제약) | 심층 신경망(Deep Learning), 강화학습(RL) |
 
 ---
@@ -98,6 +102,18 @@ flowchart TD
         State --> Dashboard --> HTS
     end
 
+    subgraph S_CONTEST ["Layer 9: Contest Rank-Objective Override (2026 Live)"]
+        MT["Money Today Leaderboard JSON\n(etf/array/*, 16:00 KST 스냅샷)"]
+        Archive["Leaderboard Archive\n(불변, baseDt별 저장)"]
+        CrowdSim["~1,200명 Crowd Simulator\n(Bootstrap Worlds)"]
+        WeeklyDec["decide_week\nP(rank1)/P(top2)/P(top10)"]
+
+        MT --> Archive --> CrowdSim --> WeeklyDec
+        Gold -.-> CrowdSim
+        WeeklyDec -.->|"contest.enabled=true 시 CLI decide 대체"| CLI
+        WeeklyDec --> HTS
+    end
+
     KRX --> Provider
 ```
 
@@ -118,6 +134,7 @@ flowchart TD
 | **L6** | **Execution Engine** | 익일 개장 시가($t+1$ Open) 체결 시뮬레이션 및 슬리피지/수수료 반영 | Same-bar Fill 가정 배제, 거래정지 및 시가 결측 종목 체결 불가 판정 |
 | **L7** | **Tournament Harness** | 2,000+개 롤링 36D 윈도우 시뮬레이션, G1/G2a 하드 게이트 판정 | 연도별 Out-of-Sample(LOYO) 검증, 파산 위험($P(R<-25\%) \le 5\%$) 강제 |
 | **L8** | **Daily Operations** | 장 마감 후 원스톱 자동 배치 및 터미널 HTS 주문 가이드 렌더링 | 프로세스 재시작 간 포지션 연속성 검증, 일일 의사결정 JSON 아티팩트 보관 |
+| **L9** | **Contest Rank-Objective (Live Override)** | MT 순위표 불변 아카이브, ~1,200명 군중 재현, 후보 종목별 $P(\text{rank}=1)$ 주간 산출 | 순위표 기준일 불일치·패널 결측 시 `NO_DATA` Fail-closed, 5%p 히스테리시스 미만 전환 금지 |
 
 ---
 
@@ -148,6 +165,9 @@ flowchart TD
 7. **체결 상태 승계 및 영속화**: 이전 보유 포지션과의 연속성을 대조하고 최소 보유 세션(2일)을 적용하여 불필요한 매매 회전율을 차단합니다.
 8. **HTS 주문 가이드 생성**: 당일 종가 기준 권장 매매 수량(주) 및 주문 금액을 터미널 대시보드에 렌더링하고 아티팩트로 저장하여 익일 09:00 장 시작 전 운영자의 정확한 주문 입력을 지원합니다.
 
+> [!NOTE]
+> **2026 대회 모드 활성 시**: Step 1~4(수집·정규화·PIT·피처)는 매일 그대로 수행되지만, `contest.enabled=true`이면 Step 5~8(일일 챔피언 알파·포트폴리오·체결 가이드)은 건너뛰고 대신 Layer 9의 **주간 순위 상대 시뮬레이션**이 토요일 10:00(백업 12:00)·일요일 10:00 KST에 결정 카드를 생성합니다.
+
 ---
 
 ## 6. External Dependencies & Technology Stack
@@ -158,3 +178,4 @@ flowchart TD
 * **통신 & 복원력 제어**: `httpx`, `tenacity` (KRX API 토큰 버킷 레이트 리미터 및 지수 백오프)
 * **머신러닝 벤치마크**: `lightgbm` (단면 랭킹 GBDT LambdaRank)
 * **외부 통신 엔드포인트**: 한국거래소 오픈 API (`https://data-dbg.krx.co.kr/svc/apis`)
+* **대회 순위표 엔드포인트 (2026 Live)**: 머니투데이 ETF투자왕 순위표 JSON (`https://www.mt.co.kr/etf/array/*.json`, `etfRankTotal`/`etfRankProductPurchase` 등 5종)
