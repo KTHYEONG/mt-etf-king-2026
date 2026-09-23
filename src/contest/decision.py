@@ -247,12 +247,15 @@ def decide_week(
     calendar: TradingCalendar,
     config: Mapping[str, Any],
     state_alias: str | None,
+    our_equity_override: tuple[float, str] | None = None,
 ) -> ContestDecision:
     """Estimate P(rank1)/P(top2)/P(top10) for every eligible candidate, assuming it is held from the next open to
     contest end, and choose the recommendation.
 
-    Our standing comes from the leaderboard entry for the nickname. Remaining sessions and realized contest
-    sessions come from the trading calendar.
+    Our standing comes from the leaderboard entry for the nickname, unless `our_equity_override` supplies
+    (equity, warning tag): a user-entered return or an estimate for when we are outside the public top-50. The
+    tag is surfaced in the card warnings. Remaining sessions and realized contest sessions come from the trading
+    calendar.
 
     Raises:
         Nothing for missing data. Missing data yields NO_DATA or NEEDS_CONFIRMATION cards (fail-closed: never a
@@ -349,6 +352,10 @@ def decide_week(
     else:
         our_rank, our_total = None, None
         warnings.append("OUTSIDE_TOP50")
+    if our_equity_override is not None:
+        our_equity = float(our_equity_override[0])
+        our_total = (our_equity - 1.0) * 100.0
+        warnings.append(our_equity_override[1])
 
     realized = list(calendar.sessions(start_date, decision_session))
     realized_rows = [panel.row(s) for s in realized]

@@ -16,6 +16,7 @@ from src.contest.leaderboard import (
     archive_leaderboard,
     fetch_leaderboard_payloads,
     infer_single_vehicle_holders,
+    latest_entry_on_or_before,
     latest_snapshot_on_or_before,
     load_snapshot,
 )
@@ -325,3 +326,16 @@ def test_latest_snapshot_ignores_stray_dirs(tmp_path: Path) -> None:
     got = latest_snapshot_on_or_before(tmp_path, date(2026, 9, 23))
     assert got is not None
     assert got.base_date == date(2026, 9, 22)
+
+
+def test_latest_entry_on_or_before_skips_snapshots_without_us(tmp_path: Path) -> None:
+    """The newest visible entry at or before the session wins; later or missing-us snapshots are skipped."""
+    archive_leaderboard(_payloads("20260923"), tmp_path)
+    archive_leaderboard(_payloads("20260928", rows=[_row(1, "leader", 20.0, 3.0)]), tmp_path)
+    archive_leaderboard(_payloads("20261001", rows=[_row(5, "lkthl", 9.0, 1.0)]), tmp_path)
+    hit = latest_entry_on_or_before(tmp_path, "lkthl", date(2026, 9, 30))
+    assert hit is not None
+    assert hit[0] == date(2026, 9, 23)
+    assert hit[1].total_return_pct == pytest.approx(3.71417)
+    assert latest_entry_on_or_before(tmp_path, "nobody", date(2026, 10, 1)) is None
+    assert latest_entry_on_or_before(tmp_path / "absent", "lkthl", date(2026, 10, 1)) is None

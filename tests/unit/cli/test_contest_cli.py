@@ -312,3 +312,46 @@ def test_daily_refresh_skips_champion_decide_in_contest_mode(
     assert rc == 0
     decide_mock.assert_not_called()
     assert any("contest_mode weekly decision active" in r.message for r in caplog.records)
+
+
+def _snap(entries: tuple) -> object:
+    from src.contest.leaderboard import LeaderboardSnapshot
+
+    return LeaderboardSnapshot(base_date=date(2026, 10, 2), requested_at="", entries=entries, purchases={})
+
+
+def test_our_equity_override_manual_wins(tmp_path: Path) -> None:
+    """A user-entered --our-return always overrides, even when the leaderboard lists us."""
+    from src.contest.leaderboard import LeaderboardEntry
+
+    snap = _snap((LeaderboardEntry(rank=3, user_name="tester", total_return_pct=9.0, daily_return_pct=1.0),))
+    args = argparse.Namespace(our_return=-12.5)
+    got = contest_cmd._our_equity_override(
+        args, _weekly_config(tmp_path), object(), tmp_path, snap, date(2026, 10, 2), "HY2"
+    )
+    assert got == (pytest.approx(0.875), "OUR_RETURN_MANUAL")
+
+
+def test_our_equity_override_estimates_outside_top50(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Outside the top-50, compound the recorded holding from the last visible entry; visible means no override."""
+    from src.contest.leaderboard import LeaderboardEntry
+
+    seen = (date(2026, 9, 23), LeaderboardEntry(rank=22, user_name="tester", total_return_pct=4.0, daily_return_pct=0.0))
+    monkeypatch.setattr("src.contest.leaderboard.latest_entry_on_or_before", lambda *a: seen)
+    calls: list[tuple] = []
+
+    def _fake_realized(panel, alias, entry_session, end_session, entry_equity, weight):
+        calls.append((alias, entry_session, end_session, entry_equity, weight))
+        return 0.8
+
+    monkeypatch.setattr("src.contest.decision.realized_equity", _fake_realized)
+    cfg = _weekly_config(tmp_path)
+    args = argparse.Namespace(our_return=None)
+    out = contest_cmd._our_equity_override(args, cfg, object(), tmp_path, _snap(()), date(2026, 10, 2), "HY2")
+    assert out == (0.8, "OUR_RETURN_ESTIMATED")
+    assert calls == [("HY2", date(2026, 9, 23), date(2026, 10, 2), pytest.approx(1.04), 0.999)]
+    visible = _snap((LeaderboardEntry(rank=3, user_name="tester", total_return_pct=9.0, daily_return_pct=1.0),))
+    assert contest_cmd._our_equity_override(args, cfg, object(), tmp_path, visible, date(2026, 10, 2), "HY2") is None
+    assert contest_cmd._our_equity_override(args, cfg, object(), tmp_path, _snap(()), date(2026, 10, 2), None) is None

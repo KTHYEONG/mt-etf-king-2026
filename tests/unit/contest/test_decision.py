@@ -232,6 +232,18 @@ def test_decide_week_outside_top50_needs_confirmation() -> None:
     assert out.scores == ()
 
 
+def test_decide_week_outside_top50_uses_equity_override() -> None:
+    """An equity override outside the top-50 yields scored candidates and surfaces its tag."""
+    panel = _toy_panel()
+    session = date(2026, 9, 23)
+    snap = _snapshot(panel, session, ours=None)
+    out = decide_week(panel, snap, session, get_calendar(), _toy_config(), "HY2", (0.9, "OUR_RETURN_ESTIMATED"))
+    assert out.action in (ContestAction.HOLD, ContestAction.SWITCH)
+    assert out.scores
+    assert {"OUTSIDE_TOP50", "OUR_RETURN_ESTIMATED"} <= set(out.warnings)
+    assert out.our_total_return_pct == pytest.approx(-10.0)
+
+
 def test_build_explicit_leaders_excludes_our_nickname() -> None:
     """Our own inferred entry never becomes a competitor agent."""
     panel = _toy_panel()

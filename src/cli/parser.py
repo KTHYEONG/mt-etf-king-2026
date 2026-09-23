@@ -137,6 +137,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_cw.add_argument("--session", required=False, default=None, help="decision session YYYY-MM-DD (default: last session)")
     p_cw.add_argument("--force", action="store_true", default=False, help="rewrite an existing card")
     p_cw.add_argument("--worlds", type=int, required=False, default=None, help="override n_worlds for quick runs")
+    p_cw.add_argument(
+        "--our-return", type=float, required=False, default=None, dest="our_return",
+        help="our cumulative return %% from the contest app (overrides the leaderboard/estimate)",
+    )
     p_cw.set_defaults(func=cmd_contest_weekly)
     # storage-migrate
     p_mig = sub.add_parser("storage-migrate", help="migrate bronze plain JSON to gzip")
