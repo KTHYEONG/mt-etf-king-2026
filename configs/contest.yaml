@@ -1,0 +1,207 @@
+contest:
+  enabled: true
+  nickname: "lkthl"
+  start_date: "2026-09-21"
+  end_date: "2026-11-13"
+  capital_krw: 1_000_000_000
+  leaderboard:
+    base_url: "https://www.mt.co.kr/etf/array"
+    endpoints:
+      - "etfRankTotal"
+      - "etfRankGroupTop"
+      - "etfRankProductPurchase"
+      - "etfRankGroupTopMonth"
+      - "etfGuideArticle"
+    timeout_s: 20
+    archive_dir: "contest/leaderboard"
+  inference:
+    match_tol_pct: 0.02
+    min_weight: 0.90
+  reference:
+    single_stock_path: "reference/single_stock_daily.parquet"
+    symbols:
+      HYNIX: "000660.KS"
+      SAMSUNG: "005930.KS"
+    cutoff: "2026-05-26"
+    timeout_s: 30
+  vehicles:
+    K2:
+      ticker: "122630"
+      name: "KODEX 200"
+      returns: "listed"
+      tradable: true
+      crowd_only: false
+    Q2:
+      ticker: "233740"
+      name: "KODEX KOSDAQ150"
+      returns: "listed"
+      tradable: true
+      crowd_only: false
+    SEMI2:
+      ticker: "494310"
+      name: "Semiconductor 2x"
+      returns: "listed"
+      synthetic: {underlying: "코스피 200 정보기술", multiple: 2.0}
+      tradable: true
+      crowd_only: false
+    SEMI2b:
+      ticker: "488080"
+      name: "Semiconductor 2x (b)"
+      returns: "listed"
+      synthetic: {underlying: "코스피 200 정보기술", multiple: 2.0}
+      tradable: true
+      crowd_only: false
+    HY2:
+      ticker: "0193T0"
+      name: "HY 2x"
+      returns: "listed"
+      synthetic: {underlying: "HYNIX", multiple: 2.0}
+      tradable: true
+      crowd_only: false
+    SS2:
+      ticker: "0193W0"
+      name: "SS 2x"
+      returns: "listed"
+      synthetic: {underlying: "SAMSUNG", multiple: 2.0}
+      tradable: true
+      crowd_only: false
+    HY2I:
+      ticker: "0197X0"
+      name: "HY Inverse 2x"
+      returns: "listed"
+      synthetic: {underlying: "HYNIX", multiple: -2.0}
+      tradable: true
+      crowd_only: false
+    SS2I:
+      ticker: "0193L0"
+      name: "SS Inverse 2x"
+      returns: "listed"
+      synthetic: {underlying: "SAMSUNG", multiple: -2.0}
+      tradable: true
+      crowd_only: false
+    K2I:
+      ticker: "252670"
+      name: "KODEX 200 Inverse 2x"
+      returns: "synthetic"
+      synthetic: {underlying: "코스피 200", multiple: -2.0}
+      tradable: true
+      crowd_only: false
+    Q2I:
+      ticker: "251340"
+      name: "KODEX KOSDAQ150 Inverse 2x"
+      returns: "listed"
+      tradable: true
+      crowd_only: false
+    BAT2:
+      ticker: "462330"
+      name: "Battery 2x"
+      returns: "listed"
+      synthetic: {underlying: "코스피 200 에너지/화학", multiple: 2.0}
+      tradable: true
+      crowd_only: false
+    SHIP2:
+      name: "Shipbuilding 2x (crowd only)"
+      returns: "synthetic"
+      synthetic: {underlying: "코스피 200 중공업", multiple: 2.0}
+      tradable: false
+      crowd_only: true
+    FIN2:
+      name: "Finance 2x (crowd only)"
+      returns: "synthetic"
+      synthetic: {underlying: "코스피 200 금융", multiple: 2.0}
+      tradable: false
+      crowd_only: true
+    BIO2:
+      name: "Bio 2x (crowd only)"
+      returns: "synthetic"
+      synthetic: {underlying: "코스피 200 헬스케어", multiple: 2.0}
+      tradable: false
+      crowd_only: true
+    IND2:
+      name: "Industrial 2x (crowd only)"
+      returns: "synthetic"
+      synthetic: {underlying: "코스피 200 산업재", multiple: 2.0}
+      tradable: false
+      crowd_only: true
+    CONS2:
+      name: "Consumer 2x (crowd only)"
+      returns: "synthetic"
+      synthetic: {underlying: "코스피 200 경기소비재", multiple: 2.0}
+      tradable: false
+      crowd_only: true
+    STEEL2:
+      name: "Steel 2x (crowd only)"
+      returns: "synthetic"
+      synthetic: {underlying: "코스피 200 철강/소재", multiple: 2.0}
+      tradable: false
+      crowd_only: true
+    CONST2:
+      name: "Construction 2x (crowd only)"
+      returns: "synthetic"
+      synthetic: {underlying: "코스피 200 건설", multiple: 2.0}
+      tradable: false
+      crowd_only: true
+    STAPLE2:
+      name: "Staple 2x (crowd only)"
+      returns: "synthetic"
+      synthetic: {underlying: "코스피 200 생활소비재", multiple: 2.0}
+      tradable: false
+      crowd_only: true
+    KOSPI:
+      name: "KOSPI signal (non-tradable)"
+      returns: "synthetic"
+      synthetic: {underlying: "코스피", multiple: 1.0}
+      tradable: false
+      crowd_only: false
+  simulation:
+    synthetic_fee_annual: 0.01
+    lookback_sessions: 61
+  crowd:
+    n_participants: 1268
+    f_auto: 0.39
+    profiles:
+      base: {f_aggr: 0.01, f_mod: 0.15, mix_aggr: [0.45, 0.30, 0.10, 0.15], mix_mod: [0.60, 0.20, 0.10, 0.10], q_scale: 1.0}
+      hot: {f_aggr: 0.03, f_mod: 0.15, mix_aggr: [0.25, 0.50, 0.10, 0.15], mix_mod: [0.60, 0.20, 0.10, 0.10], q_scale: 2.0}
+    popularity_auto:
+      SEMI2: 0.22
+      K2: 0.22
+      HY2: 0.14
+      HY2I: 0.05
+      SS2: 0.07
+      SEMI2b: 0.06
+      K2I: 0.05
+      Q2: 0.06
+      BAT2: 0.04
+      SHIP2: 0.04
+      Q2I: 0.05
+    popularity_nonauto:
+      SEMI2: 0.30
+      K2: 0.25
+      SS2: 0.10
+      HY2: 0.08
+      BAT2: 0.07
+      SHIP2: 0.05
+      Q2: 0.05
+      BIO2: 0.03
+      FIN2: 0.03
+      IND2: 0.04
+    entry_days: [0, 1, 2, 3, 5, 8]
+    entry_probs: [0.70, 0.13, 0.07, 0.04, 0.03, 0.03]
+    leader_churn: {k: 10, q: 0.10}
+  decision:
+    candidates: [HOLD, HY2, HY2I, SS2, SEMI2, K2, Q2, K2I]
+    min_adv_krw: 10_000_000_000
+    target_weight: 0.999
+    switch_min_p1_gain: 0.05
+    endgame_sessions: 8
+    eras:
+      recent: {start: "2024-10-23", neutral: false}
+      recent_neutral: {start: "2024-10-23", neutral: true}
+      long: {start: "2018-05-02", neutral: false}
+      long_neutral: {start: "2018-05-02", neutral: true}
+    profiles: [base, hot]
+    n_worlds: 8000
+    mean_block: 10
+    seed: 20260921
+    output_dir: "results/contest_weekly"
+    state_name: "contest_position"

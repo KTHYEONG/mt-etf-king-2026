@@ -21,6 +21,9 @@ def test_cli_build_parser_subcommands_unchanged() -> None:
         "storage-migrate",
         "champion-research",
         "feasibility-audit",
+        "contest-archive",
+        "contest-seed-reference",
+        "contest-weekly",
     }
     assert expected == choices
 
@@ -82,6 +85,9 @@ def test_build_parser_subcommand_surface_unchanged() -> None:
         "storage-migrate",
         "champion-research",
         "feasibility-audit",
+        "contest-archive",
+        "contest-seed-reference",
+        "contest-weekly",
     }
     subparsers = [a for a in parser._actions if hasattr(a, "choices") and isinstance(getattr(a, "choices", None), dict)]
     assert subparsers, "no subparser action found"

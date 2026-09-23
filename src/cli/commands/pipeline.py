@@ -18,6 +18,16 @@ _INDEX_NORMALIZE_DATASET: Final[str] = "index_daily"
 _REGULAR_CLOSE: Final[time] = time(15, 30)
 
 
+def _contest_mode_active() -> bool:
+    """True when the contest weekly decision owns the decide step."""
+    try:
+        from src.core.config import load_config
+
+        return bool(load_config("contest").get("contest", {}).get("enabled", False))
+    except Exception:
+        return False
+
+
 def resolve_pipeline_target_session(
     as_of: date | None = None,
     *,
@@ -114,6 +124,10 @@ def cmd_daily_refresh(args: argparse.Namespace) -> int:
         return 1
 
     if not getattr(args, "decide", False):
+        return 0
+
+    if _contest_mode_active():
+        logger.info("[PORTFOLIO] daily champion decide skipped: contest_mode weekly decision active")
         return 0
 
     output_dir = getattr(args, "output_dir", None) or "results/decide_daily"

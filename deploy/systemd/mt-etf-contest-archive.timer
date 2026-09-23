@@ -1,0 +1,12 @@
+[Unit]
+Description=Archive MT contest leaderboard after 16:00 KST rebuild
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 16:40:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 17:40:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 20:40:00 Asia/Seoul
+Persistent=true
+AccuracySec=2min
+
+[Install]
+WantedBy=timers.target

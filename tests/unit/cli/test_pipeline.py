@@ -5,6 +5,13 @@ from unittest.mock import MagicMock, patch
 import argparse
 import polars as pl
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _champion_decide_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("src.cli.commands.pipeline._contest_mode_active", lambda: False)
+
 
 def test_cmd_daily_refresh_happy_path_without_decide(tmp_path) -> None:
     from src.cli.commands.pipeline import cmd_daily_refresh
