@@ -529,3 +529,17 @@ def test_daily_card_serializes() -> None:
     )
     text2 = render_daily_markdown(empty)
     assert "없음" in text2 and "LEADERBOARD_STALE" in text2
+
+
+def test_mirror_target_tie_prefers_long_alias() -> None:
+    """With no identified leader on either side, both sides sit at the floor and the tie picks the long alias."""
+    from src.contest.daily import mirror_target
+    from src.contest.leaderboard import LeaderboardEntry, LeaderboardSnapshot
+
+    snap = LeaderboardSnapshot(
+        base_date=date(2026, 9, 23), requested_at="",
+        entries=(LeaderboardEntry(rank=1, user_name="a", total_return_pct=5.0, daily_return_pct=0.0),),
+        purchases={},
+    )
+    target, long_leader, inverse_leader = mirror_target(snap, {}, "me", "HY2", "HY2I", 2)
+    assert (target, long_leader, inverse_leader) == ("HY2", None, None)

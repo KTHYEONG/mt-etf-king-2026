@@ -260,7 +260,7 @@ def mirror_target(
             long_best = (user, equity)
     long_value = long_best[1] if long_best is not None else floor
     inverse_value = inverse_best[1] if inverse_best is not None else floor
-    target = inverse_alias if long_value >= inverse_value else long_alias
+    target = inverse_alias if long_value > inverse_value else long_alias
     return target, long_best, inverse_best
 
 
