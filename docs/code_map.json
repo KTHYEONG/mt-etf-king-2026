@@ -691,5 +691,8 @@
   },
   "src/contest/decision.py": {
     "testing": "tests/unit/contest/test_decision.py"
+  },
+  "src/contest/daily.py": {
+    "testing": "tests/unit/contest/test_daily.py"
   }
 }

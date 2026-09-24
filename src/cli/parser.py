@@ -8,7 +8,12 @@ from typing import Final
 from src.cli.commands.backtest import cmd_backtest
 from src.cli.commands.champion_research import cmd_champion_research
 from src.cli.commands.config import cmd_calendar, cmd_config_check
-from src.cli.commands.contest import cmd_contest_archive, cmd_contest_seed_reference, cmd_contest_weekly
+from src.cli.commands.contest import (
+    cmd_contest_archive,
+    cmd_contest_daily,
+    cmd_contest_seed_reference,
+    cmd_contest_weekly,
+)
 from src.cli.commands.data import cmd_ingest, cmd_normalize
 from src.cli.commands.decide import cmd_decide
 from src.cli.commands.feasibility_audit import cmd_feasibility_audit
@@ -40,6 +45,7 @@ SUBCOMMANDS: Final[tuple[str, ...]] = (
     "contest-archive",
     "contest-seed-reference",
     "contest-weekly",
+    "contest-daily",
 )
 
 
@@ -142,6 +148,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="our cumulative return %% from the contest app (overrides the leaderboard/estimate)",
     )
     p_cw.set_defaults(func=cmd_contest_weekly)
+    # contest-daily
+    p_cd = sub.add_parser("contest-daily", help="daily shadow card for the leader-mirror policy")
+    p_cd.add_argument("--session", required=False, default=None, help="target session YYYY-MM-DD (default: last session)")
+    p_cd.add_argument("--force", action="store_true", default=False, help="rewrite an existing card")
+    p_cd.add_argument(
+        "--our-return", type=float, required=False, default=None, dest="our_return",
+        help="our cumulative return %% from the contest app (overrides the leaderboard/estimate)",
+    )
+    p_cd.set_defaults(func=cmd_contest_daily)
     # storage-migrate
     p_mig = sub.add_parser("storage-migrate", help="migrate bronze plain JSON to gzip")
     p_mig.add_argument("--endpoint", required=False, default="etp/etf_bydd_trd", help="KRX endpoint to migrate")

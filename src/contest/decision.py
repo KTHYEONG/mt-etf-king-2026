@@ -81,6 +81,7 @@ def resolve_current_holding(
     state_alias: str | None,
     tol_pct: float,
     min_weight: float,
+    exposure_of: Mapping[str, str] | None = None,
 ) -> tuple[str | None, list[str]]:
     """Our holding at the decision session.
 
@@ -94,7 +95,7 @@ def resolve_current_holding(
     """
     inferred: str | None = None
     if snapshot is not None and nickname:
-        hit = infer_single_vehicle_holders(snapshot, vehicle_changes_pct, tol_pct, min_weight).get(nickname)
+        hit = infer_single_vehicle_holders(snapshot, vehicle_changes_pct, tol_pct, min_weight, exposure_of).get(nickname)
         inferred = hit[0] if hit is not None else None
     if inferred is not None and state_alias is not None and inferred != state_alias:
         return inferred, ["HOLDING_MISMATCH"]
@@ -143,6 +144,57 @@ def panel_changes_pct(panel: VehiclePanel, session: date) -> dict[str, float]:
     return out
 
 
+def wrapper_changes_pct(
+    data_root: Path, vehicles: Mapping[str, Any], session: date, prev_session: date
+) -> tuple[dict[str, float], dict[str, str]]:
+    """Close-to-close percent changes at `session` for every configured extra wrapper ticker, keyed "<alias>@<ticker>",
+    with the exposure map key -> alias.
+
+    Wrappers come from `vehicles[alias]["wrappers"]` (tickers other than the primary). Closes are read from the
+    normalized KRX etf_daily table (the same source as the panel). A wrapper missing either close is skipped (it
+    only narrows inference; it never blocks the decision).
+    """
+    wanted: dict[str, str] = {}
+    for alias, cfg in vehicles.items():
+        if not isinstance(cfg, Mapping):
+            continue
+        wrappers = cfg.get("wrappers")
+        if not isinstance(wrappers, (list, tuple)):
+            continue
+        for ticker in wrappers:
+            key = f"{alias}@{ticker}"
+            wanted[key] = str(ticker)
+    if not wanted:
+        return {}, {}
+    silver = DataPaths(root=data_root).silver("etf_daily")
+    if not silver.is_file():
+        return {}, {}
+    tickers = sorted(set(wanted.values()))
+    frame = (
+        pl.scan_parquet(silver)
+        .filter(pl.col("ticker").is_in(tickers), pl.col("date").is_in([session, prev_session]))
+        .select("ticker", "date", "close")
+        .collect()
+    )
+    closes: dict[tuple[str, date], float] = {}
+    for ticker, day, close in frame.iter_rows():
+        if close is None:
+            continue
+        c = float(close)
+        closes[(str(ticker), day)] = c
+    out: dict[str, float] = {}
+    exposure: dict[str, str] = {}
+    for key, ticker in wanted.items():
+        alias = key.split("@", 1)[0]
+        c1 = closes.get((ticker, session))
+        c0 = closes.get((ticker, prev_session))
+        if c1 is None or c0 is None or not np.isfinite(c1) or not np.isfinite(c0) or c0 <= 0:
+            continue
+        out[key] = (c1 / c0 - 1.0) * 100.0
+        exposure[key] = alias
+    return out, exposure
+
+
 def adv_krw(data_root: Path, ticker: str, session: date, sessions: Sequence[date]) -> float:
     """20-session mean trading value (KRW) for a ticker over sessions <= `session`."""
     lookback = [s for s in sessions if s <= session][-20:]
@@ -183,9 +235,14 @@ def build_explicit_leaders(
     nickname: str,
     panel: VehiclePanel,
 ) -> tuple[list[tuple[float, int]], list[tuple[int, float, int]], np.ndarray]:
-    """Split inferred single-vehicle holders (excluding us) into churn-agent holders, pin entries, and top values."""
+    """Split inferred single-vehicle holders (excluding us) into churn-agent holders, pin entries, and top values.
+
+    Our own entry is excluded from top_values: it is our position, not a rival.
+    """
     top_values = np.array(
-        sorted((1.0 + e.total_return_pct / 100.0 for e in snapshot.entries), reverse=True), dtype=np.float32
+        sorted((1.0 + e.total_return_pct / 100.0 for e in snapshot.entries if e.user_name != nickname),
+               reverse=True),
+        dtype=np.float32,
     )
     holders: list[tuple[float, int]] = []
     pin_entries: list[tuple[int, float, int]] = []
@@ -238,6 +295,27 @@ def _action_fn(realized_idx: int, vehicle_idx: int, switch_day: int) -> Callable
     def fn(day: int, held: np.ndarray) -> np.ndarray:
         return np.full_like(held, realized_idx if day < switch_day else vehicle_idx)
     return fn
+
+
+def _inference_inputs(
+    panel: VehiclePanel,
+    data_root: Path,
+    vehicles: Mapping[str, Any],
+    session: date,
+    calendar: TradingCalendar,
+) -> tuple[dict[str, float], dict[str, str]]:
+    """Panel changes merged with extra wrapper changes plus the exposure map."""
+    changes = dict(panel_changes_pct(panel, session))
+    try:
+        prev = calendar.previous_session(session)
+    except ValueError:
+        return changes, {}
+    try:
+        wrappers, exposure = wrapper_changes_pct(data_root, vehicles, session, prev)
+    except (ValueError, OSError):
+        return changes, {}
+    changes.update(wrappers)
+    return changes, exposure
 
 
 def decide_week(
@@ -305,12 +383,17 @@ def decide_week(
 
     if snapshot is None or snapshot.base_date != decision_session:
         changes: dict[str, float] = {}
+        exposure_of: dict[str, str] = {}
         if snapshot is not None:
             try:
-                changes = panel_changes_pct(panel, snapshot.base_date)
+                changes, exposure_of = _inference_inputs(
+                    panel, _data_root(config), vehicles, snapshot.base_date, calendar
+                )
             except ValueError:
-                changes = {}
-        current, hold_warnings = resolve_current_holding(snapshot, nickname, changes, state_alias, tol_pct, min_weight)
+                changes, exposure_of = {}, {}
+        current, hold_warnings = resolve_current_holding(
+            snapshot, nickname, changes, state_alias, tol_pct, min_weight, exposure_of
+        )
         entry = snapshot.entry_for(nickname) if snapshot is not None else None
         ticker = vehicles[current]["ticker"] if current in vehicles else None
         return ContestDecision(
@@ -338,9 +421,11 @@ def decide_week(
             scores=(), inferred_leaders={}, warnings=tuple(hold_warnings),
         )
 
-    changes = panel_changes_pct(panel, decision_session)
-    inferred = infer_single_vehicle_holders(snapshot, changes, tol_pct, min_weight)
-    current, hold_warnings = resolve_current_holding(snapshot, nickname, changes, state_alias, tol_pct, min_weight)
+    changes, exposure_of = _inference_inputs(panel, _data_root(config), vehicles, decision_session, calendar)
+    inferred = infer_single_vehicle_holders(snapshot, changes, tol_pct, min_weight, exposure_of)
+    current, hold_warnings = resolve_current_holding(
+        snapshot, nickname, changes, state_alias, tol_pct, min_weight, exposure_of
+    )
     entry = snapshot.entry_for(nickname)
     warnings: list[str] = list(hold_warnings)
 
@@ -401,6 +486,9 @@ def decide_week(
     entry_days = list(crowd_cfg["entry_days"])
     entry_probs = list(crowd_cfg["entry_probs"])
     churn = crowd_cfg["leader_churn"]
+    churn_scenarios: list[Mapping[str, Any]] = (
+        [churn] if isinstance(churn, Mapping) else list(churn)
+    )
 
     holders, pin_entries, top_values = build_explicit_leaders(snapshot, inferred, nickname, panel)
     per_candidate_p1: dict[str, list[float]] = {cid: [] for cid in eligible}
@@ -408,7 +496,7 @@ def decide_week(
     per_candidate_p10: dict[str, list[float]] = {cid: [] for cid in eligible}
     per_candidate_ret: dict[str, list[float]] = {cid: [] for cid in eligible}
     per_candidate_loss: dict[str, list[float]] = {cid: [] for cid in eligible}
-    n_runs = len(eras) * len(profiles)
+    n_runs = len(eras) * len(profiles) * len(churn_scenarios)
     run_idx = 0
     for era_name, era_cfg in eras.items():
         era_start = date.fromisoformat(str(era_cfg["start"]))
@@ -417,48 +505,52 @@ def decide_week(
             era_panel = neutralize_drift(panel, era_start, decision_session, realized)
         pool = np.arange(panel.row(era_start), decision_row + 1, dtype=np.int64)
         for profile_name in profiles:
-            run_idx += 1
-            t0 = time.perf_counter()
-            run_seed = seed + run_idx
-            worlds = bootstrap_worlds(era_panel, realized_rows, pool, n_worlds, n_remaining, mean_block, run_seed)
-            profile = crowd_cfg["profiles"][profile_name]
-            crowd = build_crowd(
-                era_panel, worlds, profile, pop_auto, pop_non, n_participants, f_auto,
-                entry_days, entry_probs, run_seed + 1,
-            )
-            crowd, leader_idx = append_explicit_leaders(
-                crowd, holders, int(churn["k"]), float(churn["q"])
-            )
-            pin_explicit = [(leader_idx[i], pin_entries[i][1], pin_entries[i][2]) for i in range(len(pin_entries))]
-            realized_idx = era_panel.index(eligible[current_key]) if current_key in eligible else -1
+            for churn_cfg in churn_scenarios:
+                churn_k = int(churn_cfg["k"])
+                churn_q = float(churn_cfg["q"])
+                run_idx += 1
+                t0 = time.perf_counter()
+                run_seed = seed + run_idx
+                worlds = bootstrap_worlds(era_panel, realized_rows, pool, n_worlds, n_remaining, mean_block, run_seed)
+                profile = crowd_cfg["profiles"][profile_name]
+                crowd = build_crowd(
+                    era_panel, worlds, profile, pop_auto, pop_non, n_participants, f_auto,
+                    entry_days, entry_probs, run_seed + 1,
+                )
+                crowd, leader_idx = append_explicit_leaders(crowd, holders, churn_k, churn_q)
+                pin_explicit = [(leader_idx[i], pin_entries[i][1], pin_entries[i][2]) for i in range(len(pin_entries))]
+                realized_idx = era_panel.index(eligible[current_key]) if current_key in eligible else -1
 
-            def on_day_end(day: int, state: SimState, _pin_day: int = switch_day - 1,
-                           _top: np.ndarray = top_values,
-                           _expl: list[tuple[int, float, int]] = pin_explicit) -> None:
-                if day == _pin_day:
-                    pin_to_leaderboard(state, _top, _expl)
+                def on_day_end(day: int, state: SimState, _pin_day: int = switch_day - 1,
+                               _top: np.ndarray = top_values,
+                               _expl: list[tuple[int, float, int]] = pin_explicit) -> None:
+                    if day == _pin_day:
+                        pin_to_leaderboard(state, _top, _expl)
 
-            actions = {
-                cid: _action_fn(realized_idx, era_panel.index(alias), switch_day)
-                for cid, alias in eligible.items()
-            }
-            sched = {cid: [target_weight] * (switch_day + n_remaining) for cid in eligible}
-            result = simulate_contest(era_panel, worlds, crowd, actions, sched, on_day_end, run_seed + 2)
-            if realized_idx >= 0:
-                realized_base = _compound_legs(era_panel, realized_rows, realized_idx, target_weight, 1.0)
-            else:
-                realized_base = 1.0
-            for cid in eligible:
-                path = result.ours[cid]
-                pinned = path / realized_base * our_equity
-                metrics = rank_metrics(pinned, result.crowd_equity)
-                per_candidate_p1[cid].append(metrics["P1"])
-                per_candidate_p2[cid].append(metrics["P2"])
-                per_candidate_p10[cid].append(metrics["P_TOP10"])
-                per_candidate_ret[cid].append(metrics["med_ret"])
-                per_candidate_loss[cid].append(metrics["P_loss30"])
-            elapsed = time.perf_counter() - t0
-            logger.info(f"[PORTFOLIO] contest_weekly config={era_name}/{profile_name} {run_idx}/{n_runs} {elapsed:.1f}s")
+                actions = {
+                    cid: _action_fn(realized_idx, era_panel.index(alias), switch_day)
+                    for cid, alias in eligible.items()
+                }
+                sched = {cid: [target_weight] * (switch_day + n_remaining) for cid in eligible}
+                result = simulate_contest(era_panel, worlds, crowd, actions, sched, on_day_end, run_seed + 2)
+                if realized_idx >= 0:
+                    realized_base = _compound_legs(era_panel, realized_rows, realized_idx, target_weight, 1.0)
+                else:
+                    realized_base = 1.0
+                for cid in eligible:
+                    path = result.ours[cid]
+                    pinned = path / realized_base * our_equity
+                    metrics = rank_metrics(pinned, result.crowd_equity)
+                    per_candidate_p1[cid].append(metrics["P1"])
+                    per_candidate_p2[cid].append(metrics["P2"])
+                    per_candidate_p10[cid].append(metrics["P_TOP10"])
+                    per_candidate_ret[cid].append(metrics["med_ret"])
+                    per_candidate_loss[cid].append(metrics["P_loss30"])
+                elapsed = time.perf_counter() - t0
+                logger.info(
+                    f"[PORTFOLIO] contest_weekly config={era_name}/{profile_name}/q{churn_q} "
+                    f"{run_idx}/{n_runs} {elapsed:.1f}s"
+                )
 
     scores = tuple(
         CandidateScore(

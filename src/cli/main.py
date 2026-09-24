@@ -10,7 +10,12 @@ from collections.abc import Callable, Sequence
 from src.cli.commands.backtest import cmd_backtest
 from src.cli.commands.champion_research import cmd_champion_research
 from src.cli.commands.config import cmd_calendar, cmd_config_check
-from src.cli.commands.contest import cmd_contest_archive, cmd_contest_seed_reference, cmd_contest_weekly
+from src.cli.commands.contest import (
+    cmd_contest_archive,
+    cmd_contest_daily,
+    cmd_contest_seed_reference,
+    cmd_contest_weekly,
+)
 from src.cli.commands.data import cmd_ingest, cmd_normalize
 from src.cli.commands.decide import cmd_decide
 from src.cli.commands.feasibility_audit import cmd_feasibility_audit
@@ -45,6 +50,7 @@ SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "contest-archive": cmd_contest_archive,
     "contest-seed-reference": cmd_contest_seed_reference,
     "contest-weekly": cmd_contest_weekly,
+    "contest-daily": cmd_contest_daily,
 }
 
 

@@ -259,9 +259,12 @@ def latest_snapshot_on_or_before(archive_root: Path, session: date) -> Leaderboa
             candidate = date(int(child.name[0:4]), int(child.name[4:6]), int(child.name[6:8]))
         except ValueError:
             continue
-        if candidate <= session and (best is None or candidate > best):
-            if (child / f"{_TOTAL_ENDPOINT}.json").is_file():
-                best = candidate
+        if (
+            candidate <= session
+            and (best is None or candidate > best)
+            and (child / f"{_TOTAL_ENDPOINT}.json").is_file()
+        ):
+            best = candidate
     if best is None:
         return None
     return load_snapshot(archive_root, best)
@@ -293,24 +296,27 @@ def infer_single_vehicle_holders(
     vehicle_changes_pct: Mapping[str, float],
     tol_pct: float,
     min_weight: float,
+    exposure_of: Mapping[str, str] | None = None,
 ) -> dict[str, tuple[str, float]]:
-    """Map userName -> (vehicle_alias, implied_weight) for entries whose daily return is explained by one vehicle.
+    """Map userName -> (exposure_alias, implied_weight) for entries whose daily return is explained by one exposure.
 
-    For each entry, a vehicle matches when some weight w in [min_weight, 1.0] satisfies
-    |daily_return_pct - w * change_pct| <= tol_pct. Entries with zero or more than one matching vehicle are omitted
-    (ambiguous holdings are left to the crowd model, never guessed).
-    `vehicle_changes_pct` holds each vehicle's close-to-close change for snapshot.base_date, in percent.
+    `vehicle_changes_pct` keys are instrument keys (a vehicle alias or a wrapper key such as "HY2@0195S0").
+    `exposure_of` maps each key to its exposure alias; a key missing from it (or None) is its own exposure. Several
+    listed wrappers of one exposure (e.g. KODEX and TIGER SK Hynix 2x) differ by tracking/premium noise, so a match
+    on any wrapper counts once for that exposure. Entries matching zero or two or more distinct exposures are omitted
+    (ambiguous holdings are never guessed). When several wrappers of the single matched exposure match, the implied
+    weight comes from the wrapper with the smallest absolute residual at its implied weight.
     """
     informative = {
-        alias: float(change)
-        for alias, change in vehicle_changes_pct.items()
+        key: float(change)
+        for key, change in vehicle_changes_pct.items()
         if abs(float(change)) >= _UNINFORMATIVE_MOVE_PCT
     }
     result: dict[str, tuple[str, float]] = {}
     for entry in snapshot.entries:
         daily = entry.daily_return_pct
-        matches: list[tuple[str, float]] = []
-        for alias, change in informative.items():
+        per_key: list[tuple[str, str, float, float]] = []
+        for key, change in informative.items():
             w_star = daily / change
             if w_star < 0:
                 continue
@@ -319,7 +325,16 @@ def infer_single_vehicle_holders(
             if hi < min_weight or lo > 1.0:
                 continue
             implied = min(1.0, max(min_weight, w_star))
-            matches.append((alias, implied))
-        if len(matches) == 1:
-            result[entry.user_name] = matches[0]
+            residual = abs(daily - implied * change)
+            exposure = exposure_of[key] if exposure_of is not None and key in exposure_of else key
+            per_key.append((key, exposure, implied, residual))
+        by_exposure: dict[str, tuple[str, float, float]] = {}
+        for key, exposure, implied, residual in per_key:
+            prev = by_exposure.get(exposure)
+            if prev is None or residual < prev[2]:
+                by_exposure[exposure] = (key, implied, residual)
+        if len(by_exposure) == 1:
+            exposure = next(iter(by_exposure))
+            _, implied, _ = by_exposure[exposure]
+            result[entry.user_name] = (exposure, implied)
     return result
