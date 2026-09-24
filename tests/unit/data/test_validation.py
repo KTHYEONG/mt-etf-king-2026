@@ -108,3 +108,83 @@ def test_SCENARIO_03A_02_no_future_dates_gate() -> None:  # noqa: N802
 
 
 globals()["test SCENARIO-03A-02"] = test_SCENARIO_03A_02_no_future_dates_gate  # noqa: E402, F401
+
+
+def test_etf_index_stale_gap_is_detected() -> None:
+    """An ETF date missing behind the index max is a fatal stale gap."""
+    from src.data.validation import etf_index_session_gaps
+
+    report = etf_index_session_gaps(
+        {date(2026, 8, 27), date(2026, 8, 31)},
+        {date(2026, 8, 27), date(2026, 8, 28), date(2026, 8, 31)},
+    )
+    assert report.stale == (date(2026, 8, 28),)
+    assert report.pending == ()
+    assert report.is_fatal is True
+
+
+def test_etf_index_latest_gap_is_pending() -> None:
+    """A gap only at the index max may still publish, so it is not fatal."""
+    from src.data.validation import etf_index_session_gaps
+
+    report = etf_index_session_gaps({date(2026, 9, 22)}, {date(2026, 9, 22), date(2026, 9, 23)})
+    assert report.pending == (date(2026, 9, 23),)
+    assert report.stale == ()
+    assert report.is_fatal is False
+
+
+def test_etf_ahead_of_index_is_not_a_gap() -> None:
+    """ETF dates the index lacks are never reported as gaps."""
+    from src.data.validation import etf_index_session_gaps
+
+    report = etf_index_session_gaps({date(2026, 9, 22), date(2026, 9, 23)}, {date(2026, 9, 22)})
+    assert report.stale == ()
+    assert report.pending == ()
+    assert report.is_fatal is False
+
+
+def test_empty_index_yields_no_gaps() -> None:
+    """No index witness means no gaps at all."""
+    from src.data.validation import etf_index_session_gaps
+
+    report = etf_index_session_gaps({date(2026, 9, 22)}, set())
+    assert report.stale == ()
+    assert report.pending == ()
+
+
+def test_missing_calendar_sessions_are_sorted() -> None:
+    """Absent calendar sessions come back in ascending order."""
+    from src.data.validation import missing_calendar_sessions
+
+    assert missing_calendar_sessions(
+        {date(2026, 8, 27), date(2026, 8, 31)},
+        [date(2026, 8, 27), date(2026, 8, 28), date(2026, 8, 31)],
+    ) == (date(2026, 8, 28),)
+
+
+def test_validator_ignores_declared_closures() -> None:
+    """A panel covering every effective session reports no V6 missing sessions."""
+    cal = TradingCalendar()
+    sessions = cal.sessions(date(2026, 6, 1), date(2026, 7, 31))
+    assert date(2026, 6, 3) not in sessions
+    assert date(2026, 7, 17) not in sessions
+    frame = pl.DataFrame(
+        {
+            "date": list(sessions),
+            "ticker": ["451060"] * len(sessions),
+        }
+    )
+    report = PanelValidator(cal).validate("etf_daily", frame)
+    assert not any(issue.gate == "V6_missing_sessions" for issue in report.issues)
+
+
+def test_validator_rejects_rows_on_declared_closure() -> None:
+    """Panel rows on a declared closure are a fatal V2 session mismatch."""
+    cal = TradingCalendar()
+    frame = pl.DataFrame({"date": [date(2026, 6, 3)], "ticker": ["451060"]})
+    report = PanelValidator(cal).validate("etf_daily", frame)
+    assert report.is_fatal()
+    mismatches = [issue for issue in report.issues if issue.gate == "V2_session_mismatch"]
+    assert len(mismatches) == 1
+    assert mismatches[0].severity == Severity.CRITICAL
+    assert "2026-06-03" in mismatches[0].detail

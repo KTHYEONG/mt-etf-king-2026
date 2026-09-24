@@ -1,29 +1,25 @@
 [Unit]
-Description=Run mt-etf-daily-refresh every trading weekday evening (KST)
+Description=Run mt-etf-daily-refresh on weekdays with Saturday catch-up (KST)
 
 [Timer]
-# KRX는 T일 데이터를 T+1 오전에 게시하므로, 08:30~08:50 실행분은 09:00 장 시작 전
-# 마지막 기회다. 한 번의 08:30 KST 실행 실패는 세션을 영구히 건너뛰므로,
-# 결측 세션을 메우는 캐치업 기회를 08:40 / 08:50에 한 번씩 더 연다.
+# T일 KRX 데이터는 T+1 오전에 게시되므로 아침 슬롯이 당일분을 메운다.
+# 아침 슬롯은 공동 테넌트 kca-auction-open의 장 시작가 캡처(08:39:55~09:03 KST)를
+# 피해야 한다: 08:30 슬롯은 그 전에 끝나야 하고, 다음 슬롯은 09:03 이후에
+# 시작한다. AccuracySec은 슬롯 시작 시각의 지터 상한이다.
 #
-# KRX 휴장일(주말/공휴일)에도 매번 실행되지만, daily-refresh 자체가
-# get_calendar()로 최근 거래일이 없으면 fail-closed(rc=1)하므로 무해하다.
-#
-# 2026-09-11/18 실측: KRX etf_bydd_trd/kospi_dd_trd가 당일 basDd를 16/20/22시에도
-# 아직 게시하지 않는 경우가 있다(ADR_20260911_KRX_PENDING_BACKFILL_RETRY).
-# 1) 평일 심야(23:30) 재시도 추가
-# 2) 금요일 장 마감 후 KRX 지연 시 토요일/주말에도 직전 거래일 결정을 완결할 수 있도록
-#    아침 08:30 점검을 매일(Mon..Sun) 실행하고, 토요일 11:00 2차 재시도를 둔다.
+# 휴장일이나 신규 게시가 없는 실행은 직전 세션을 타깃으로 삼고, ingest를
+# 건너뛰고, silver/feature 재기록 없이 종료한다(rc=0). ETF 세션이 인덱스에는
+# 있는데 ETF silver에 없는 stale gap이 있으면 실패로 종료한다(rc=1).
 OnCalendar=*-*-* 08:30:00 Asia/Seoul
-OnCalendar=*-*-* 08:40:00 Asia/Seoul
-OnCalendar=*-*-* 08:50:00 Asia/Seoul
+OnCalendar=*-*-* 08:35:00 Asia/Seoul
+OnCalendar=*-*-* 09:05:00 Asia/Seoul
 OnCalendar=Sat *-*-* 11:00:00 Asia/Seoul
 OnCalendar=Mon..Fri *-*-* 16:00:00 Asia/Seoul
 OnCalendar=Mon..Fri *-*-* 20:00:00 Asia/Seoul
 OnCalendar=Mon..Fri *-*-* 22:00:00 Asia/Seoul
 OnCalendar=Mon..Fri *-*-* 23:30:00 Asia/Seoul
 Persistent=true
-AccuracySec=5min
+AccuracySec=10s
 
 [Install]
 WantedBy=timers.target

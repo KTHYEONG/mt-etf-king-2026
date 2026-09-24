@@ -297,6 +297,10 @@ def test_daily_refresh_skips_champion_decide_in_contest_mode(
         {"date": [date(2018, 1, 2), date(2026, 9, 10)]},
         schema={"date": pl.Date},
     ).write_parquet(silver_dir / "etf_daily.parquet")
+    pl.DataFrame(
+        {"date": [date(2026, 9, 10)]},
+        schema={"date": pl.Date},
+    ).write_parquet(silver_dir / "index_daily.parquet")
 
     decide_mock = MagicMock(side_effect=AssertionError("cmd_decide must not run in contest mode"))
     args = argparse.Namespace(dataset=None, as_of="2026-09-15", lookback_days=5, decide=True, output_dir=None)

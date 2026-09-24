@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from src.core.atomic_io import atomic_write_bytes
 from src.core.paths import DataPaths
 from src.data.providers.base import RawRow
 
@@ -59,6 +60,7 @@ class BronzeStore:
             "rows": record.rows,
         }
         content = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
+        payload = gzip.compress(content.encode("utf-8"))
         if path.exists():
             if not allow_revision:
                 return "skipped"
@@ -72,12 +74,9 @@ class BronzeStore:
                 else:
                     rev_path = rev_path.with_name(f"{rev_path.stem}.{counter}{rev_path.suffix}")
                 counter += 1
-            rev_path.parent.mkdir(parents=True, exist_ok=True)
-            with gzip.open(rev_path, "wt", encoding="utf-8") as f:
-                f.write(content)
+            atomic_write_bytes(rev_path, payload)
             return "revised"
-        with gzip.open(path, "wt", encoding="utf-8") as f:
-            f.write(content)
+        atomic_write_bytes(path, payload)
         return "written"
 
     def _read_json_from_path(self, p: Path) -> dict[str, Any]:

@@ -14,8 +14,10 @@ LOG_FILE="$LOG_DIR/contest_daily_$(TZ=Asia/Seoul date +%F).log"
 UV_BIN="${UV_BIN:-$HOME/.local/bin/uv}"
 
 echo "[$(date -Iseconds)] contest_daily.sh start" >> "$LOG_FILE"
+set +e
 "$UV_BIN" run mt-etf contest-daily >> "$LOG_FILE" 2>&1
 STATUS=$?
+set -e
 echo "[$(date -Iseconds)] contest_daily.sh end status=$STATUS" >> "$LOG_FILE"
 
 exit "$STATUS"

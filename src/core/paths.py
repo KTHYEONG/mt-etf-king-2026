@@ -63,6 +63,13 @@ class DataPaths:
         candidate = self.root / rel
         return self._guard(candidate)
 
+    def lock(self, name: str) -> Path:
+        """Advisory lock file `<root>/state/<name>.lock` (same guards as `state`)."""
+        self._check_part(name)
+        rel = Path("state") / f"{name}.lock"
+        candidate = self.root / rel
+        return self._guard(candidate)
+
     def trace(self, run_id: str) -> Path:
         self._check_part(run_id)
         rel = Path("results") / run_id / "trace"

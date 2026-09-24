@@ -5,6 +5,7 @@ import argparse
 import logging
 from datetime import date
 
+from src.core.atomic_io import atomic_write_parquet
 from src.core.calendar import get_calendar
 from src.core.config import config_path
 from src.core.paths import DataPaths
@@ -71,11 +72,7 @@ def cmd_features(args: argparse.Namespace) -> int:
             feature_panel = feature_panel.sort(["date", "ticker"])
         # Persist to gold
         gold_path = paths.gold("etf_features")
-        gold_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            feature_panel.write_parquet(str(gold_path), compression="zstd", use_pyarrow=True)
-        except TypeError:
-            feature_panel.write_parquet(str(gold_path), compression="zstd")
+        atomic_write_parquet(feature_panel, gold_path)
         elapsed = time.time() - t0
         # Coverage: count rows and distinct tickers/dates
         rows = feature_panel.height

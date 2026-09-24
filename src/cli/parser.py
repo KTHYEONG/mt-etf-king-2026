@@ -131,6 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ref.add_argument("--lookback-days", type=int, default=10, dest="lookback_days", help="ingest re-fetch window in calendar days")
     p_ref.add_argument("--decide", action="store_true", default=False, help="also compute+persist the champion-strategy order recommendation")
     p_ref.add_argument("--output-dir", required=False, default="results/decide_daily", dest="output_dir", help="decide artifact output dir")
+    p_ref.add_argument("--force-rebuild", action="store_true", default=False, dest="force_rebuild", help="rebuild features even when inputs are unchanged")
     p_ref.set_defaults(func=cmd_daily_refresh)
     # contest-archive
     p_ca = sub.add_parser("contest-archive", help="archive MT contest leaderboard JSON snapshot")

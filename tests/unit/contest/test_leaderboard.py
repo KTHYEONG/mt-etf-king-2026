@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import date, datetime, timezone, UTC
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ import httpx
 import pytest
 
 from src.contest.leaderboard import (
+    ArchiveOutcome,
     LeaderboardConflictError,
     LeaderboardFetchError,
     LeaderboardSchemaError,
@@ -44,36 +46,299 @@ def _payloads(
             _row(22, "lkthl", 3.71417, 0.5),
         ]
     return {
-        "etfRankTotal": {"baseDt": base_dt, "reqDateTime": f"{base_dt}160500", "data": rows},
-        "etfRankGroupTop": {"baseDt": base_dt, "data": []},
-        "etfRankProductPurchase": {"baseDt": base_dt, "data": {}},
-        "etfRankGroupTopMonth": {"baseDt": base_dt, "data": []},
-        "etfGuideArticle": {"baseDt": base_dt, "data": []},
+        "etfRankTotal": {"baseDt": base_dt, "reqDateTime": "2026/09/23 16:00", "data": rows},
+        "etfRankGroupTop": {"baseDt": base_dt, "reqDateTime": "2026/09/23 16:00", "data": []},
+        "etfRankProductPurchase": {"baseDt": base_dt, "reqDateTime": "2026/09/23 16:00", "data": {}},
+        "etfRankGroupTopMonth": {"baseDt": "202412", "reqDateTime": "2026/09/23 16:00", "data": []},
+        "etfGuideArticle": {"data": []},
     }
+
+
+def _with_req_date_time(
+    payloads: dict[str, dict[str, Any]], req: str
+) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for endpoint, body in payloads.items():
+        copied = dict(body)
+        if "reqDateTime" in copied:
+            copied["reqDateTime"] = req
+        out[endpoint] = copied
+    return out
 
 
 def test_archive_writes_once_per_base_dt(tmp_path: Path) -> None:
     """Archive writes once per baseDt; second identical archive is a no-op."""
     payloads = _payloads()
     first = archive_leaderboard(payloads, tmp_path)
-    assert first == (date(2026, 9, 23), True)
+    assert first == (date(2026, 9, 23), ArchiveOutcome.WRITTEN)
     second = archive_leaderboard(payloads, tmp_path)
-    assert second == (date(2026, 9, 23), False)
+    assert second == (date(2026, 9, 23), ArchiveOutcome.UNCHANGED)
     day_dir = tmp_path / "20260923"
     assert sorted(p.name for p in day_dir.iterdir()) == sorted(f"{e}.json" for e in ENDPOINTS)
 
 
-def test_archive_refuses_conflicting_rewrite(tmp_path: Path) -> None:
-    """Conflicting rewrite of the same baseDt is refused and originals stay intact."""
+def test_volatile_metadata_refetch_is_unchanged(tmp_path: Path) -> None:
+    """Holiday re-fetch differing only in reqDateTime is unchanged with untouched bytes."""
     payloads = _payloads()
     archive_leaderboard(payloads, tmp_path)
     day_dir = tmp_path / "20260923"
     before = {p.name: p.read_bytes() for p in day_dir.iterdir()}
-    other = _payloads(rows=[_row(1, "leader", 9.99, 2.0), _row(22, "lkthl", 3.0, 0.1)])
-    with pytest.raises(LeaderboardConflictError):
-        archive_leaderboard(other, tmp_path)
+    refetched = _with_req_date_time(_payloads(), "2026/09/24 16:00")
+    outcome = archive_leaderboard(refetched, tmp_path)
+    assert outcome == (date(2026, 9, 23), ArchiveOutcome.UNCHANGED)
+    assert not (day_dir / "revisions").exists()
     after = {p.name: p.read_bytes() for p in day_dir.iterdir()}
     assert before == after
+
+
+def test_holiday_refetch_without_req_on_one_endpoint(tmp_path: Path) -> None:
+    """etfGuideArticle carries no reqDateTime; changing others' reqDateTime is still unchanged."""
+    archive_leaderboard(_payloads(), tmp_path)
+    refetched = _with_req_date_time(_payloads(), "2026/09/24 16:00")
+    assert "reqDateTime" not in refetched["etfGuideArticle"]
+    assert archive_leaderboard(refetched, tmp_path) == (date(2026, 9, 23), ArchiveOutcome.UNCHANGED)
+
+
+def test_differing_rows_stored_as_revision(tmp_path: Path) -> None:
+    """Genuinely different data for the same baseDt is stored as a timestamped revision."""
+    payloads = _payloads()
+    archive_leaderboard(payloads, tmp_path)
+    day_dir = tmp_path / "20260923"
+    before = {p.name: p.read_bytes() for p in day_dir.iterdir() if p.is_file()}
+    other = _with_req_date_time(
+        _payloads(rows=[_row(1, "leader", 9.99, 2.0), _row(22, "lkthl", 3.0, 0.1)]),
+        "2026/09/24 16:00",
+    )
+    fetched_at = datetime(2026, 9, 24, 7, 41, 15, tzinfo=UTC)
+    result = archive_leaderboard(other, tmp_path, fetched_at=fetched_at)
+    assert result == (date(2026, 9, 23), ArchiveOutcome.REVISION_STORED)
+    revision_dir = day_dir / "revisions" / "20260924T074115Z"
+    assert revision_dir.is_dir()
+    assert sorted(p.name for p in revision_dir.iterdir()) == sorted(f"{e}.json" for e in ENDPOINTS)
+    for endpoint, body in other.items():
+        stored = json.loads((revision_dir / f"{endpoint}.json").read_text(encoding="utf-8"))
+        assert stored == body
+        assert stored.get("reqDateTime") == body.get("reqDateTime")
+    for name, raw in before.items():
+        assert (day_dir / name).read_bytes() == raw
+    snapshot = load_snapshot(tmp_path, date(2026, 9, 23))
+    assert snapshot.entries[0].total_return_pct == pytest.approx(8.5)
+
+
+def test_repeated_identical_revision_deduplicated(tmp_path: Path) -> None:
+    """Re-archiving stored revision content (new reqDateTime, later fetched_at) is unchanged."""
+    archive_leaderboard(_payloads(), tmp_path)
+    other = _payloads(rows=[_row(1, "leader", 9.99, 2.0), _row(22, "lkthl", 3.0, 0.1)])
+    archive_leaderboard(other, tmp_path, fetched_at=datetime(2026, 9, 24, 7, 41, 15, tzinfo=UTC))
+    again = _with_req_date_time(other, "2026/09/24 17:41")
+    result = archive_leaderboard(again, tmp_path, fetched_at=datetime(2026, 9, 24, 8, 41, 15, tzinfo=UTC))
+    assert result == (date(2026, 9, 23), ArchiveOutcome.UNCHANGED)
+    revisions = list((tmp_path / "20260923" / "revisions").iterdir())
+    assert len(revisions) == 1
+
+
+def test_distinct_second_revision(tmp_path: Path) -> None:
+    """A third distinct content set stores a second revision directory."""
+    archive_leaderboard(_payloads(), tmp_path)
+    second = _payloads(rows=[_row(1, "leader", 9.99, 2.0), _row(22, "lkthl", 3.0, 0.1)])
+    third = _payloads(rows=[_row(1, "leader", 7.77, 1.0), _row(22, "lkthl", 3.0, 0.1)])
+    archive_leaderboard(second, tmp_path, fetched_at=datetime(2026, 9, 24, 7, 41, 15, tzinfo=UTC))
+    result = archive_leaderboard(third, tmp_path, fetched_at=datetime(2026, 9, 24, 9, 0, 0, tzinfo=UTC))
+    assert result == (date(2026, 9, 23), ArchiveOutcome.REVISION_STORED)
+    assert len(list((tmp_path / "20260923" / "revisions").iterdir())) == 2
+
+
+def test_auxiliary_only_change_becomes_revision(tmp_path: Path) -> None:
+    """Identical etfRankTotal but differing sidecar content is stored as a revision."""
+    archive_leaderboard(_payloads(), tmp_path)
+    day_dir = tmp_path / "20260923"
+    before_others = {
+        p.name: p.read_bytes() for p in day_dir.iterdir() if p.name != "etfGuideArticle.json"
+    }
+    changed = _payloads()
+    changed["etfGuideArticle"] = {"data": [{"title": "new"}]}
+    result = archive_leaderboard(changed, tmp_path, fetched_at=datetime(2026, 9, 24, 7, 0, 0, tzinfo=UTC))
+    assert result == (date(2026, 9, 23), ArchiveOutcome.REVISION_STORED)
+    for name, raw in before_others.items():
+        assert (day_dir / name).read_bytes() == raw
+
+
+def test_tampered_sidecar_is_preserved_as_revision(tmp_path: Path) -> None:
+    """An altered archived sidecar is never repaired; the canonical payload becomes a revision."""
+    archive_leaderboard(_payloads(), tmp_path)
+    (tmp_path / "20260923" / "etfRankGroupTop.json").write_text('{"tampered": true}\n', encoding="utf-8")
+    result = archive_leaderboard(
+        _payloads(), tmp_path, fetched_at=datetime(2026, 9, 24, 7, 0, 0, tzinfo=UTC)
+    )
+    assert result == (date(2026, 9, 23), ArchiveOutcome.REVISION_STORED)
+    assert (tmp_path / "20260923" / "etfRankGroupTop.json").read_text(encoding="utf-8") == '{"tampered": true}\n'
+
+
+def test_unparseable_sidecar_becomes_revision(tmp_path: Path) -> None:
+    """A sidecar with invalid JSON counts as differing and is preserved via revision."""
+    archive_leaderboard(_payloads(), tmp_path)
+    (tmp_path / "20260923" / "etfRankGroupTop.json").write_text("not json", encoding="utf-8")
+    result = archive_leaderboard(
+        _payloads(), tmp_path, fetched_at=datetime(2026, 9, 24, 7, 0, 0, tzinfo=UTC)
+    )
+    assert result == (date(2026, 9, 23), ArchiveOutcome.REVISION_STORED)
+    assert (tmp_path / "20260923" / "etfRankGroupTop.json").read_text(encoding="utf-8") == "not json"
+
+
+def test_non_mapping_sidecar_becomes_revision(tmp_path: Path) -> None:
+    """A sidecar with valid non-object JSON counts as differing content."""
+    archive_leaderboard(_payloads(), tmp_path)
+    (tmp_path / "20260923" / "etfRankProductPurchase.json").write_text("[1, 2]\n", encoding="utf-8")
+    result = archive_leaderboard(
+        _payloads(), tmp_path, fetched_at=datetime(2026, 9, 24, 8, 0, 0, tzinfo=UTC)
+    )
+    assert result == (date(2026, 9, 23), ArchiveOutcome.REVISION_STORED)
+
+
+def test_missing_endpoint_in_original_counts_as_differing(tmp_path: Path) -> None:
+    """An endpoint absent from the original archive counts as differing content."""
+    partial = _payloads()
+    del partial["etfRankGroupTop"]
+    archive_leaderboard(partial, tmp_path)
+    result = archive_leaderboard(
+        _payloads(), tmp_path, fetched_at=datetime(2026, 9, 24, 7, 0, 0, tzinfo=UTC)
+    )
+    assert result == (date(2026, 9, 23), ArchiveOutcome.REVISION_STORED)
+
+
+def test_revision_name_collision_fails_closed(tmp_path: Path) -> None:
+    """A revision directory name taken by different content raises without overwriting."""
+    archive_leaderboard(_payloads(), tmp_path)
+    other = _payloads(rows=[_row(1, "leader", 9.99, 2.0), _row(22, "lkthl", 3.0, 0.1)])
+    fetched_at = datetime(2026, 9, 24, 7, 41, 15, tzinfo=UTC)
+    archive_leaderboard(other, tmp_path, fetched_at=fetched_at)
+    clash = _payloads(rows=[_row(1, "leader", 1.11, 0.1), _row(22, "lkthl", 3.0, 0.1)])
+    with pytest.raises(LeaderboardConflictError):
+        archive_leaderboard(clash, tmp_path, fetched_at=fetched_at)
+    assert len(list((tmp_path / "20260923" / "revisions").iterdir())) == 1
+
+
+def test_new_base_dt_appears_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A crash mid-write never leaves a partial baseDt directory behind."""
+    from pathlib import Path as _Path
+
+    real_write = _Path.write_text
+    calls = {"n": 0}
+
+    def _boom(self: Path, *args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise OSError("disk full")
+        return real_write(self, *args, **kwargs)
+
+    monkeypatch.setattr(_Path, "write_text", _boom)
+    with pytest.raises(OSError, match="disk full"):
+        archive_leaderboard(_payloads(), tmp_path)
+    assert not (tmp_path / "20260923").exists()
+    monkeypatch.undo()
+    assert archive_leaderboard(_payloads(), tmp_path) == (date(2026, 9, 23), ArchiveOutcome.WRITTEN)
+
+
+def test_staging_and_revisions_invisible_to_readers(tmp_path: Path) -> None:
+    """Leftover staging dirs and revisions never shadow reader lookups."""
+    archive_leaderboard(_payloads(base_dt="20260922"), tmp_path)
+    archive_leaderboard(_payloads(base_dt="20260923"), tmp_path)
+    (tmp_path / ".staging-20260923-xyz").mkdir()
+    (tmp_path / ".staging-20260923-xyz" / "etfRankTotal.json").write_text("{}\n", encoding="utf-8")
+    other = _payloads(rows=[_row(1, "leader", 9.99, 2.0), _row(22, "lkthl", 3.0, 0.1)])
+    archive_leaderboard(other, tmp_path, fetched_at=datetime(2026, 9, 24, 7, 41, 15, tzinfo=UTC))
+    got = latest_snapshot_on_or_before(tmp_path, date(2026, 9, 23))
+    assert got is not None
+    assert got.base_date == date(2026, 9, 23)
+    assert got.entries[0].total_return_pct == pytest.approx(8.5)
+    hit = latest_entry_on_or_before(tmp_path, "lkthl", date(2026, 9, 23))
+    assert hit is not None
+    assert hit[0] == date(2026, 9, 23)
+
+
+def test_base_dt_path_as_file_fails_closed(tmp_path: Path) -> None:
+    """A baseDt path that is a file (not a directory) is a structural conflict."""
+    (tmp_path / "20260923").write_text("junk", encoding="utf-8")
+    with pytest.raises(LeaderboardConflictError):
+        archive_leaderboard(_payloads(), tmp_path)
+
+
+def test_new_base_dt_rename_race_reevaluates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Losing the staging rename race re-evaluates against the now-existing directory."""
+    import os as _os
+
+    real_rename = _os.rename
+
+    def _race(src: Any, dst: Any, *args: Any, **kwargs: Any) -> None:
+        target = tmp_path / "20260923"
+        if str(dst) == str(target) and not target.exists():
+            target.mkdir(parents=True)
+            (target / "etfRankTotal.json").write_text("not json", encoding="utf-8")
+        return real_rename(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr("src.contest.leaderboard.os.rename", _race)
+    with pytest.raises(LeaderboardConflictError):
+        archive_leaderboard(_payloads(), tmp_path)
+
+
+def test_naive_fetched_at_names_revision(tmp_path: Path) -> None:
+    """A naive fetched_at is treated as UTC when naming the revision directory."""
+    archive_leaderboard(_payloads(), tmp_path)
+    other = _payloads(rows=[_row(1, "leader", 9.99, 2.0), _row(22, "lkthl", 3.0, 0.1)])
+    result = archive_leaderboard(other, tmp_path, fetched_at=datetime(2026, 9, 24, 7, 41, 15))
+    assert result == (date(2026, 9, 23), ArchiveOutcome.REVISION_STORED)
+    assert (tmp_path / "20260923" / "revisions" / "20260924T074115Z").is_dir()
+
+
+def test_revision_rename_race_conflicts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A revision rename losing a race to an existing name fails closed."""
+    import os as _os
+
+    archive_leaderboard(_payloads(), tmp_path)
+    other = _payloads(rows=[_row(1, "leader", 9.99, 2.0), _row(22, "lkthl", 3.0, 0.1)])
+    real_rename = _os.rename
+
+    def _race(src: Any, dst: Any, *args: Any, **kwargs: Any) -> None:
+        revisions_root = tmp_path / "20260923" / "revisions"
+        if str(dst).startswith(str(revisions_root)) and ".staging-" in str(src):
+            revisions_root.mkdir(parents=True, exist_ok=True)
+            target = _os.path.basename(str(dst))
+            (revisions_root / target).mkdir(parents=True, exist_ok=True)
+            (revisions_root / target / "etfRankTotal.json").write_text("{}\n", encoding="utf-8")
+        return real_rename(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr("src.contest.leaderboard.os.rename", _race)
+    with pytest.raises(LeaderboardConflictError):
+        archive_leaderboard(other, tmp_path, fetched_at=datetime(2026, 9, 24, 7, 41, 15, tzinfo=UTC))
+
+
+def test_new_base_dt_rename_unexpected_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rename failure without an existing target surfaces the original error."""
+    def _boom(src: Any, dst: Any, *args: Any, **kwargs: Any) -> None:
+        raise OSError("rename down")
+
+    monkeypatch.setattr("src.contest.leaderboard.os.rename", _boom)
+    with pytest.raises(OSError, match="rename down"):
+        archive_leaderboard(_payloads(), tmp_path)
+    assert not (tmp_path / "20260923").exists()
+
+
+def test_revision_rename_unexpected_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A revision rename failure without an existing target surfaces the original error."""
+    archive_leaderboard(_payloads(), tmp_path)
+    other = _payloads(rows=[_row(1, "leader", 9.99, 2.0), _row(22, "lkthl", 3.0, 0.1)])
+
+    def _boom(src: Any, dst: Any, *args: Any, **kwargs: Any) -> None:
+        target = tmp_path / "20260923"
+        if str(dst).startswith(str(target / "revisions")):
+            raise OSError("revision rename down")
+        import os as _os
+
+        return _os.rename(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr("src.contest.leaderboard.os.rename", _boom)
+    with pytest.raises(OSError, match="revision rename down"):
+        archive_leaderboard(other, tmp_path, fetched_at=datetime(2026, 9, 24, 7, 41, 15, tzinfo=UTC))
 
 
 def test_archive_schema_violation_fails_closed(tmp_path: Path) -> None:
@@ -183,19 +448,31 @@ def test_archive_row_violations(tmp_path: Path, rows: list[Any]) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
-def test_archive_conflict_other_endpoint(tmp_path: Path) -> None:
-    """Identical etfRankTotal but differing sidecar content is a conflict."""
-    archive_leaderboard(_payloads(), tmp_path)
-    (tmp_path / "20260923" / "etfRankGroupTop.json").write_text('{"tampered": true}\n', encoding="utf-8")
-    with pytest.raises(LeaderboardConflictError):
-        archive_leaderboard(_payloads(), tmp_path)
-
-
 def test_archive_dir_missing_total_file(tmp_path: Path) -> None:
     """A pre-existing baseDt dir without etfRankTotal is a conflict, never adopted."""
     day_dir = tmp_path / "20260923"
     day_dir.mkdir(parents=True)
     (day_dir / "etfRankGroupTop.json").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(LeaderboardConflictError):
+        archive_leaderboard(_payloads(), tmp_path)
+    assert not (day_dir / "revisions").exists()
+
+
+def test_archive_dir_corrupt_total_file(tmp_path: Path) -> None:
+    """A baseDt dir with non-JSON etfRankTotal is a structural conflict with nothing created."""
+    day_dir = tmp_path / "20260923"
+    day_dir.mkdir(parents=True)
+    (day_dir / "etfRankTotal.json").write_text("not json", encoding="utf-8")
+    with pytest.raises(LeaderboardConflictError):
+        archive_leaderboard(_payloads(), tmp_path)
+    assert not (day_dir / "revisions").exists()
+
+
+def test_archive_dir_non_object_total_file(tmp_path: Path) -> None:
+    """A baseDt dir with non-object etfRankTotal JSON is a structural conflict."""
+    day_dir = tmp_path / "20260923"
+    day_dir.mkdir(parents=True)
+    (day_dir / "etfRankTotal.json").write_text("[1, 2]\n", encoding="utf-8")
     with pytest.raises(LeaderboardConflictError):
         archive_leaderboard(_payloads(), tmp_path)
 

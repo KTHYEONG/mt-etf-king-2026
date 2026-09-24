@@ -13,7 +13,7 @@ import polars as pl
 import pytest
 
 import src.cli.commands.contest as contest_cmd
-from src.contest.leaderboard import LeaderboardFetchError, LeaderboardSnapshot
+from src.contest.leaderboard import ArchiveOutcome, LeaderboardFetchError, LeaderboardSnapshot
 from src.contest.reference import ReferenceFetchError, seed_single_stock_reference
 
 
@@ -56,7 +56,7 @@ def test_contest_archive_success(
     )
     monkeypatch.setattr(
         "src.contest.leaderboard.archive_leaderboard",
-        lambda payloads, root: (date(2026, 9, 23), True),
+        lambda payloads, root: (date(2026, 9, 23), ArchiveOutcome.WRITTEN),
     )
     monkeypatch.setattr("src.contest.leaderboard.load_snapshot", lambda root, day: _snapshot())
     with caplog.at_level("INFO"):
@@ -168,8 +168,74 @@ def test_contest_archive_load_failure(monkeypatch: pytest.MonkeyPatch, tmp_path:
     monkeypatch.setattr(contest_cmd, "_contest_config", lambda: _contest_dict())
     monkeypatch.setattr("src.core.settings.get_settings", lambda: SimpleNamespace(data_root=tmp_path))
     monkeypatch.setattr("src.contest.leaderboard.fetch_leaderboard_payloads", lambda *a, **k: {})
-    monkeypatch.setattr("src.contest.leaderboard.archive_leaderboard", lambda p, r: (date(2026, 9, 23), True))
+    monkeypatch.setattr("src.contest.leaderboard.archive_leaderboard", lambda p, r: (date(2026, 9, 23), ArchiveOutcome.WRITTEN))
     monkeypatch.setattr("src.contest.leaderboard.load_snapshot", _boom)
+    assert contest_cmd.cmd_contest_archive(argparse.Namespace()) == 1
+
+
+def test_contest_archive_revision_outcome_warns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A stored revision exits zero with a WARNING containing outcome=revision_stored."""
+    monkeypatch.setattr(contest_cmd, "_contest_config", lambda: _contest_dict())
+    monkeypatch.setattr("src.core.settings.get_settings", lambda: SimpleNamespace(data_root=tmp_path))
+    monkeypatch.setattr("src.contest.leaderboard.fetch_leaderboard_payloads", lambda *a, **k: {})
+    monkeypatch.setattr(
+        "src.contest.leaderboard.archive_leaderboard",
+        lambda p, r: (date(2026, 9, 23), ArchiveOutcome.REVISION_STORED),
+    )
+    monkeypatch.setattr("src.contest.leaderboard.load_snapshot", lambda root, day: _snapshot())
+    with caplog.at_level("INFO"):
+        rc = contest_cmd.cmd_contest_archive(argparse.Namespace())
+    assert rc == 0
+    assert any(
+        r.levelname == "WARNING" and "outcome=revision_stored" in r.message for r in caplog.records
+    )
+
+
+def test_contest_archive_holiday_double_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Two runs with different reqDateTime both exit zero; the second reports outcome=unchanged."""
+    from src.contest.leaderboard import archive_leaderboard as _real_archive
+
+    def _rows() -> list[dict[str, Any]]:
+        return [
+            {"rank": 1, "userName": "leader", "totalReturnRate": 8.5, "dailyReturnRate": 1.25},
+            {"rank": 22, "userName": "lkthl", "totalReturnRate": 3.71417, "dailyReturnRate": 0.5},
+        ]
+
+    calls = {"n": 0}
+
+    def _fetch(*a: object, **k: object) -> dict[str, dict[str, Any]]:
+        calls["n"] += 1
+        req = "2026/09/23 16:00" if calls["n"] == 1 else "2026/09/24 16:00"
+        return {
+            "etfRankTotal": {"baseDt": "20260923", "reqDateTime": req, "data": _rows()},
+            "etfRankGroupTop": {"baseDt": "20260923", "reqDateTime": req, "data": []},
+        }
+
+    monkeypatch.setattr(contest_cmd, "_contest_config", lambda: _contest_dict())
+    monkeypatch.setattr("src.core.settings.get_settings", lambda: SimpleNamespace(data_root=tmp_path))
+    monkeypatch.setattr("src.contest.leaderboard.fetch_leaderboard_payloads", _fetch)
+    monkeypatch.setattr("src.contest.leaderboard.archive_leaderboard", _real_archive)
+    with caplog.at_level("INFO"):
+        assert contest_cmd.cmd_contest_archive(argparse.Namespace()) == 0
+        assert contest_cmd.cmd_contest_archive(argparse.Namespace()) == 0
+    assert any("outcome=unchanged" in r.message for r in caplog.records)
+
+
+def test_contest_archive_conflict_returns_1(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Structural archive corruption fails closed with rc 1."""
+    from src.contest.leaderboard import LeaderboardConflictError
+
+    def _boom(payloads: object, root: object) -> tuple:
+        raise LeaderboardConflictError("corrupt")
+
+    monkeypatch.setattr(contest_cmd, "_contest_config", lambda: _contest_dict())
+    monkeypatch.setattr("src.core.settings.get_settings", lambda: SimpleNamespace(data_root=tmp_path))
+    monkeypatch.setattr("src.contest.leaderboard.fetch_leaderboard_payloads", lambda *a, **k: {})
+    monkeypatch.setattr("src.contest.leaderboard.archive_leaderboard", _boom)
     assert contest_cmd.cmd_contest_archive(argparse.Namespace()) == 1
 
 
@@ -284,7 +350,12 @@ def test_seed_single_stock_reference_write_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A parquet write failure cleans up the temp file and raises."""
-    payload = _yahoo_payload([("2026-05-24T00:00:00", 100.0, 101.0)])
+    payload = _yahoo_payload(
+        [
+            ("2026-05-24T00:00:00", 100.0, 101.0),
+            ("2026-05-25T00:00:00", 102.0, 103.0),
+        ]
+    )
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=payload)

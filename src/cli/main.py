@@ -27,9 +27,16 @@ from src.cli.commands.replay import cmd_replay
 from src.cli.commands.storage import cmd_storage_migrate
 from src.cli.commands.universe import cmd_universe
 from src.cli.parser import build_parser
+from src.core.config import config_value
+from src.core.locks import DataLockTimeout, data_lock
 from src.core.logging_setup import configure_logging
+from src.core.paths import DataPaths
+from src.core.settings import get_settings
 
 logger = logging.getLogger(__name__)
+
+_EXCLUSIVE_DATA_COMMANDS = frozenset({"ingest", "normalize", "features", "daily-refresh", "storage-migrate"})
+_SHARED_DATA_COMMANDS = frozenset({"contest-weekly", "contest-daily"})
 
 SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "config-check": cmd_config_check,
@@ -82,6 +89,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         sub_name = getattr(args, "subcommand", None)
         if sub_name is not None and sub_name in SUBCOMMANDS:
             handler = SUBCOMMANDS[args.subcommand]
+            if sub_name in _EXCLUSIVE_DATA_COMMANDS or sub_name in _SHARED_DATA_COMMANDS:
+                timeout_s = float(config_value("base", "pipeline", "lock_timeout_s", required=True))
+                lock_path = DataPaths(root=get_settings().data_root).lock("pipeline")
+                try:
+                    with data_lock(
+                        lock_path, shared=sub_name in _SHARED_DATA_COMMANDS, timeout_s=timeout_s
+                    ):
+                        return int(handler(args))
+                except DataLockTimeout as exc:
+                    logger.error(f"[SYS] data_lock status=fail reason=timeout error={exc!r}")
+                    return 1
             return int(handler(args))
         return int(func(args))
     except Exception as exc:
