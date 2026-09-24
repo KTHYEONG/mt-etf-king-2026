@@ -539,3 +539,17 @@ def test_decide_week_unknown_current_base_equity() -> None:
     out = decide_week(panel, snap, session, cal, cfg, None, (0.95, "OUR_RETURN_ESTIMATED"))
     assert out.action in (ContestAction.HOLD, ContestAction.SWITCH)
     assert out.scores
+
+
+def test_inference_inputs_exclude_crowd_only_and_signal_vehicles(tmp_path) -> None:
+    """Crowd-only proxies and non-tradable signals never become holder-inference candidates."""
+    from src.contest.decision import _inference_inputs
+
+    panel = _toy_panel()
+    vehicles = _toy_config()["vehicles"]
+    vehicles = {**vehicles, "HY2": {**vehicles["HY2"], "tradable": True},
+                "K2": {**vehicles["K2"], "tradable": True, "crowd_only": True}}
+    changes, exposure = _inference_inputs(panel, tmp_path, vehicles, date(2026, 9, 23), get_calendar())
+    assert "HY2" in changes
+    assert "K2" not in changes
+    assert exposure == {}
