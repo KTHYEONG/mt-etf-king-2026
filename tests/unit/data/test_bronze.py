@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime, UTC
 from pathlib import Path
 
+import pytest
+
 from src.core.paths import DataPaths
 from src.data.bronze import BronzeRecord, BronzeStore
 
@@ -199,3 +201,64 @@ def test_migrate_keeps_plain_when_gz_content_mismatches(tmp_path: Path) -> None:
     assert res["skipped_existing_gz"] == 1
     assert res["deleted_plain"] == 0
     assert plain_path.exists()
+
+
+def test_failed_bronze_write_stays_refetchable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An interrupted publish raises with no session recorded, so the planner re-fetches."""
+    import os
+
+    paths = DataPaths(root=tmp_path)
+    store = BronzeStore(paths)
+    rec = BronzeRecord(
+        endpoint="etp/etf_bydd_trd",
+        bas_dd=date(2026, 8, 27),
+        fetched_at=datetime(2026, 8, 28, 0, 57, 12, tzinfo=UTC),
+        http_status=200,
+        row_count=1,
+        rows=[{"BAS_DD": "20260827", "NAV": ""}],
+    )
+
+    def _boom(src: object, dst: object) -> None:
+        raise OSError("replace down")
+
+    monkeypatch.setattr(os, "replace", _boom)
+    with pytest.raises(OSError, match="replace down"):
+        store.write(rec)
+    assert store.has_session("etp/etf_bydd_trd", date(2026, 8, 27)) is False
+    assert date(2026, 8, 27) not in store.available_sessions("etp/etf_bydd_trd")
+
+
+def test_bronze_write_once_semantics_preserved(tmp_path: Path) -> None:
+    """Canonical files stay write-once; revisions land in readable .rev. siblings."""
+    import gzip
+    import json
+
+    paths = DataPaths(root=tmp_path)
+    store = BronzeStore(paths)
+    rec = BronzeRecord(
+        endpoint="etp/etf_bydd_trd",
+        bas_dd=date(2026, 8, 27),
+        fetched_at=datetime(2026, 8, 28, 0, 57, 12, tzinfo=UTC),
+        http_status=200,
+        row_count=1,
+        rows=[{"BAS_DD": "20260827", "NAV": ""}],
+    )
+    assert store.write(rec) == "written"
+    canonical = paths.bronze("etp/etf_bydd_trd", date(2026, 8, 27))
+    before = canonical.read_bytes()
+    rec2 = BronzeRecord(
+        endpoint="etp/etf_bydd_trd",
+        bas_dd=date(2026, 8, 27),
+        fetched_at=datetime(2026, 8, 28, 1, 0, 0, tzinfo=UTC),
+        http_status=200,
+        row_count=0,
+        rows=[],
+    )
+    assert store.write(rec2) == "skipped"
+    assert canonical.read_bytes() == before
+    assert store.write(rec2, allow_revision=True) == "revised"
+    assert canonical.read_bytes() == before
+    revs = [p for p in canonical.parent.iterdir() if ".rev." in p.name]
+    assert len(revs) == 1
+    with gzip.open(revs[0], "rt", encoding="utf-8") as handle:
+        assert json.load(handle)["row_count"] == 0

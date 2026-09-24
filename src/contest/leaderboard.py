@@ -1,19 +1,24 @@
 """Immutable archive and typed standings for the Money Today contest leaderboard.
 
-The public ranking JSON files are overwritten every trading day at 16:00 KST,
-so each snapshot must be fetched and archived under its ``baseDt`` directory.
-This module is a pure data layer: network I/O lives only in
-:func:`fetch_leaderboard_payloads`, the archive is append-only, and no
-decision logic is included here.
+The public ranking JSON files are overwritten every weekday at 16:00 KST (KRX holidays included, when the previous
+session's ``baseDt`` is republished with a fresh ``reqDateTime``), so each snapshot must be fetched and archived
+under its ``baseDt`` directory. Snapshot identity excludes volatile request metadata; a genuinely different payload
+for an already-archived ``baseDt`` is kept as a timestamped revision beside the original, which stays authoritative.
+This module is a pure data layer: network I/O lives only in :func:`fetch_leaderboard_payloads`, the archive is
+append-only, and no decision logic is included here.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
 
@@ -25,6 +30,22 @@ _USER_AGENT: Final[str] = "mt-etf-king-2026 contest-archive/1.0"
 _TOTAL_ENDPOINT: Final[str] = "etfRankTotal"
 _PURCHASES_ENDPOINT: Final[str] = "etfRankProductPurchase"
 _UNINFORMATIVE_MOVE_PCT: Final[float] = 0.3
+_VOLATILE_KEYS: Final[frozenset[str]] = frozenset({"reqDateTime"})
+
+
+class ArchiveOutcome(StrEnum):
+    """Result of archiving one fetched payload set.
+
+    WRITTEN: a new ``<baseDt>`` directory was created.
+    UNCHANGED: the identifying content already exists as the original or as a stored revision (idempotent re-run,
+        holiday re-fetch).
+    REVISION_STORED: the identifying content differs from the original and from every stored revision; it was
+        written under ``<baseDt>/revisions/<fetched_at:%Y%m%dT%H%M%SZ>/``.
+    """
+
+    WRITTEN = "written"
+    UNCHANGED = "unchanged"
+    REVISION_STORED = "revision_stored"
 
 
 class LeaderboardFetchError(RuntimeError):
@@ -136,18 +157,133 @@ def _read_json_file(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _identifying_text(payload: Mapping[str, Any]) -> str:
+    identifying = {key: value for key, value in payload.items() if key not in _VOLATILE_KEYS}
+    return _serialize(identifying)
+
+
+def _existing_identifying_text(path: Path) -> str | None:
+    """Identifying form of an archived JSON file, or None when missing/unparseable."""
+    if not path.is_file():
+        return None
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError, OSError):
+        return None
+    if not isinstance(body, Mapping):
+        return None
+    return _identifying_text(body)
+
+
+def _revision_matches(revision_dir: Path, new_identifying: Mapping[str, str]) -> bool:
+    for endpoint, text in new_identifying.items():
+        if _existing_identifying_text(revision_dir / f"{endpoint}.json") != text:
+            return False
+    return True
+
+
+def _stage_payloads(staging_parent: Path, prefix: str, serialized: Mapping[str, str]) -> Path:
+    staging_parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=prefix, dir=str(staging_parent)))
+    for endpoint, text in serialized.items():
+        (staging / f"{endpoint}.json").write_text(text, encoding="utf-8")
+    return staging
+
+
+def _evaluate_existing(
+    base_date: date,
+    base_name: str,
+    target_dir: Path,
+    serialized: Mapping[str, str],
+    new_identifying: Mapping[str, str],
+    n_entries: int,
+    fetched_at: datetime | None,
+) -> tuple[date, ArchiveOutcome]:
+    existing_total_path = target_dir / f"{_TOTAL_ENDPOINT}.json"
+    if not existing_total_path.is_file():
+        raise LeaderboardConflictError(f"baseDt dir exists without etfRankTotal: {target_dir}")
+    try:
+        existing_total = json.loads(existing_total_path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError, OSError) as exc:
+        raise LeaderboardConflictError(f"corrupt etfRankTotal for baseDt={base_name} (never overwrite)") from exc
+    if not isinstance(existing_total, Mapping):
+        raise LeaderboardConflictError(f"corrupt etfRankTotal for baseDt={base_name} (never overwrite)")
+
+    differing = sorted(
+        endpoint
+        for endpoint, text in new_identifying.items()
+        if _existing_identifying_text(target_dir / f"{endpoint}.json") != text
+    )
+    if not differing:
+        logger.info(
+            f"[DATA] contest_archive base_date={base_date.isoformat()} outcome=unchanged entries={n_entries}"
+        )
+        return base_date, ArchiveOutcome.UNCHANGED
+
+    revisions_root = target_dir / "revisions"
+    if revisions_root.is_dir():
+        for child in sorted(revisions_root.iterdir()):
+            if child.is_dir() and _revision_matches(child, new_identifying):
+                logger.info(
+                    f"[DATA] contest_archive base_date={base_date.isoformat()} outcome=unchanged entries={n_entries}"
+                )
+                return base_date, ArchiveOutcome.UNCHANGED
+
+    instant = fetched_at if fetched_at is not None else datetime.now(UTC)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=UTC)
+    revision_name = instant.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+    revision_target = revisions_root / revision_name
+    if revision_target.exists():
+        raise LeaderboardConflictError(
+            f"revision {revision_name} for baseDt={base_name} already taken by different content"
+        )
+    staging = _stage_payloads(revisions_root, f".staging-{revision_name}-", serialized)
+    try:
+        os.rename(staging, revision_target)
+    except OSError as exc:
+        if revision_target.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+            raise LeaderboardConflictError(
+                f"revision {revision_name} for baseDt={base_name} already taken by different content"
+            ) from exc
+        raise
+    total_changed = _TOTAL_ENDPOINT in differing
+    logger.warning(
+        f"[DATA] contest_archive base_date={base_date.isoformat()} outcome=revision_stored "
+        f"revision={revision_name} differing={','.join(differing)} total_rows_changed={total_changed}"
+    )
+    return base_date, ArchiveOutcome.REVISION_STORED
+
+
 def archive_leaderboard(
-    payloads: Mapping[str, Mapping[str, Any]], archive_root: Path
-) -> tuple[date, bool]:
-    """Persist payloads under `<archive_root>/<baseDt:%Y%m%d>/<endpoint>.json`.
+    payloads: Mapping[str, Mapping[str, Any]],
+    archive_root: Path,
+    *,
+    fetched_at: datetime | None = None,
+) -> tuple[date, ArchiveOutcome]:
+    """Persist payloads under `<archive_root>/<baseDt:%Y%m%d>/<endpoint>.json`, append-only.
+
+    MT republishes the previous session's `baseDt` with a new `reqDateTime` on KRX holidays, so snapshot identity is
+    the payload content with volatile request metadata removed. A re-fetch that differs only in that metadata is a
+    no-op. Differing identifying content never replaces the original: it is stored once as a timestamped revision
+    so the first archived snapshot remains the record every reader uses.
+
+    Args:
+        payloads: Endpoint name -> decoded JSON object, as returned by `fetch_leaderboard_payloads`.
+        archive_root: Archive root (`<data_root>/<contest.leaderboard.archive_dir>`).
+        fetched_at: UTC instant of the fetch, used only to name a revision directory. Defaults to the current UTC
+            time.
 
     Returns:
-        (base_date, written). `written` is False when that baseDt directory already exists with identical content
-        (idempotent re-run / holiday re-fetch of an old snapshot).
+        (base_date, outcome), see `ArchiveOutcome`.
 
     Raises:
-        LeaderboardSchemaError: `etfRankTotal` lacks baseDt/data or rows lack rank/userName/totalReturnRate/dailyReturnRate.
-        LeaderboardConflictError: the baseDt directory exists with different etfRankTotal content (never overwrite).
+        LeaderboardSchemaError: `etfRankTotal` lacks baseDt/data or rows lack rank/userName/totalReturnRate/
+            dailyReturnRate.
+        LeaderboardConflictError: the baseDt directory exists but its `etfRankTotal.json` is missing or not valid
+            JSON (structural corruption; never adopted or repaired), or the target revision directory name is
+            already taken by different content.
     """
     total = payloads.get(_TOTAL_ENDPOINT)
     if not isinstance(total, Mapping):
@@ -159,26 +295,30 @@ def archive_leaderboard(
     base_name = base_date.strftime("%Y%m%d")
     target_dir = archive_root / base_name
     serialized = {endpoint: _serialize(dict(body)) for endpoint, body in payloads.items()}
+    new_identifying = {endpoint: _identifying_text(dict(body)) for endpoint, body in payloads.items()}
+    n_entries = len(data)  # type: ignore[arg-type]
 
-    if target_dir.exists():
-        existing_total_path = target_dir / f"{_TOTAL_ENDPOINT}.json"
-        if not existing_total_path.is_file():
-            raise LeaderboardConflictError(f"baseDt dir exists without etfRankTotal: {target_dir}")
-        existing_total = _read_json_file(existing_total_path)
-        if existing_total != dict(total):
-            raise LeaderboardConflictError(f"conflicting etfRankTotal for baseDt={base_name} (never overwrite)")
-        for endpoint, text in serialized.items():
-            existing_path = target_dir / f"{endpoint}.json"
-            if not existing_path.is_file() or existing_path.read_text(encoding="utf-8") != text:
-                raise LeaderboardConflictError(f"conflicting {endpoint} for baseDt={base_name} (never overwrite)")
-        logger.info(f"[DATA] contest_archive base_date={base_date.isoformat()} entries={len(data)} written=False")  # type: ignore[arg-type]
-        return base_date, False
+    if target_dir.is_dir() or (target_dir.exists() and not target_dir.is_dir()):
+        if not target_dir.is_dir():
+            raise LeaderboardConflictError(f"baseDt path exists and is not a directory: {target_dir}")
+        return _evaluate_existing(
+            base_date, base_name, target_dir, serialized, new_identifying, n_entries, fetched_at
+        )
 
-    target_dir.mkdir(parents=True, exist_ok=False)
-    for endpoint, text in serialized.items():
-        (target_dir / f"{endpoint}.json").write_text(text, encoding="utf-8")
-    logger.info(f"[DATA] contest_archive base_date={base_date.isoformat()} entries={len(data)} written=True")  # type: ignore[arg-type]
-    return base_date, True
+    staging = _stage_payloads(archive_root, f".staging-{base_name}-", serialized)
+    try:
+        os.rename(staging, target_dir)
+    except OSError:
+        if target_dir.is_dir():
+            shutil.rmtree(staging, ignore_errors=True)
+            return _evaluate_existing(
+                base_date, base_name, target_dir, serialized, new_identifying, n_entries, fetched_at
+            )
+        raise
+    logger.info(
+        f"[DATA] contest_archive base_date={base_date.isoformat()} outcome=written entries={n_entries}"
+    )
+    return base_date, ArchiveOutcome.WRITTEN
 
 
 def _parse_entries(data: Any) -> tuple[LeaderboardEntry, ...]:

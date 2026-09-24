@@ -694,5 +694,14 @@
   },
   "src/contest/daily.py": {
     "testing": "tests/unit/contest/test_daily.py"
+  },
+  "src/contest/leaderboard.py": {
+    "testing": "tests/unit/contest/test_leaderboard.py"
+  },
+  "scripts/daily_pipeline.sh": {
+    "testing": "tests/unit/test_deploy_assets.py"
+  },
+  "src/core/atomic_io.py": {
+    "testing": "tests/unit/core/test_atomic_io.py"
   }
 }

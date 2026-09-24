@@ -1,6 +1,72 @@
 {
   "tasks": [
     {
+      "task_id": "pipeline_io_safety",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_pipeline_io_safety",
+      "domain": "core",
+      "title": "Pipeline I/O safety",
+      "why": "In-place writes on the timer path could leave truncated bronze/silver/gold files that permanently poisoned later runs.",
+      "resolution": "Added atomic temp+replace writers and an advisory flock data lock, and wired them into bronze, silver, gold, and contest card writes.",
+      "impact": "Readers see either the old or complete new file and writers no longer interleave.",
+      "caveat": "Research-only writers under src/reporting and src/tournament/frontier.py are not covered."
+    },
+    {
+      "task_id": "pipeline_heal_orchestration",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_pipeline_heal_orchestration",
+      "domain": "pipeline",
+      "title": "Pipeline heal orchestration",
+      "why": "A fixed 10-day ingest lookback abandoned missed sessions and daily-refresh rebuilt the 337 MB gold on every run.",
+      "resolution": "daily-refresh widens ingest to the earliest missing session, fails closed on stale ETF-vs-index gaps, and rebuilds features only when inputs changed.",
+      "impact": "Gaps self-heal, holiday runs are cheap no-ops returning 0, and stale sessions surface as rc=1.",
+      "caveat": "Changes outside silver, features.yaml, and src/features require --force-rebuild."
+    },
+    {
+      "task_id": "pipeline_heal_data",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_pipeline_heal_data",
+      "domain": "data",
+      "title": "Pipeline heal data layer",
+      "why": "Incremental silver builds ignored bronze sessions older than the silver max and rewrote the file on every no-change run.",
+      "resolution": "Incremental build now picks up any missing session, skips writing when nothing is new, and adds pure ETF-vs-index session-gap primitives.",
+      "impact": "Late backfills like 2026-08-28 heal without --mode full and no-op runs stop rewriting silver.",
+      "caveat": "V6_missing_sessions remains a WARN gate in validation."
+    },
+    {
+      "task_id": "deploy_hygiene",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_deploy_hygiene",
+      "domain": "deploy",
+      "title": "Deploy hygiene",
+      "why": "daily-refresh had no CPU limits on a shared 2-vCPU host, its timer slot overlapped a co-tenant capture window, and wrapper scripts skipped the end-status line on failure.",
+      "resolution": "Added Nice/CPUQuota, moved timer slots, fixed the holiday comment, and made wrapper scripts log start/end with KST-dated logs.",
+      "impact": "Bounded CPU footprint and every wrapper run leaves a diagnosable end status.",
+      "caveat": "No MemoryMax since peak RSS of the feature rebuild is unmeasured; owner-run ops steps remain outside code."
+    },
+    {
+      "task_id": "contest_archive_idempotency",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_contest_archive_idempotency",
+      "domain": "data",
+      "title": "Contest archive idempotency",
+      "why": "Holiday rebuilds change reqDateTime, so byte comparison raised LeaderboardConflictError on every rerun.",
+      "resolution": "Snapshot identity excludes volatile metadata, genuine changes are stored as append-only revisions, and new baseDt dirs publish atomically.",
+      "impact": "Holiday reruns exit 0 and revisions log at WARNING for operator review.",
+      "caveat": "The original snapshot stays authoritative; OnFailure= alerting is left to the owner."
+    },
+    {
+      "task_id": "calendar_holiday_overrides",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_calendar_holiday_overrides",
+      "domain": "data",
+      "title": "XKRX holiday overrides",
+      "why": "exchange_calendars 4.13.2 lists 2026-06-03 and 2026-07-17 as sessions though KRX was closed, yielding phantom feature rows and false missing-session warnings.",
+      "resolution": "Config-declared typed holiday_overrides applied inside TradingCalendar so every consumer sees one corrected session set.",
+      "impact": "Ingest planner, validator, feature grid, and target-session resolution no longer treat closed days as sessions.",
+      "caveat": "Overrides are manual; a new unlisted closure must be added to configs/base.yaml."
+    },
+    {
       "task_id": "TASK_CONTEST_SHADOW",
       "date": "2026-09-24",
       "adr_id": "ADR_20260924_CONTEST_SHADOW",
@@ -943,16 +1009,6 @@
       "why": "KRX Open API returns HTTP 200 for semantic failures; ingestion must preserve raw payloads write-once, enforce per-second rate limits and daily quota, and resume without re-fetching completed sessions.",
       "resolution": "Implemented src/data/providers/{base,krx,ratelimit}.py, src/data/{bronze,backfill}.py, and ingest CLI wiring: KRXOpenAPIProvider (basDd-only, verbatim rows, permanent/transient retry), BronzeStore write-once, QuotaLedger + RateLimiter, BackfillPlanner/run_backfill with bounded concurrency; Settings.requests_per_second=5.0; 10 contract scenarios pass.",
       "impact": "L1 data layer operational: mt-etf ingest supports dry-run and resumable backfill; bronze JSON preserved under data/raw/krx/**; daily quota tracked in data/state/krx_quota.json."
-    },
-    {
-      "task_id": "TASK_01_CORE_SPINE",
-      "date": "2026-08-28",
-      "adr_id": "ADR_20260828_01_CORE_SPINE",
-      "domain": "core",
-      "title": "Core Spine — settings, calendar, paths, logging, CLI",
-      "why": "Stage-1 foundation: typed Settings, XKRX calendar, DataPaths traversal guard, structured logging, and mt-etf CLI spine required by all downstream specs.",
-      "resolution": "Implemented src/core/{settings,sops_env,calendar,paths,logging_setup}.py and src/cli.py with SUBCOMMANDS registry; secrets load from .env.enc via sops (no plain .env); 12 unit tests pass; architecture docs updated.",
-      "impact": "L0 core layer operational: config-check and calendar subcommands verified; KRX API auth works via in-memory sops decrypt; code_map and task_index registered."
     }
   ]
 }

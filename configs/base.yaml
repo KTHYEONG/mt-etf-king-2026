@@ -3,6 +3,12 @@ data:
 
 calendar:
   exchange: "XKRX"
+  holiday_overrides:
+    XKRX:
+      - date: "2026-06-03"
+        reason: "KRX closed (local election day); exchange_calendars 4.13.2 lists a session; bronze has no trading rows"
+      - date: "2026-07-17"
+        reason: "KRX closed (Constitution Day); exchange_calendars 4.13.2 lists a session; bronze has no trading rows"
 
 krx:
   base_url: "https://data-dbg.krx.co.kr/svc/apis"
@@ -10,3 +16,6 @@ krx:
 
 logging:
   level: "INFO"
+
+pipeline:
+  lock_timeout_s: 900

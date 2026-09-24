@@ -97,7 +97,7 @@ def cmd_normalize(args: argparse.Namespace) -> int:
         store = BronzeStore(paths)
         builder = SilverBuilder(store, paths, validator)
         result = builder.build(dataset, mode=mode)  # type: ignore[arg-type]
-        logger.info(f"[DATA] normalize dataset={dataset} mode={mode} rows={result.rows} sessions={result.sessions} path={result.path}")
+        logger.info(f"[DATA] normalize dataset={dataset} mode={mode} rows={result.rows} sessions={result.sessions} path={result.path} written={result.written}")
         return 0
     except Exception as exc:
         logger.error(f"[SYS] normalize status=fail error={exc!r}")

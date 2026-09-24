@@ -9,6 +9,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from src.core.atomic_io import atomic_write_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,9 +27,12 @@ def _contest_config() -> dict[str, Any]:
 def cmd_contest_archive(args: argparse.Namespace) -> int:
     """Fetch and archive today's leaderboard snapshot; print our rank/return when visible.
 
-    Returns 0 on success or idempotent no-op, 1 on fetch/schema/conflict failure (fail-closed, nothing written).
+    Returns 0 when the snapshot is written, already archived, or stored as a revision of an existing baseDt (the
+    revision is logged at WARNING for operator review). Returns 1 on fetch failure, schema violation, or structural
+    archive corruption (fail-closed, nothing overwritten).
     """
     from src.contest.leaderboard import (
+        ArchiveOutcome,
         LeaderboardConflictError,
         LeaderboardFetchError,
         LeaderboardSchemaError,
@@ -66,7 +71,7 @@ def cmd_contest_archive(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        base_date, written = archive_leaderboard(payloads, archive_root)
+        base_date, outcome = archive_leaderboard(payloads, archive_root)
     except (LeaderboardSchemaError, LeaderboardConflictError) as exc:
         logger.error(f"[SYS] contest_archive status=fail reason={type(exc).__name__} error={exc!r}")
         return 1
@@ -81,10 +86,14 @@ def cmd_contest_archive(args: argparse.Namespace) -> int:
         entry = snapshot.entry_for(nickname) if nickname else None
         our_rank = str(entry.rank) if entry is not None else "none"
         our_total = f"{entry.total_return_pct}" if entry is not None else "none"
-        logger.info(
-            f"[DATA] contest_archive base_date={base_date.isoformat()} written={written} "
+        message = (
+            f"[DATA] contest_archive base_date={base_date.isoformat()} outcome={outcome.value} "
             f"our_rank={our_rank} our_total={our_total}"
         )
+        if outcome is ArchiveOutcome.REVISION_STORED:
+            logger.warning(message)
+        else:
+            logger.info(message)
     except Exception as exc:
         logger.error(f"[SYS] contest_archive status=fail reason=load error={exc!r}")
         return 1
@@ -252,14 +261,14 @@ def cmd_contest_weekly(args: argparse.Namespace) -> int:
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
         card = decision_to_dict(decision)
-        card_path.write_text(json.dumps(card, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(card_path, json.dumps(card, ensure_ascii=False, indent=2) + "\n")
         names = {a: str(v.get("name", a)) for a, v in contest["vehicles"].items()}
-        (output_dir / f"{session.isoformat()}.md").write_text(
-            render_decision_markdown(decision, names), encoding="utf-8"
+        atomic_write_text(
+            output_dir / f"{session.isoformat()}.md", render_decision_markdown(decision, names)
         )
         if decision.action in (ContestAction.HOLD, ContestAction.SWITCH):
-            state_path.parent.mkdir(parents=True, exist_ok=True)
-            state_path.write_text(
+            atomic_write_text(
+                state_path,
                 json.dumps(
                     {
                         "as_of": session.isoformat(),
@@ -274,7 +283,6 @@ def cmd_contest_weekly(args: argparse.Namespace) -> int:
                     indent=2,
                 )
                 + "\n",
-                encoding="utf-8",
             )
     except Exception as exc:
         logger.error(f"[SYS] contest_weekly status=fail reason=persist error={exc!r}")
@@ -413,8 +421,8 @@ def cmd_contest_daily(args: argparse.Namespace) -> int:
 
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
-        card_path.write_text(json.dumps(daily_to_dict(card), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        (output_dir / f"{session.isoformat()}.md").write_text(render_daily_markdown(card), encoding="utf-8")
+        atomic_write_text(card_path, json.dumps(daily_to_dict(card), ensure_ascii=False, indent=2) + "\n")
+        atomic_write_text(output_dir / f"{session.isoformat()}.md", render_daily_markdown(card))
         _upsert_daily_metric(output_dir, card_metric_row(card))
     except Exception as exc:
         logger.error(f"[SYS] contest_daily status=fail reason=persist error={exc!r}")

@@ -14,8 +14,10 @@ LOG_FILE="$LOG_DIR/daily_refresh_$(TZ=Asia/Seoul date +%F).log"
 UV_BIN="${UV_BIN:-$HOME/.local/bin/uv}"
 
 echo "[$(date -Iseconds)] daily_pipeline.sh start" >> "$LOG_FILE"
+set +e
 "$UV_BIN" run mt-etf daily-refresh --decide >> "$LOG_FILE" 2>&1
 STATUS=$?
+set -e
 echo "[$(date -Iseconds)] daily_pipeline.sh end status=$STATUS" >> "$LOG_FILE"
 
 exit "$STATUS"

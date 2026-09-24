@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
 import polars as pl
 
+from src.core.atomic_io import atomic_write_parquet
 from src.core.paths import DataPaths
 from src.data.bronze import BronzeStore
 from src.data.providers.krx import resolve_endpoint
@@ -24,11 +26,36 @@ SCHEMAS = {
 
 @dataclass(frozen=True)
 class BuildResult:
+    """Outcome of one silver build.
+
+    Attributes:
+        dataset: Silver table alias.
+        path: Silver parquet path.
+        rows: Row count of the table after the build (existing table when unchanged).
+        sessions: Distinct dates in the table after the build.
+        report: Validation report of the written frame; None when nothing was written.
+        written: False when an incremental build found no new trading session and left the file untouched.
+    """
+
     dataset: str
     path: Path
     rows: int
     sessions: int
-    report: ValidationReport
+    report: ValidationReport | None
+    written: bool
+
+
+def silver_session_dates(paths: DataPaths, dataset: str) -> frozenset[date]:
+    """Distinct dates in the silver table, read with column pruning (date column only).
+
+    Returns:
+        Empty frozenset when the silver file does not exist.
+    """
+    path = paths.silver(dataset)
+    if not path.is_file():
+        return frozenset()
+    frame = pl.read_parquet(path, columns=["date"])
+    return frozenset(frame.select(pl.col("date").unique()).to_series().to_list())
 
 
 class SilverBuilder:
@@ -42,6 +69,16 @@ class SilverBuilder:
         return pl.read_parquet(path)
 
     def build(self, dataset: str, mode: Literal["full", "incremental"] = "incremental") -> BuildResult:
+        """Build the silver table for `dataset` from bronze.
+
+        Incremental mode normalizes every bronze session whose date is absent from the existing table, including
+        sessions older than its latest date, so late backfills heal without a full rebuild. When no such session
+        decodes to trading rows, the existing file is left untouched.
+
+        Raises:
+            KeyError: unknown dataset.
+            RuntimeError: the combined frame fails a CRITICAL validation gate (nothing written).
+        """
         if dataset not in SCHEMAS:
             raise KeyError(f"unknown dataset {dataset}")
         schema = SCHEMAS[dataset]
@@ -58,21 +95,24 @@ class SilverBuilder:
         all_sessions = self._store.available_sessions(endpoint)
         all_sessions.sort()
 
-        # Determine incremental filtering
+        # Determine incremental filtering against the existing silver date set,
+        # so late backfills older than the latest date heal without a full rebuild.
         existing_frame: pl.DataFrame | None = None
-        max_existing_date = None
+        existing_dates: frozenset[date] = frozenset()
         if mode == "incremental" and silver_path.exists():
             try:
                 existing_frame = pl.read_parquet(silver_path)
                 if existing_frame.height > 0 and "date" in existing_frame.columns:
-                    max_existing_date = existing_frame.select(pl.col("date").max()).item()
+                    existing_dates = frozenset(
+                        existing_frame.select(pl.col("date").unique()).to_series().to_list()
+                    )
             except Exception:
                 existing_frame = None
-                max_existing_date = None
+                existing_dates = frozenset()
 
         # Filter sessions to process
-        if mode == "incremental" and max_existing_date is not None:
-            sessions_to_process = [d for d in all_sessions if d > max_existing_date]
+        if mode == "incremental" and existing_frame is not None:
+            sessions_to_process = [d for d in all_sessions if d not in existing_dates]
         else:
             sessions_to_process = all_sessions
 
@@ -108,6 +148,22 @@ class SilverBuilder:
                 raise
             decoded_rows.extend(decoded)
             processed_sessions.append(bas_dd)
+
+        # No-op: nothing new decoded and a readable table already exists -> leave the file untouched.
+        if not decoded_rows and existing_frame is not None and mode == "incremental":
+            n_rows = existing_frame.height
+            n_sessions = len(existing_dates)
+            logger.info(
+                f"[DATA] build dataset={dataset} mode=incremental status=unchanged rows={n_rows} sessions={n_sessions}"
+            )
+            return BuildResult(
+                dataset=dataset,
+                path=silver_path,
+                rows=n_rows,
+                sessions=n_sessions,
+                report=None,
+                written=False,
+            )
 
         # Build new frame from decoded rows
         if decoded_rows:
@@ -177,14 +233,8 @@ class SilverBuilder:
 
         # Write Parquet with zstd via pyarrow
         # Must be written to DataPaths.silver(dataset)
-        silver_path.parent.mkdir(parents=True, exist_ok=True)
-        # Use Polars write_parquet with compression zstd and pyarrow
         # Polars uses compression param and use_pyarrow flag
-        try:
-            frame.write_parquet(str(silver_path), compression="zstd", use_pyarrow=True)
-        except TypeError:
-            # Fallback without use_pyarrow if version differs
-            frame.write_parquet(str(silver_path), compression="zstd")
+        atomic_write_parquet(frame, silver_path)
 
         n_rows = frame.height
         n_sessions = 0
@@ -197,4 +247,4 @@ class SilverBuilder:
         # Log summary with [DATA] tag and truncated instrument list handling already in validator
         logger.info(f"[DATA] build dataset={dataset} mode={mode} rows={n_rows} sessions={n_sessions} path={silver_path}")
 
-        return BuildResult(dataset=dataset, path=silver_path, rows=n_rows, sessions=n_sessions, report=report)
+        return BuildResult(dataset=dataset, path=silver_path, rows=n_rows, sessions=n_sessions, report=report, written=True)

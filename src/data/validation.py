@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
@@ -67,6 +67,53 @@ def _truncate_list(items: list[str], limit: int = 5) -> str:
 def find_future_dates(dates: Sequence[date], decision_date: date) -> list[date]:
     future = {d for d in dates if d > decision_date}
     return sorted(future)
+
+
+@dataclass(frozen=True)
+class SessionGapReport:
+    """Sessions present in the reference (index) table but absent from the primary (ETF) table.
+
+    Attributes:
+        stale: Gap sessions older than the reference table's latest session: publication for them is long over, so
+            the gap is a data defect.
+        pending: The gap at the reference table's latest session, which may still be unpublished for the primary
+            endpoint (KRX publishes endpoints at different times on T+1).
+    """
+
+    stale: tuple[date, ...]
+    pending: tuple[date, ...]
+
+    @property
+    def is_fatal(self) -> bool:
+        """True when any stale gap exists."""
+        return bool(self.stale)
+
+
+def etf_index_session_gaps(etf_dates: Collection[date], index_dates: Collection[date]) -> SessionGapReport:
+    """Compare the ETF and index silver date sets.
+
+    The index table is the independent witness that KRX traded on a date; an ETF session missing where the index
+    has data means ETF bronze was never fetched or failed to normalize.
+
+    Returns:
+        Sorted gaps split into stale/pending; both empty when `index_dates` is empty or fully covered.
+    """
+    index_set = set(index_dates)
+    if not index_set:
+        return SessionGapReport(stale=(), pending=())
+    gaps = sorted(index_set - set(etf_dates))
+    if not gaps:
+        return SessionGapReport(stale=(), pending=())
+    latest = max(index_set)
+    if gaps[-1] == latest:
+        return SessionGapReport(stale=tuple(gaps[:-1]), pending=(latest,))
+    return SessionGapReport(stale=tuple(gaps), pending=())
+
+
+def missing_calendar_sessions(present: Collection[date], calendar_sessions: Sequence[date]) -> tuple[date, ...]:
+    """Calendar sessions absent from `present`, sorted ascending."""
+    have = set(present)
+    return tuple(sorted(day for day in calendar_sessions if day not in have))
 
 
 # Wiring reference for orphan check — find_future_dates is part of public contract
