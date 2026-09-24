@@ -12,6 +12,7 @@ import logging
 import tempfile
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
+from itertools import pairwise
 from pathlib import Path
 from typing import Final
 from zoneinfo import ZoneInfo
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 _YAHOO_CHART_URL: Final[str] = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 _USER_AGENT: Final[str] = "mt-etf-king-2026 contest-seed-reference/1.0"
 _KST: Final[ZoneInfo] = ZoneInfo("Asia/Seoul")
+_HISTORY_START_EPOCH: Final[int] = 1483228800  # 2017-01-01; before the contest panel grid (2018-01-02) starts
+_MAX_MEDIAN_GAP_DAYS: Final[int] = 4
 
 
 class ReferenceFetchError(RuntimeError):
@@ -32,7 +35,9 @@ class ReferenceFetchError(RuntimeError):
 
 def _download_symbol(client: httpx.Client, key: str, yahoo_symbol: str, cutoff: date) -> pl.DataFrame:
     try:
-        response = client.get(_YAHOO_CHART_URL.format(symbol=yahoo_symbol), params={"interval": "1d", "range": "max"})
+        # range=max silently degrades to monthly bars; an explicit period keeps the requested daily granularity
+        params: dict[str, str | int] = {"interval": "1d", "period1": _HISTORY_START_EPOCH, "period2": int(datetime.now(tz=UTC).timestamp()) + 86400}
+        response = client.get(_YAHOO_CHART_URL.format(symbol=yahoo_symbol), params=params)
         response.raise_for_status()
         payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:
@@ -46,7 +51,7 @@ def _download_symbol(client: httpx.Client, key: str, yahoo_symbol: str, cutoff: 
     except (KeyError, TypeError, IndexError) as exc:
         raise ReferenceFetchError(f"unexpected chart shape symbol={key}") from exc
     rows: list[tuple[date, float, float]] = []
-    for ts, o, c in zip(timestamps, opens, closes):
+    for ts, o, c in zip(timestamps, opens, closes, strict=False):
         try:
             day = datetime.fromtimestamp(float(ts), tz=UTC).astimezone(_KST).date()
             o_f, c_f = float(o), float(c)
@@ -57,6 +62,11 @@ def _download_symbol(client: httpx.Client, key: str, yahoo_symbol: str, cutoff: 
         rows.append((day, o_f, c_f))
     if not rows:
         raise ReferenceFetchError(f"no usable rows symbol={key} cutoff={cutoff.isoformat()}")
+    day_list = sorted({r[0] for r in rows})
+    gaps = sorted((b - a).days for a, b in pairwise(day_list))
+    median_gap = gaps[len(gaps) // 2] if gaps else None
+    if median_gap is None or median_gap > _MAX_MEDIAN_GAP_DAYS:
+        raise ReferenceFetchError(f"non-daily bars symbol={key} median_gap_days={median_gap}")
     frame = pl.DataFrame(
         {"date": [r[0] for r in rows], "symbol": [key] * len(rows), "open": [r[1] for r in rows], "close": [r[2] for r in rows]},
         schema={"date": pl.Date, "symbol": pl.String, "open": pl.Float64, "close": pl.Float64},
