@@ -255,7 +255,8 @@ def test_build_explicit_leaders_excludes_our_nickname() -> None:
     inferred = infer_single_vehicle_holders(snap, changes, 0.02, 0.90)
     assert inferred["tester"][0] == "K2"
     holders, pin_entries, top_values = build_explicit_leaders(snap, inferred, "tester", panel)
-    assert len(top_values) == 3
+    assert len(top_values) == len(snap.entries) - 1
+    assert not any(v == pytest.approx(1.03) for v in top_values.tolist())
     assert all(v == panel.index("HY2") for _, v in holders)
     assert [v for _, _, v in pin_entries] == [panel.index("HY2")]
     assert holders and pin_entries
@@ -276,7 +277,7 @@ def test_decide_week_endgame_adds_mimic_candidate() -> None:
 
 def test_simulate_common_random_numbers_shared_across_candidates() -> None:
     """Every candidate is scored against the identical crowd outcome array."""
-    from src.contest.engine import CrowdSpec, Worlds, bootstrap_worlds, simulate_contest
+    from src.contest.engine import CrowdSpec, Worlds, bootstrap_worlds
 
     panel = _toy_panel()
     worlds = bootstrap_worlds(panel, [panel.row(START)], np.arange(0, panel.row(START)), 4, 3, 10.0, 3)
@@ -396,3 +397,145 @@ def test_adv_krw_handles_missing_and_null_data(tmp_path) -> None:
     assert adv_krw(tmp_path, "T_X", date(2026, 9, 23), sessions) == 0.0
     assert adv_krw(tmp_path, "T_MISSING", date(2026, 9, 23), sessions) == 0.0
     assert adv_krw(tmp_path, "T_X", date(2026, 9, 23), []) == 0.0
+
+
+def test_persistence_scenarios_multiply_samples(caplog) -> None:
+    """Two churn scenarios double the era-by-profile runs and keep the log shape."""
+    import logging
+
+    panel = _toy_panel()
+    cal = get_calendar()
+    session = date(2026, 9, 23)
+    changes = panel_changes_pct(panel, session)
+    snap = _snapshot(panel, session, leaders=(("champ", 1, 12.0, changes["HY2"]),))
+    cfg = _toy_config()
+    cfg["crowd"]["leader_churn"] = [{"k": 10, "q": 0.1}, {"k": 10, "q": 0.0}]
+    with caplog.at_level(logging.INFO):
+        out = decide_week(panel, snap, session, cal, cfg, "K2")
+    assert out.action in (ContestAction.HOLD, ContestAction.SWITCH)
+    assert out.scores
+    runs = [r for r in caplog.records if "contest_weekly config=" in r.getMessage()]
+    assert len(runs) == 2 * 1 * 2
+
+
+def test_legacy_churn_mapping_still_accepted(caplog) -> None:
+    """A single mapping churn config still completes with era-by-profile runs."""
+    import logging
+
+    panel = _toy_panel()
+    cal = get_calendar()
+    session = date(2026, 9, 23)
+    snap = _snapshot(panel, session)
+    cfg = _toy_config()
+    cfg["crowd"]["leader_churn"] = {"k": 10, "q": 0.10}
+    with caplog.at_level(logging.INFO):
+        out = decide_week(panel, snap, session, cal, cfg, "K2")
+    assert out.action in (ContestAction.HOLD, ContestAction.SWITCH)
+    assert out.scores
+    runs = [r for r in caplog.records if "contest_weekly config=" in r.getMessage()]
+    assert len(runs) == 2
+
+
+def test_wrapper_changes_read_from_silver_with_skips(tmp_path) -> None:
+    """Wrapper closes come from silver; a wrapper missing either close is silently absent."""
+    import polars as pl
+
+    from src.contest.decision import _inference_inputs, wrapper_changes_pct
+
+    session = date(2026, 9, 23)
+    prev = date(2026, 9, 22)
+    norm = tmp_path / "normalized"
+    norm.mkdir(parents=True)
+    pl.DataFrame(
+        {"date": [prev, session], "ticker": ["0195S0", "0195S0"],
+         "open": [100.0, 102.0], "close": [100.0, 103.0]},
+        schema={"date": pl.Date, "ticker": pl.String, "open": pl.Float64, "close": pl.Float64},
+    ).write_parquet(norm / "etf_daily.parquet")
+    vehicles = {"HY2": {"ticker": "0193T0", "wrappers": ["0195S0", "MISSING"]}}
+    out, exposure = wrapper_changes_pct(tmp_path, vehicles, session, prev)
+    assert out["HY2@0195S0"] == pytest.approx(3.0)
+    assert exposure == {"HY2@0195S0": "HY2"}
+    assert "HY2@MISSING" not in out
+
+
+def test_wrapper_changes_edge_cases_covered(tmp_path) -> None:
+    """Non-mapping configs, missing silver, and null/bad closes never block inference."""
+    import polars as pl
+
+    from src.contest.decision import wrapper_changes_pct
+
+    session = date(2026, 9, 23)
+    prev = date(2026, 9, 22)
+    assert wrapper_changes_pct(tmp_path, {"HY2": {"ticker": "x"}}, session, prev) == ({}, {})
+    assert wrapper_changes_pct(tmp_path, {"HY2": "not-a-mapping"}, session, prev) == ({}, {})
+    assert wrapper_changes_pct(tmp_path, {"HY2": {"wrappers": "0195S0"}}, session, prev) == ({}, {})
+    assert wrapper_changes_pct(tmp_path, {"HY2": {"wrappers": ["0195S0"]}}, session, prev) == ({}, {})
+    norm = tmp_path / "normalized"
+    norm.mkdir(parents=True)
+    pl.DataFrame(
+        {"date": [prev, session, prev, session], "ticker": ["A", "A", "B", "B"],
+         "open": [10.0, 10.0, 10.0, 10.0], "close": [None, 10.0, 0.0, 10.0]},
+        schema={"date": pl.Date, "ticker": pl.String, "open": pl.Float64, "close": pl.Float64},
+    ).write_parquet(norm / "etf_daily.parquet")
+    out, _ = wrapper_changes_pct(tmp_path, {"X": {"wrappers": ["A", "B"]}}, session, prev)
+    assert out == {}
+
+
+def test_inference_inputs_fallback_paths(tmp_path) -> None:
+    """Previous-session and wrapper failures degrade to panel-only changes."""
+    from src.contest.decision import _inference_inputs
+    import src.contest.decision as decision_mod
+
+    panel = _toy_panel()
+    cal = get_calendar()
+    session = date(2026, 9, 23)
+
+    class _NoPrev:
+        def previous_session(self, day, offset=1):
+            raise ValueError("no prev")
+
+    changes, exposure = _inference_inputs(panel, tmp_path, {"K2": {}}, session, _NoPrev())  # type: ignore[arg-type]
+    assert changes and exposure == {}
+
+    orig = decision_mod.wrapper_changes_pct
+
+    def _boom(*args, **kwargs):
+        raise OSError("boom")
+
+    decision_mod.wrapper_changes_pct = _boom  # type: ignore[assignment]
+    try:
+        changes2, exposure2 = _inference_inputs(panel, tmp_path, {"K2": {}}, session, cal)
+        assert changes2 and exposure2 == {}
+    finally:
+        decision_mod.wrapper_changes_pct = orig
+
+
+def test_stale_snapshot_missing_panel_session_never_switches() -> None:
+    """A stale snapshot whose base date is absent from the panel still yields NO_DATA."""
+    from datetime import timedelta
+
+    panel = _toy_panel()
+    cal = get_calendar()
+    session = date(2026, 9, 23)
+    missing_base = session - timedelta(days=365 * 3)
+    snap = LeaderboardSnapshot(
+        base_date=missing_base, requested_at="",
+        entries=(LeaderboardEntry(rank=1, user_name="tester", total_return_pct=3.0, daily_return_pct=1.0),),
+        purchases={},
+    )
+    out = decide_week(panel, snap, session, cal, _toy_config(), "K2")
+    assert out.action == ContestAction.NO_DATA
+    assert "LEADERBOARD_STALE" in out.warnings
+
+
+def test_decide_week_unknown_current_base_equity() -> None:
+    """No recorded holding and no HOLD candidate still scores from the equity override."""
+    panel = _toy_panel()
+    cal = get_calendar()
+    session = date(2026, 9, 23)
+    snap = _snapshot(panel, session, ours=None)
+    cfg = _toy_config()
+    cfg["decision"]["candidates"] = ["HY2"]
+    out = decide_week(panel, snap, session, cal, cfg, None, (0.95, "OUR_RETURN_ESTIMATED"))
+    assert out.action in (ContestAction.HOLD, ContestAction.SWITCH)
+    assert out.scores

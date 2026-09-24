@@ -239,6 +239,32 @@ def test_ambiguous_entries_omitted(tmp_path: Path) -> None:
     assert "mixed" not in out
 
 
+def test_wrappers_of_one_exposure_not_ambiguous(tmp_path: Path) -> None:
+    """Two wrapper keys of one exposure matching the same daily count once for that exposure."""
+    rows = [_row(1, "holder", 7.0, 2.714)]
+    archive_leaderboard(_payloads(rows=rows), tmp_path)
+    snapshot = load_snapshot(tmp_path, date(2026, 9, 23))
+    changes = {"HY2": 2.727, "HY2@0195S0": 2.696}
+    exposure_of = {"HY2": "HY2", "HY2@0195S0": "HY2"}
+    out = infer_single_vehicle_holders(snapshot, changes, tol_pct=0.02, min_weight=0.90, exposure_of=exposure_of)
+    assert out["holder"][0] == "HY2"
+    assert 0.9 <= out["holder"][1] <= 1.0
+
+
+def test_different_exposures_stay_ambiguous(tmp_path: Path) -> None:
+    """One fitting exposure identifies; two fitting exposures omit the entry."""
+    archive_leaderboard(_payloads(rows=[_row(1, "holder", 7.0, 2.714)]), tmp_path)
+    snapshot = load_snapshot(tmp_path, date(2026, 9, 23))
+    only_hy2 = infer_single_vehicle_holders(
+        snapshot, {"HY2": 2.727, "Q2": 3.2}, tol_pct=0.02, min_weight=0.90
+    )
+    assert only_hy2["holder"][0] == "HY2"
+    both = infer_single_vehicle_holders(
+        snapshot, {"HY2": 2.727, "Q2": 3.026}, tol_pct=0.02, min_weight=0.90
+    )
+    assert "holder" not in both
+
+
 def test_latest_snapshot_lookup_respects_session(tmp_path: Path) -> None:
     """Latest lookup returns the newest snapshot on or before the session."""
     for day in ("20260921", "20260922", "20260923"):

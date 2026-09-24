@@ -192,8 +192,18 @@ def build_vehicle_panel(
 
 
 def neutralize_drift(panel: VehiclePanel, start: date, end: date, keep_sessions: Sequence[date]) -> VehiclePanel:
-    """Copy whose intraday legs are shifted so each vehicle's mean log daily return over [start, end] is zero;
-    legs of `keep_sessions` (realized contest sessions) and `log_nav` (pre-decision momentum history) stay unchanged."""
+    """Copy of the panel under a no-edge (martingale) market: each vehicle's mean ARITHMETIC close-to-close return
+    over [start, end] (excluding `keep_sessions`) is zero.
+
+    Arithmetic (not log) demeaning is required for coherence: a daily-reset long/inverse pair on one underlying
+    satisfies long = m*r, inverse = -m*r, and subtracting each series' arithmetic mean keeps that linear relation, so
+    both sides keep their volatility drag. Log demeaning removes the drag from every vehicle and therefore favours
+    high-volatility vehicles. Only intraday legs are shifted; overnight gaps, `log_nav` (pre-decision momentum
+    history) and the legs of `keep_sessions` (realized contest sessions) are unchanged.
+
+    Raises:
+        ValueError: empty window, or the window is fully covered by keep_sessions.
+    """
     rows = [i for i, d in enumerate(panel.dates) if start <= d <= end]
     if not rows:
         raise ValueError(f"empty neutralize window: {start.isoformat()}..{end.isoformat()}")
@@ -203,14 +213,22 @@ def neutralize_drift(panel: VehiclePanel, start: date, end: date, keep_sessions:
         raise ValueError("neutralize window fully covered by keep_sessions")
     gap = panel.gap.astype(np.float64)
     intra = panel.intraday.astype(np.float64)
-    cc = (1 + gap[fit]) * (1 + intra[fit]) - 1.0
-    mu = np.log1p(np.clip(cc, -0.999999, None)).mean(axis=0)
-    shifted = (1 + intra) * np.exp(-mu)[None, :] - 1.0
+    cc_fit = (1 + gap[fit]) * (1 + intra[fit]) - 1.0
+    mean_v = cc_fit.mean(axis=0)
+    denom = 1 + gap
+    safe = denom != 0.0
+    cc_all = (1 + gap) * (1 + intra) - 1.0
+    target = cc_all - mean_v[None, :]
+    shifted = intra.copy()
+    shifted[safe] = (target[safe] + 1.0) / denom[safe] - 1.0
     shifted = shifted.astype(np.float32).astype(np.float64)
     cc2 = (1 + gap[fit]) * (1 + shifted[fit]) - 1.0
-    residual = np.log1p(np.clip(cc2, -0.999999, None)).mean(axis=0)
-    shifted = (1 + shifted) * np.exp(-residual)[None, :] - 1.0
-    out_intra = shifted.astype(np.float32)
+    residual = cc2.mean(axis=0)
+    cc_all2 = (1 + gap) * (1 + shifted) - 1.0
+    target2 = cc_all2 - residual[None, :]
+    shifted2 = shifted.copy()
+    shifted2[safe] = (target2[safe] + 1.0) / denom[safe] - 1.0
+    out_intra = shifted2.astype(np.float32)
     for r in keep:
         out_intra[r] = panel.intraday[r]
     return VehiclePanel(dates=panel.dates, names=panel.names, gap=panel.gap, intraday=out_intra, log_nav=panel.log_nav)

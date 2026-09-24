@@ -138,7 +138,7 @@ def test_build_k2i_always_synthetic() -> None:
 
 
 def test_neutralize_drift_keeps_realized_sessions() -> None:
-    """Mean log return over the window is ~0 while kept rows stay bitwise unchanged."""
+    """Arithmetic mean close-to-close return over fit rows is ~0 while kept rows stay bitwise unchanged."""
     panel = _toy_panel()
     start = START + timedelta(days=10)
     end = START + timedelta(days=69)
@@ -147,8 +147,8 @@ def test_neutralize_drift_keeps_realized_sessions() -> None:
     rows = [panel.row(d) for d in panel.dates if start <= d <= end]
     g = out.gap[rows].astype(np.float64)
     o = out.intraday[rows].astype(np.float64)
-    mean_log = np.log1p((1 + g) * (1 + o) - 1.0).mean(axis=0)
-    assert np.all(np.abs(mean_log) < 1e-9)
+    mean_cc = ((1 + g) * (1 + o) - 1.0).mean(axis=0)
+    assert np.all(np.abs(mean_cc) < 1e-6)
     for s in keeps:
         r = panel.row(s)
         assert np.array_equal(out.intraday[r], panel.intraday[r])
@@ -157,10 +157,41 @@ def test_neutralize_drift_keeps_realized_sessions() -> None:
     assert out.names == panel.names and out.dates == panel.dates
 
 
+def test_neutralize_drift_long_inverse_pair_stays_coherent() -> None:
+    """A long/inverse pair with exact-negative close-to-close returns stays exact-negative after neutralizing."""
+    dates = _grid(40)
+    n = len(dates)
+    rng = np.random.default_rng(7)
+    r = rng.uniform(-0.03, 0.04, n).astype(np.float64)
+    r[0] = 0.0
+    gap_l = np.zeros(n, dtype=np.float32)
+    intra_l = np.zeros(n, dtype=np.float32)
+    gap_i = np.zeros(n, dtype=np.float32)
+    intra_i = np.zeros(n, dtype=np.float32)
+    gap_l[1:] = 0.0
+    intra_l[1:] = (r[1:] / 1.0).astype(np.float32)
+    intra_i[1:] = (-r[1:]).astype(np.float32)
+    gap = np.column_stack([gap_l, gap_i])
+    intra = np.column_stack([intra_l, intra_i])
+    cc = (1 + gap.astype(np.float64)) * (1 + intra.astype(np.float64)) - 1.0
+    panel = VehiclePanel(
+        dates=tuple(dates), names=("L", "I"), gap=gap, intraday=intra,
+        log_nav=np.cumsum(np.log1p(np.clip(cc, -0.999999, None)), axis=0),
+    )
+    start, end = dates[1], dates[-1]
+    out = neutralize_drift(panel, start, end, [])
+    rows = [panel.row(d) for d in dates if start <= d <= end]
+    g = out.gap[rows].astype(np.float64)
+    o = out.intraday[rows].astype(np.float64)
+    adj = (1 + g) * (1 + o) - 1.0
+    assert np.all(np.abs(adj[:, 0] + adj[:, 1]) < 1e-6)
+    assert np.all(np.log1p(np.clip(adj, -0.999999, None)).mean(axis=0) < 0)
+
+
 def test_panel_row_and_index_lookup_errors() -> None:
     """Unknown sessions raise ValueError; unknown vehicles raise KeyError."""
     panel = _toy_panel()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="session not in panel"):
         panel.row(date(2000, 1, 1))
     with pytest.raises(KeyError):
         panel.index("NOPE")

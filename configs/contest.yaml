@@ -56,6 +56,7 @@ contest:
       name: "HY 2x"
       returns: "listed"
       synthetic: {underlying: "HYNIX", multiple: 2.0}
+      wrappers: ["0195S0"]
       tradable: true
       crowd_only: false
     SS2:
@@ -187,7 +188,7 @@ contest:
       IND2: 0.04
     entry_days: [0, 1, 2, 3, 5, 8]
     entry_probs: [0.70, 0.13, 0.07, 0.04, 0.03, 0.03]
-    leader_churn: {k: 10, q: 0.10}
+    leader_churn: [{k: 10, q: 0.10}, {k: 10, q: 0.0}]
   decision:
     candidates: [HOLD, HY2, HY2I, SS2, SEMI2, K2, Q2, K2I]
     min_adv_krw: 10_000_000_000
@@ -205,3 +206,36 @@ contest:
     seed: 20260921
     output_dir: "results/contest_weekly"
     state_name: "contest_position"
+  shadow:
+    enabled: true
+    start_session: "2026-09-28"
+    gate_session: "2026-10-08"
+    adopt_from_session: "2026-10-12"
+    output_dir: "results/contest_daily"
+    quotes_dir: "contest/quotes"
+    yahoo_suffix: ".KS"
+    timeout_s: 20
+    long_alias: "HY2"
+    inverse_alias: "HY2I"
+    exposures:
+      HY2: ["0193T0", "0195S0"]
+      HY2I: ["0197X0"]
+      SS2: ["0193W0"]
+      SS2I: ["0193L0"]
+      SEMI2: ["494310"]
+      SEMI2b: ["488080"]
+      IT2: ["243880"]
+      K2: ["122630"]
+      K2I: ["252670"]
+      Q2: ["233740"]
+      Q2I: ["251340"]
+      BAT2: ["462330"]
+    min_streak: 2
+    review_streak: 3
+    top_n: 20
+    gates:
+      g1_min_identified_share: 0.5
+      g1_window: 5
+      g1_min_days: 3
+      g2_max_daily_churn: 0.15
+      g3_max_no_data_days: 2
