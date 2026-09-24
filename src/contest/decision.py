@@ -304,8 +304,17 @@ def _inference_inputs(
     session: date,
     calendar: TradingCalendar,
 ) -> tuple[dict[str, float], dict[str, str]]:
-    """Panel changes merged with extra wrapper changes plus the exposure map."""
-    changes = dict(panel_changes_pct(panel, session))
+    """Panel changes merged with extra wrapper changes plus the exposure map.
+
+    Only real, tradable products are inference candidates. Crowd-only sector proxies and the KOSPI signal are
+    synthetic index approximations, not products a participant can hold; keeping them makes genuine holders (e.g. a
+    Hynix inverse holder vs a synthetic finance 2x) look ambiguous and drops them from the pinned leaders.
+    """
+    changes = {
+        alias: chg
+        for alias, chg in panel_changes_pct(panel, session).items()
+        if bool(vehicles.get(alias, {}).get("tradable", True)) and not bool(vehicles.get(alias, {}).get("crowd_only", False))
+    }
     try:
         prev = calendar.previous_session(session)
     except ValueError:
