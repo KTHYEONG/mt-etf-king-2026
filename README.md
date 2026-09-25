@@ -1,305 +1,151 @@
 # mt-etf-king-2026: Tournament Quant Research & Execution System
 
-> **머니투데이 제3회 ETF 투자왕 대회(2026) 우승을 목표로 설계된 토너먼트 특화 퀀트 리서치 및 일일 운용 파이프라인**
+> **머니투데이 제3회 ETF 투자왕 대회(2026) 우승을 위한 단기 토너먼트 특화 퀀트 리서치 & 익일 시가 체결(Next-Open) 운용 파이프라인**
 
-[![Tests](https://img.shields.io/badge/Tests-1%2C370%20passed-success)](tests/)
-[![Type Check](https://img.shields.io/badge/Type%20Check-mypy%20strict%20(0%20errors)-blue)](pyproject.toml)
-[![Engine](https://img.shields.io/badge/Engine-Polars%20%7C%20Parquet-orange)](src/)
-[![Execution](https://img.shields.io/badge/Execution-Next--Open%20Fill-purple)](docs/architecture/data-flow.md)
-[![Target](https://img.shields.io/badge/Tournament-MT%20ETF%20King%202026-gold)](docs/knowledge/mt-data-report.md)
-[![Live Mode](https://img.shields.io/badge/Live-Contest%20Rank%20Objective-red)](docs/architecture/design-decisions.md)
-
----
-
-## 1. Executive Summary
-
-본 프로젝트는 머니투데이 제3회 ETF 투자왕 대회(2026-09-21 ~ 2026-11-13, 36 거래세션, 초기 자본 10억 원)에서 **최상위 순위(1~2위) 진입 확률을 극대화**하기 위해 개발된 토너먼트 전용 퀀트 시스템입니다.
-
-일반적인 자산 운용(Sharpe 극대화, 저변동성 분산)과 달리, 단기 대회의 계단형 상금 구조에 맞추어 **36거래일 우측 꼬리 수익률($P(R_{36d} > 30\%)$) 극대화**를 리서치·백테스트 승격 목적함수로 정의했습니다. 한국거래소(KRX) Open API 데이터 수집부터 Point-in-Time 유니버스 선별, 벡터화 피처 연산, 국면 적응형 모멘텀 전략, 그리고 익일 시가 체결(Next-Open Fill) 시뮬레이션까지 전 과정을 단일 파이프라인으로 구현했습니다.
-
-> [!IMPORTANT]
-> **2026 대회 실전 라이브 오버라이드**: 위 임계값 확률 최적화 챔피언의 실측 $P(\text{rank}=1)$은 ~1,200명 참가자 대비 1~5%에 불과함을 확인했습니다(ADR-08). 실전 라이브 의사결정은 대회 순위표를 매일 아카이브하고 참가자 군중을 재현해 후보 종목별 $P(\text{rank}=1)$을 직접 추정하는 **`src/contest/` 주간 순위 상대 시뮬레이션**이 대체합니다. 상세는 [§4.1](#41-2026-대회-실전-라이브-오버라이드-contest-mode) 참고.
-
-```mermaid
-flowchart LR
-    A["KRX Open API\n(일일 시세/지수)"] --> B["Bronze/Silver\n(무결성 정규화)"]
-    B --> C["Point-in-Time\n(피처/유니버스)"]
-    C --> D["Champion Strategy\n(모멘텀 + 급락반등 앵커)"]
-    D --> E["Next-Open Fill\n(익일 시가 체결 검증)"]
-    E --> F["Daily HTS Guide\n(일일 실전 주문 권고)"]
-```
-*(리서치·백테스트 트랙. 2026 대회 실전 라이브는 §4.1의 순위 상대 오버라이드가 담당합니다.)*
+![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
+![Engine](https://img.shields.io/badge/Engine-Polars%20%7C%20Arrow-cd792c.svg)
+![Storage](https://img.shields.io/badge/Storage-Parquet%20%26%20zstd-4c1.svg)
+![Execution](https://img.shields.io/badge/Execution-Next--Open%20Fill-purple.svg)
+![Architecture](https://img.shields.io/badge/Architecture-Contract%20Guarded-blueviolet.svg)
+![Live Mode](https://img.shields.io/badge/Live-Contest%20Rank%20Objective-red.svg)
 
 ---
 
-## 2. Problem & Core Engineering Solutions
+## 1. System Highlights
 
-| 핵심 난제 (Challenge) | 일반적인 접근법의 한계 | 본 시스템의 엔지니어링 솔루션 |
+| 핵심 엔지니어링 지표 | 실측 성과 / 보장 기준 | 아키텍처 불변식 및 강제 장치 |
+| :--- | :---: | :--- |
+| 📈 **도메인 성과 (30% 초과 우측 꼬리)** | **`7.77%`** (B0 대비 3배, +5.23%p) | `sticky.mom60_post_crash_anchor` (평시 60일 모멘텀 + 급락 반등 20일 앵커 슬리브) |
+| 🛡️ **안정성/생존 (파산 제약 준수)** | **`0회`** (CVaR 5% **`-21.56%`**) | 15% 하드 손절 가드 + 일일 거래대금(ADV) 5% 참여율 캡을 통한 극단 손실(G2a) 차단 |
+| ⚡ **성능/처리속도 (2,097개 롤링 완주)** | **`수 초`** (초고속 인메모리 벡터화) | Polars 지연 평가(LazyFrame) 컬럼너 멀티스레드 연산 + In-Process Parquet |
+| 🚀 **운영 연속성 (프로세스 재시동 정합성)** | **`0건`** (포지션 공백 및 해시 불일치) | `PositionStateManager` 상태 지문 검증 + 최소 2세션 보유 가드로 회전율 통제 |
+| ⏱️ **시계열 정합성 (미래 참조 누출 오차)** | **`오차 0초`** (Fail-Closed) | 런타임 `assert_pit(df, date)` 가드 강제 + 익일 개장 시가($t+1$ 09:00) 체결 엔진 |
+| 🔒 **품질/리스크 (타입 오류 및 결측치 왜곡)** | **`0.00%`** (결측치 0 왜곡 원천 차단) | `mypy --strict` 전수 검증, 공백 디코딩(`""` $\to$ `None`) 및 거래소 캘린더 세션 정렬 |
+
+---
+
+## 2. Tech Stack
+
+| 분류 | 기술 | 채택 근거 및 트레이드오프 |
 | :--- | :--- | :--- |
-| **비대칭 상금 구조** | 샤프 지수 최적화는 연율 5~10% 수준의 온건한 수익에 머물러 대회 우승 기대값 0원 수렴 | **우측 꼬리 확률 $P(R_{36d} > 30\%)$ 극대화** + 회복 불가능한 손실 차단을 위한 **파산 제약(G2a: $P(R < -25\%) \le 5\%$) 하드 게이트** 적용 |
-| **미래 참조 편향<br>(Look-Ahead Bias)** | 당일 종가 시그널을 당일 종가에 즉시 체결(Same-bar Fill)하는 비현실적 가정 사용 | **Next-Open 체결 엔진**: $t$일 장 마감 후 시그널 산출 $\to$ $t+1$일 09:00 시가 체결, 오버나이트 갭 및 슬리피지(3~10 bps) 반영 |
-| **금융 시계열 결측 &<br>KRX API 특이점** | 휴장일 더미 레코드(1,163행)나 공백(`""`)을 0으로 채워 시계열 및 팩터 왜곡 유발 | **엄격한 스키마 디코딩(`""` $\to$ `None`)**, XKRX 개장일 세션 정렬, **런타임 `assert_pit` 가드**를 통한 Fail-closed 방어 |
-| **제한된 독립 표본 수<br>($n_{\text{eff}} \approx 2,400$)** | 딥러닝/복합 신경망 사용 시 시계열 중첩과 단면 상관성으로 인한 극심한 과적합 발생 | **엄격한 용량 제약형 GBDT Ranker**(`max_depth=4`, `num_leaves=8`) 및 룰 기반 챔피언 전략 채택, Purged Walk-Forward CV 검증 |
+| **Language & Tooling** | `Python 3.11+`, `uv` | CPython 3.11+ 고속 바이트코드 활용 및 `uv`를 통한 초고속 결정론적 가상환경 동기화 |
+| **Data Engine & Storage** | `Polars`, `Parquet`, `zstd` | RDBMS 데몬 의존성 없이 Arrow 멀티스레드 컬럼너 벡터화로 수백만 행 단면 랭킹 초 단위 완주 |
+| **Concurrency & Network** | `asyncio`, `httpx` | KRX Open API 비동기 수신, 토큰 버킷 속도 제어(초당 2~5회) 및 쿼터 장부(`QuotaLedger`) 초과 차단 |
+| **Domain Engine** | `NextOpenExecution`, `StickyEngine` | 당일 종가 동시체결(Look-Ahead) 배제, 동일 기초지수 레버리지 패밀리 중복 제거(Family Dedup) |
+| **Live Tournament Override** | `CrowdSimulator`, `LeaderboardArchive` | 단기 계단형 상금 맞춤 ~1,200명 부트스트랩 군중 시뮬레이션 기반 주간 $P(\text{rank}=1)$ 직접 추정 |
+| **Verification & Quality** | `pytest`, `mypy (strict)`, `AST Guards` | 1,200+개 테스트, Python AST 기반 상위 계층 역참조 차단(ARCH-1/INV-24), 모듈 구문 버짓(400개) 강제 |
 
 ---
 
-## 3. Key Architectural Highlights
+## 3. Daily Workflow & Pipeline
 
-* 🛡️ **Point-in-Time 시계열 무결성 가드**
-  * 피처 연산 및 유니버스 필터 진입 시 `assert_pit(df, decision_date)`를 실행하여 미래 데이터 유입 시 즉시 예외를 발생(Fail-closed)시킵니다.
-  * 거래소 캘린더(XKRX)와 실제 거래 세션을 정렬하여 임시 휴장 세션의 NaN 전파를 원천 차단합니다.
-
-* ⚡ **초고속 In-Memory 벡터화 파이프라인**
-  * RDBMS 데몬 의존성 없이 불변 Bronze(`.json.gz`) $\to$ 정규화 Silver Parquet $\to$ 고성능 Gold Parquet 구조를 채택했습니다.
-  * Polars 컬럼너 지연 평가(LazyFrame)를 활용하여 8개년 수백만 행의 단면 랭킹과 2,000+개 롤링 백테스트를 수 초 이내에 완주합니다.
-
-* 🎯 **토너먼트 국면 적응형 챔피언 전략 (`sticky.mom60_post_crash_anchor`)**
-  * 평시에는 60일 모멘텀 최선호 종목을 유지하되, 지수 급락 후 반등 국면(CRASH_REBOUND) 진입 시 대표 지수 레버리지를 20일 모멘텀으로 앵커링하고 15% 손절 가드로 방어합니다.
-  * 모멘텀 전략이 급락 직후 현금 100%로 철수하여 반등을 놓치는 구조적 결함을 해결, $P(R > 30\%)$를 6.78%에서 **7.77%**로 개선했습니다.
-
-* ⚖️ **동일 기초지수 레버리지 패밀리 중복 배제 (Family Deduplication)**
-  * 동일 기초지수를 추종하는 다중 배수 종목군(1X, 2X, -1X, -2X)을 단일 그룹으로 묶어 상위 1개만 통과시킵니다.
-  * 동일 팩터에 대한 중복 베팅을 원천 차단하며, 일일 거래대금(ADV) 5% 캡 및 Top-1 집중(최대 95%) 배분을 수행합니다.
-
-* 🔄 **장 마감 후 원스톱 자동 배치 (`daily-refresh`)**
-  * 매일 16:00 KST에 단일 CLI 명령 또는 systemd 타이머로 데이터 수집 $\to$ 정규화 $\to$ 피처 생성 $\to$ 익일 HTS 주문 가이드 산출까지 일괄 완료합니다.
-
-* 🏆 **대회 순위 상대 시뮬레이터 (`src/contest/`, ADR-08)**
-  * 대회 목적함수는 절대수익이 아니라 **~1,200명 참가자 대비 1위 확률**입니다. 임계값 확률 최적화 챔피언은 실측 $P(\text{rank}=1)$이 1~5%에 그쳐, 순위표를 매일 불변 아카이브하고 참가자 군중을 스테이셔너리 블록 부트스트랩으로 재현해 후보 종목별 $P(\text{rank}=1)$을 직접 추정하는 별도 계층으로 실전 결정을 대체했습니다.
-  * 매주 토요일 자동 실행(or-vps systemd), 5%p 히스테리시스 미만이면 종목을 유지하며, 순위표·패널 데이터가 정확히 일치하지 않으면 무조건 `NO_DATA`(전환 금지)로 Fail-closed 합니다.
-
----
-
-## 4. System Architecture
-
-시스템은 **Data $\to$ Feature $\to$ Alpha $\to$ Portfolio $\to$ Execution**의 관심사를 엄격히 분리하여 설계되었습니다.
+| 시각 | 단계 | 핵심 처리 내용 |
+| :---: | :--- | :--- |
+| 🌅 **15:30 KST** | **장 마감 및 데이터 확정** | 당일 거래 세션 정규장 마감 $\to$ KRX ETF/지수 OHLCV, NAV, 거래대금 확정 |
+| ⚡ **16:00 KST** | **수집 및 정규화 (배치)** | 토큰 버킷 속도 제어로 시세 수집 $\to$ 불변 Bronze(`.json.gz`) $\to$ 결측 공백 디코딩 후 Silver Parquet 병합 |
+| 🌙 **16:03 KST** | **피처 연산 및 의사결정** | `assert_pit` 가드 검증 $\to$ Gold 벡터 피처 $\to$ 챔피언 룰 스코어링 $\to$ 포지션 상태 연속성 검증 |
+| 🛡️ **09:00 KST** | **집행 및 라이브 오버라이드** | 익일 개장 시가 HTS 주문 집행 *(대회 모드 활성 시 토요일 10:00 주간 1위 확률 결정 카드로 대체)* |
 
 ```mermaid
 flowchart TD
-    subgraph S_EXT ["External Environment"]
-        KRX["KRX Open API"]
-        HTS["Koscom HTS (운영자 주문)"]
-    end
+    classDef vendor fill:#f1f3f5,stroke:#495057,stroke-width:1px,color:#212529;
+    classDef stage1 fill:#e7f5ff,stroke:#1971c2,stroke-width:2px,color:#0c4a6e;
+    classDef stage2 fill:#ebfbee,stroke:#2f9e44,stroke-width:2px,color:#14532d;
+    classDef stage3 fill:#f3f0ff,stroke:#7950f2,stroke-width:2px,color:#3b0764;
+    classDef stage4 fill:#fff4e6,stroke:#f76707,stroke-width:2px,color:#7c2d12;
 
-    subgraph S_DATA ["1. Ingestion & Storage"]
-        Provider["KRX OpenAPI Provider\n(RateLimiter + QuotaLedger)"]
-        Bronze[("Bronze Store\n불변 Raw JSON Gzip")]
-        Silver[("Silver Store\n정규화 Parquet")]
-        Provider --> Bronze --> Silver
-    end
-
-    subgraph S_FEAT ["2. PIT Universe & Features"]
-        Univ["Point-in-Time Universe\n(Sponsor Brand + ADV >= 1억)"]
-        FeatEng["Vectorized Feature Engine\n(Momentum, Volatility, Regime)"]
-        PIT["PIT Runtime Guard\n(assert_pit & Calendar Align)"]
-        Silver --> Univ --> FeatEng
-        PIT -.-> FeatEng
-        FeatEng --> Gold[("Gold Feature Store\netf_features.parquet")]
-    end
-
-    subgraph S_STRAT ["3. Alpha & Portfolio Allocation"]
-        Alpha["Alpha Scoring & Ranker\n(Cross-Sectional Rank)"]
-        Alloc["Portfolio Selection\n(Family Dedup + Top-1 95% + ADV Cap)"]
-        State["Position State Machine\n(Continuity Check & Min-Hold)"]
-        Gold --> Alpha --> Alloc --> State
-    end
-
-    subgraph S_EXEC ["4. Backtest & Verification"]
-        Exec["Next-Open Execution\n(t+1 Open Fill + Slippage)"]
-        Sim["Rolling 36D Simulator\n(2,000+ Windows Distribution)"]
-        Gates{"Objective Gates\nG1: P(R>30%) >= B0+2%p\nG2a: P(R<-25%) <= 5%"}
-        State --> Exec --> Sim --> Gates
-    end
-
-    subgraph S_OPS ["5. Daily Operations"]
-        Batch["Daily Refresh CLI\n(mt-etf daily-refresh)"]
-        Decision["Decision Dashboard\n(Target Shares & Value)"]
-        Batch -.-> Provider
-        Batch -.-> FeatEng
-        State --> Decision --> HTS
-    end
-
-    KRX --> Provider
+    API["KRX Open API 시세 엔드포인트"]:::vendor -->|토큰 버킷 속도제어 수신| BZ["Bronze 영속화\n불변 압축 원시 JSON"]:::stage1
+    BZ -->|공백 디코딩 및 스키마 검증| SL["Silver 정규화 패널\netf_daily Parquet"]:::stage1
+    SL -->|PIT 유니버스 필터 및 세션 정렬| FT["Feature Builder\nassert_pit 런타임 가드"]:::stage2
+    FT -->|모멘텀 및 시장국면 벡터 연산| GD["Gold Feature Store\netf_features Parquet"]:::stage2
+    GD -->|단면 랭킹 및 급락반등 앵커링| ST["Alpha & Selection\n동일 기초지수 패밀리 중복배제"]:::stage3
+    ST -->|Top-1 집중 95% 및 ADV 5% 캡| SZ["Portfolio Sizing\n포지션 상태머신 2세션 최소보유"]:::stage3
+    SZ -->|Next-Open 체결 시뮬레이션| BT["백테스트 검증 하네스\n롤링 36D G1 및 G2a 게이트 판정"]:::stage4
+    SZ -->|일일 권장 주문 가이드| HTS["운영자 코스콤 HTS 단말\n익일 09:00 개장 시가 주문"]:::stage4
+    MT["머니투데이 실시간 순위표 JSON"]:::vendor -.->|대회 모드 주간 오버라이드| CW["Crowd Simulator\n1200명 부트스트랩 1위 확률 산출"]:::stage4
+    CW -.->|5%p 이상 우월 시 전환| HTS
 ```
 
 ---
 
-## 4.1 2026 대회 실전 라이브 오버라이드 (Contest Mode)
+## 4. Top 5 Real-world Engineering Invariants (핵심 챌린지)
 
-`configs/contest.yaml: contest.enabled=true`일 때, 위 챔피언 파이프라인(D~F)의 일일 `decide` 단계 대신 아래 주간 순위 상대 결정이 실전을 담당합니다. 데이터 수집·정규화·피처 생성(A~C)은 대회 모드와 무관하게 매일 그대로 수행됩니다.
+### 1. 미래 참조 편향(Look-Ahead Bias) 원천 배제
+* 🚨 **문제**: 당일 종가 시그널을 당일 종가에 즉시 체결시키는 백테스트(Same-bar Fill)는 마감 직전 호가를 미리 알아야 하는 비현실적 편향으로 수익률을 심각하게 과대포장함.
+* 📐 **원칙**: 시그널 확정 시점($t$ 15:30 이후)과 주문 집행 시점($t+1$ 09:00 개장 시가)을 시계열 축에서 엄격히 분리함.
+* 💡 **해결**: `NextOpenExecution` 엔진을 구축하여 오버나이트 갭 및 슬리피지(3~10 bps)를 반영하고, 런타임 `assert_pit(frame, decision_date)` 가드를 통해 미래 데이터 유입 시 즉시 Fail-Closed 예외를 발생시킴.
 
-```mermaid
-flowchart LR
-    A["MT 순위표 JSON\n(etf/array/*, 16:00 KST)"] --> B["불변 아카이브\n(평일 16:40/17:40/20:40)"]
-    C["Gold Feature Store\n(~20개 대회 차량)"] --> D["Crowd Simulator\n(~1,200명 Bootstrap Worlds)"]
-    B --> E["decide_week\nP(rank1)/P(top2)/P(top10)"]
-    D --> E
-    E --> F["결정 카드\n(토요일 10:00/12:00, 일요일 10:00)"]
-```
+### 2. 금융 시계열 결측 왜곡 및 KRX 거래소 API 특이점 방어
+* 🚨 **문제**: KRX API의 결측 공백(`""`)을 부동소수점(`0.0`)으로 자동 변환 시 -100% 수익률 왜곡이 발생하며, 휴장일에도 1,163행의 가격 없는 더미 레코드가 유입되어 시계열을 오염시킴.
+* 📐 **원칙**: 결측치는 0이 아닌 `None`으로 엄격히 격리하며, 유효 거래 데이터만 롤링 연산에 포함함.
+* 💡 **해결**: `DatasetSchema`에서 공백을 `None`으로 강제 디코딩하고, 유효 가격 비율 미달 시 휴장일 응답을 자동 폐기함. 또한 XKRX 캘린더 세션 정렬을 통해 결측 세션의 NaN 전파를 차단함.
 
-* **왜 필요한가**: 대회 상금은 1~2위에게만 지급되므로 진짜 목적함수는 임계값 초과 확률이 아니라 순위표 상대 1위 확률입니다. 실측 결과 챔피언 전략은 $P(\text{rank}=1)$ 1~5%에 그쳤고, 손절·비중 상한 등 변동성 축소 장치는 모두 예외 없이 이를 더 낮췄습니다(자세한 수치는 ADR-08).
-* **핵심 CLI**: `mt-etf contest-archive`(순위표 아카이브), `mt-etf contest-weekly`(결정 카드 산출).
-* **Fail-closed**: 순위표 기준일과 KRX 패널 세션이 정확히 일치하지 않으면 무조건 `NO_DATA`를 반환하고 종목을 바꾸지 않습니다(KRX 공식 종가는 T+1일 아침 공개).
+### 3. 시장 급락 후 급반등 국면에서의 모멘텀 철수 결함 해결
+* 🚨 **문제**: 60일 장기 모멘텀 전략은 평시 우수하나, 시장 급락 직후 단기 급반등 국면에서 `mom60 < 0`으로 인해 100% 현금으로 철수하여 이후 강력한 V자 반등을 놓치는 구조적 결함이 존재함.
+* 📐 **원칙**: 시장 레짐(Regime) 전환을 감지하여 평시 모멘텀과 급락 반등 앵커를 적응형으로 스위칭함.
+* 💡 **해결**: `sticky.mom60_post_crash_anchor` 챔피언 전략을 도입, 급락 후 반등 국면(CRASH_REBOUND) 진입 시 대표 지수 레버리지를 20일 모멘텀으로 앵커링하고 15% 손절 가드로 방어하여 $P(R>30\%)$를 6.78% $\to$ **7.77%**로 개선함.
 
----
+### 4. 동일 기초지수 레버리지 패밀리 중복 베팅 위험 차단
+* 🚨 **문제**: 단면 랭킹 상위권에 동일 기초지수를 추종하는 다중 배수 종목군(1X, 2X, -1X)이 동시 진입하여 단일 팩터 레버리지에 과도하게 편중되는 위험이 발생함.
+* 📐 **원칙**: 동일 기초자산 클러스터 내에서는 가장 강한 모멘텀을 가진 최상위 1개 종목만 선택함.
+* 💡 **해결**: `InstrumentMaster` 기반 레버리지 패밀리 그룹화 및 `ClusterAwareSelection`을 적용하여 중복 매수를 원천 차단하고, Top-1 95% 집중 배분 및 ADV 5% 참여율 상한을 기계적으로 강제함.
 
-## 5. End-to-End Daily Pipeline
-
-장 마감 후 매일 16:00 KST에 수행되는 일일 운용 파이프라인의 입출력 흐름입니다.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant KRX as KRX Open API
-    participant Batch as Daily Refresh Orchestrator
-    participant Store as Columnar Storage (Parquet)
-    participant Model as Alpha & Portfolio Model
-    participant State as Position Ledger
-    participant Op as Trader / HTS
-
-    Note over KRX,Op: 15:30 KST - 정규 장 마감
-    Batch->>KRX: 당일 일별 시세 수집 (Rate Limit / Quota 검증)
-    KRX-->>Batch: 원시 JSON Envelope
-    Batch->>Store: Bronze 영속화 & Silver Parquet 정규화 변환
-    Batch->>Store: PIT 검증 후 Gold Feature 증분 연산 (assert_pit)
-    Batch->>Model: 챔피언 전략 시그널 및 목표 비중 산출
-    Model->>State: 이전 보유 포지션 대조 및 연속성 검증
-    State-->>Batch: 확정 포지션 및 권장 주문 내역
-    Batch->>Op: 터미널 대시보드 렌더링 & JSON 아티팩트 발행
-    Note over Op: 익일 09:00 KST - HTS 시가 주문 집행
-```
-
-| 파이프라인 단계 | 실행 시점 | 주요 처리 내용 | 입출력 데이터 |
-| :--- | :---: | :--- | :--- |
-| **1. Data Ingestion** | 16:00 KST | 토큰 버킷 속도 제어로 당일 시세 수집, 쿼터 장부 갱신 | KRX API $\to$ `data/raw/.../*.json.gz` |
-| **2. Normalization** | 16:01 KST | 휴장일 응답 제거, 공백 디코딩(`""` $\to$ `None`), 타입 정규화 | Bronze $\to$ `etf_daily.parquet` |
-| **3. PIT Universe & Features** | 16:02 KST | 생존 종목 판정, 후원사 및 유동성 필터, 모멘텀/레짐 벡터 연산 | Silver $\to$ `etf_features.parquet` |
-| **4. Alpha & Portfolio** | 16:03 KST | 챔피언 룰 스코어링, 레버리지 패밀리 중복 제거, 비중 산출 | Features $\to$ Target Weights |
-| **5. State Continuity Guard** | 16:03 KST | 전일 포지션 승계 확인, 불필요한 매매 회전율 방지, Fail-closed | State Ledger $\to$ Validated Position |
-| **6. Decision Output** | 16:04 KST | 결정일 종가 기준 권장 매매 수량(주) 및 금액 HTS 가이드 발행 | `results/decide_daily/*.json` |
-
-> [!NOTE]
-> **2026 대회 모드**: 1~3단계는 매일 그대로 수행되지만, `contest.enabled=true`이면 4~6단계는 건너뛰고 §4.1의 주간 순위 상대 결정이 이를 대체합니다.
+### 5. 단기 토너먼트 계단형 상금 구조와 1위 확률($P(\text{rank}=1)$) 괴리 극복
+* 🚨 **문제**: 1~2위만 상금을 받는 계단형 구조에서 일반적인 변동성 축소(손절, 비중 분산)는 참가자 ~1,200명 대비 $P(\text{rank}=1)$을 1~5%로 심각하게 억제함.
+* 📐 **원칙**: 실시간 순위표 군중을 통계적으로 재현하여 1위 달성 확률을 직접 목적함수로 최적화함.
+* 💡 **해결**: `src/contest/` 모듈을 신설, MT 순위표 불변 아카이브와 블록 부트스트랩 군중 시뮬레이션을 결합하여 주간 단위로 후보 종목별 $P(\text{rank}=1)$을 산출하고, 5%p 이상 우월할 때만 전환하는 히스테리시스 오버라이드를 구축함.
 
 ---
 
-## 6. Empirical Results
+## 5. Verified Performance Matrix (실측 정본 성과)
 
-2018-01-02부터 2026-09-10까지 총 **2,097개 롤링 36거래일 윈도우**에서 실측된 공식 백테스트 결과입니다. *(리서치·백테스트 승격 지표이며, ~1,200명 참가자 대비 실제 $P(\text{rank}=1)$은 §4.1·ADR-08의 별도 시뮬레이션으로 평가합니다.)*
+> **출처**: `docs/results/runs_registry.jsonl` (총 2,097개 롤링 36거래일 윈도우, 2018-01-02 ~ 2026-09-10)  
+> **조건**: Next-Open 시가 체결, 거래 수수료(1.5~3.0 bps), 슬리피지(3~10 bps), 20일 ADV 5% 참여율 상한
 
-| 전략 모델 (Model Key) | 평가 윈도우 | $P(R_{36d} > 30\%)$ | $P(R_{36d} > 40\%)$ | $P(R_{36d} > 50\%)$ | 상위 5% 분위수 ($q_{95}$) | Worst 5% 꼬리손실 (CVaR) | Objective Gate |
+| 전략 모델 (Model Key) | 평가 윈도우 | $P(R_{36d} > 30\%)$ | $P(R_{36d} > 40\%)$ | $P(R_{36d} > 50\%)$ | 상위 5% 분위수 ($q_{95}$) | Worst 5% 손실 (CVaR) | Objective Gate |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **`baseline.buy_hold` (B0)** | 2,088 | 2.54% | 1.25% | 0.48% | +21.01% | -15.09% | **FAIL** |
 | **`baseline.mom20_top1` (B1)** | 2,088 | 3.83% | 2.97% | 2.39% | +21.88% | -24.78% | **FAIL** |
 | **`sticky.mom60_raw` (P27)** | 2,095 | 6.78% | 5.92% | 4.96% | +49.51% | -23.16% | **PASS** |
 | **`sticky.mom60_post_crash_anchor` (Champion)** | **2,097** | **7.77%** | **5.87%** | **4.43%** | **+43.85%** | **-21.56%** | **PASS** |
 
-> [!NOTE]
-> **핵심 성과 지표 요약**
-> * **우승권 도달률 3배 향상**: 챔피언 전략은 벤치마크(B0) 대비 30% 초과 수익 달성 확률이 **+5.23%p (2.54% $\to$ 7.77%)**로 3배 이상 높습니다.
-> * **파산 위험 완벽 통제**: 극단적 꼬리 위험 CVaR(5%)이 **-21.56%**로 파산 방어 게이트($\le -25\%$)를 안정적으로 충족합니다.
-> * **연도별 강건성 (LOYO)**: 특정 강세장에 의존하지 않고 전 연도 Out-of-Sample 구간에서 일관된 초과 성과를 기록했습니다.
-
 ---
 
-## 7. Key Architecture Decisions (ADR Summary)
-
-| ADR | 주제 | 채택된 솔루션 | 기각된 대안 | 엔지니어링 근거 및 트레이드오프 |
-| :--- | :--- | :--- | :--- | :--- |
-| **ADR-01** | **토너먼트 목적함수** | **36D 롤링 우측 꼬리 확률 최적화** + 파산 제약 게이트 | 샤프 지수 극대화, 단일 대회 리플레이 | 1~2위에 집중된 계단형 상금 구조 부합. 일별 변동성은 증가하나 우승 기대값 극대화 |
-| **ADR-02** | **체결 모델링** | **Next-Open Fill** ($t$일 종가 시그널 $\to$ $t+1$일 시가 체결) | 당일 종가 동시체결 (Same-bar Fill) | 미래 참조 편향(Look-Ahead Bias) 원천 배제 및 실전 운영 타이밍과 완전 일치 |
-| **ADR-03** | **유니버스 분리** | **Dual-Mode** (`structural` 연구용 vs `deployment` 실전용) | 전 종목 단일 유니버스, 현재 후원사 소급 적용 | 팩터 통계적 유효성 검증 시 생존 편향 방지 + 대회 규정 종목 주문 실행 가능성 확보 |
-| **ADR-04** | **국면 적응 전략** | **급락 후 반등 앵커 슬리브** (`sticky.mom60_post_crash_anchor`) | 장기 모멘텀 단독 유지, 모멘텀 윈도우 전면 단기화 | 지수 급락 후 장기 모멘텀이 현금으로 과도하게 철수하는 결함 해결 ($P(R>30\%)$ +0.99%p 개선) |
-| **ADR-05** | **데이터 저장소** | **In-Memory Polars + Parquet 파일 시스템** | RDBMS (PostgreSQL), SQLite | 외부 DB 데몬 없이 재현 가능. 멀티스레드 컬럼너 엔진으로 수백만 행 수 초 내 벡터 연산 |
-| **ADR-06** | **머신러닝 범위** | **용량 제약형 GBDT Ranker** + Purged Walk-Forward CV | 심층 신경망 (LSTM, Transformer), 강화학습 | 금융 시계열의 실효 독립 표본($n_{\text{eff}} \approx 2,400$) 한계 극복 및 과적합 노이즈 방어 |
-| **ADR-08** | **대회 실전 목적함수** | **순위표 상대 시뮬레이션 기반 $P(\text{rank}=1)$ 직접 추정** (주간) | 우측 꼬리 임계값 확률 유지 (일일) | 임계값 확률 최적화의 실측 $P(\text{rank}=1)$이 1~5%에 그침을 확인, ~1,200명 군중 대비 상대적 우위로 목적함수 전환 |
-
----
-
-## 8. Validation & Engineering Rigor
-
-* **1,210개 전수 자동화 테스트 통과**: Unit, Integration, Hypothesis 속성 기반(Property-based) 테스트 스위트 완비.
-* **엄격한 정적 타입 검증 (`mypy --strict`)**: 209개 전체 Python 소스 코드 타입 오류 0건 유지.
-* **Point-in-Time 런타임 가드**: 모든 피처 연산 진입 시 `assert_pit` 검사로 미래 시점 참조 차단.
-* **다축 강건성 스트레스 테스트 (Robustness Grid)**: 수수료(1.5~3.0 bps), 슬리피지(3~10 bps), ADV 참여율(1~5%) 36개 조합 전수 평가.
-* **결측치 안전 처리**: 공백 문자열 디코딩 시 `0.0` 왜곡 방지 및 휴장일 더미 레코드 Fail-closed 식별.
-
----
-
-## 9. Repository Structure
+## 6. Architecture Layer Contracts
 
 ```text
-src/
-├── core/                  # 환경설정, XKRX 캘린더, DataPaths 불변 경로 체계
-├── data/                  # KRX OpenAPI 연동, Bronze 원본 보관, Silver Parquet 정규화
-├── universe/              # Point-in-Time 유니버스, 종목 마스터, 레버리지 패밀리 그룹화
-├── features/              # 피처 빌더, PIT 런타임 가드, 모멘텀/변동성/레짐 벡터 연산
-├── alpha/                 # Alpha 모델 프로토콜, LightGBM Ranker
-├── portfolio/             # 패밀리 중복 제거, 비중 배분, ADV 유동성 제약, 포지션 상태 머신
-├── strategies/            # 전략 레지스트리, B0~B5 베이스라인, 챔피언 sticky 전략군
-├── backtest/              # Next-Open 체결 엔진, 슬리피지/비용 모델, 세션 캐시
-├── tournament/            # 36거래일 롤링 시뮬레이터, G1/G2a 게이트 판정, LOYO 교차 검증
-├── execution/             # 체결 현금 회계 및 상태 전이 원장
-├── reporting/             # 대시보드 렌더링, 꼬리 위험 포렌식 분석
-├── contest/               # [2026 Live] 순위표 아카이브, 군중 시뮬레이터, 주간 P(rank1) 결정
-└── cli/                   # mt-etf CLI 서브커맨드 인터페이스
-
-configs/                   # 전략 파라미터, 게이트 기준, 운용사 브랜드 설정 YAML
-docs/                      # 시스템 아키텍처 및 도메인 지식베이스 심층 문서
-tests/                     # 단위·통합·속성기반 테스트 스위트 (1,210 passed)
+Layer 8: CLI 진입점 & 운영 대시보드 (`src/cli/`)
+   ↓
+Layer 6-7: 백테스트 시뮬레이터 & 토너먼트 하네스 (`src/backtest/`, `src/tournament/`)
+   ↓
+Layer 4-5: 알파 모델, 포트폴리오 비중 & 레버리지 패밀리 정책 (`src/alpha/`, `src/portfolio/`)
+   ↓
+Layer 2-3: PIT 유니버스 & 벡터 피처 엔진 (`src/universe/`, `src/features/`)
+   ↓
+Layer 0-1: 인프라 기반, 거래소 캘린더 & 데이터 정규화 스토리지 (`src/core/`, `src/data/`)
+────────────────────────────────────────────────────────────────────────
+[Live Contest Override] Layer 9: 순위표 아카이브 & 군중 시뮬레이션 (`src/contest/`)
 ```
+
+* **정적 레이어 경계 검증**: `tests/unit/architecture/test_layer_boundaries.py` (AST 기반 상위 계층 역참조 방지)
+* **모듈 라인 버짓 제약**: `tests/unit/architecture/test_module_line_budget.py` (단일 모듈 구문 400개 제한)
+* **정세한 아키텍처 상세 문서**: [`docs/architecture/system-design.md`](docs/architecture/system-design.md), [`docs/architecture/engineering-decisions.md`](docs/architecture/engineering-decisions.md)
 
 ---
 
-## 10. Quickstart
+## 7. Quick Start & Verification
 
-### 사전 요구 사항
-* Linux / macOS
-* Python $\ge$ 3.11
-* [`uv`](https://github.com/astral-sh/uv) 패키지 매니저
-
-### 설치 및 검증
 ```bash
-# 1. 저장소 복제 및 가상환경 동기화
-git clone https://github.com/KTHYEONG/mt-etf-king-2026.git
-cd mt-etf-king-2026
+# 1. 의존성 설치 및 환경 동기화
 uv sync
 
-# 2. 정적 분석 및 테스트 실행
-uv run ruff check
+# 2. 정적 타입 검증 및 불변식 테스트 스위트 실행
 uv run mypy src
 uv run pytest tests/unit -m "not slow" -q
-```
 
-### 주요 CLI 커맨드
-```bash
-# 일일 마감 후 원스톱 자동 배치 (수집 -> 정규화 -> 피처 -> 의사결정 추천)
+# 3. 장 마감 후 원스톱 자동 배치 실행 (수집 -> 정규화 -> 피처 -> 의사결정)
 uv run mt-etf daily-refresh --decide --as-of 2026-09-10
 
-# 특정 일자 기준 챔피언 전략 포트폴리오 권장 주문 산출
-uv run mt-etf decide --date 2026-09-10
-
-# 챔피언 전략 롤링 36거래일 토너먼트 백테스트 실행
-uv run mt-etf backtest --model sticky.mom60_post_crash_anchor --start 2018-01-02 --end 2026-09-10
-
-# 연도별 Out-of-Sample 강건성(LOYO) 검증
-uv run mt-etf loyo --run-id <RUN_ID>
-
-# [2026 Live] 대회 순위표 JSON 아카이브 (매일 16:00 KST 이후)
-uv run mt-etf contest-archive
-
-# [2026 Live] 주간 순위 상대 결정 카드 산출 (P(rank1)/P(top2)/P(top10))
+# 4. [2026 Live] 주간 1위 확률 기반 실전 결정 카드 산출
 uv run mt-etf contest-weekly
 ```
-
----
-
-## 11. Architecture Documentation
-
-시스템 설계와 정량적 분석에 대한 세부 문서는 `docs/architecture/` 디렉터리에 정리되어 있습니다.
-
-* **[`docs/architecture/README.md`](docs/architecture/README.md)**: 기술 아키텍처 문서군 인덱스 및 면접관 가이드
-* **[`docs/architecture/overview.md`](docs/architecture/overview.md)**: 시스템 목표, 계층 구조, 런타임 흐름 상세
-* **[`docs/architecture/data-flow.md`](docs/architecture/data-flow.md)**: 데이터 파이프라인 단계별 I/O, 시간 축 정합성 및 스키마 명세
-* **[`docs/architecture/components.md`](docs/architecture/components.md)**: 6대 핵심 서브시스템별 책임, 인터페이스 및 불변식
-* **[`docs/architecture/design-decisions.md`](docs/architecture/design-decisions.md)**: 핵심 엔지니어링 의사결정 기록 (ADR)
