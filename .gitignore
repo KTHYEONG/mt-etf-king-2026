@@ -233,3 +233,6 @@ docs/results/**/*.parquet
 # frontier scratch runs). Reviewable analysis artifacts live in docs/results/ instead.
 /results/
 
+
+# Serena AI Assistant
+.serena/
