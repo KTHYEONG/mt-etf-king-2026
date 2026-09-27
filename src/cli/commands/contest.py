@@ -435,3 +435,102 @@ def cmd_contest_daily(args: argparse.Namespace) -> int:
         f"mirror={mirror} gate={card.gate.value} share={share} churn={churn}"
     )
     return 0
+
+
+def cmd_contest_fade(args: argparse.Namespace) -> int:
+    """Build and persist the fade card for the signal session (default: last trading session on or before today,
+    KST; `--session` overrides).
+
+    Quotes: read `<data_root>/<shadow.quotes_dir>/<YYYYMMDD>.json` for T and T-1 when archived. Otherwise fetch the
+    two fade tickers for the missing session with `fetch_quotes`, in memory only. Never call `archive_quotes`: the
+    shadow archive is written only by contest-daily.
+
+    Writes `<fade.output_dir>/<session>.json` and `<session>.md` atomically. Rewrites an existing NO_DATA card on
+    rerun; skips other existing cards unless `--force`.
+
+    Returns 0 on a written card (including NO_DATA) or when `fade.enabled` is false; 1 on unexpected exceptions.
+    """
+    import json
+
+    from src.contest.daily import fetch_quotes, load_quotes
+    from src.contest.fade import build_fade_card, fade_to_dict, render_fade_markdown
+    from src.core.calendar import get_calendar, kst_today
+    from src.core.paths import DataPaths
+    from src.core.settings import get_settings
+
+    try:
+        contest = _contest_config()
+        fade_cfg = contest.get("fade", {})
+        if not isinstance(fade_cfg, dict) or not fade_cfg.get("enabled", False):
+            logger.info("[SYS] contest_fade status=disabled")
+            return 0
+        calendar = get_calendar()
+        raw_session = getattr(args, "session", None)
+        session: date | None = (
+            date.fromisoformat(str(raw_session)) if raw_session else _resolve_target_session(calendar, kst_today())
+        )
+        if session is None:
+            raise ValueError("no trading session on or before today")
+        from src.contest.fade import FadeSettings
+
+        settings = FadeSettings.load(contest)
+        output_dir = Path(str(fade_cfg.get("output_dir", settings.output_dir)))
+        card_path = output_dir / f"{session.isoformat()}.json"
+        if (
+            card_path.is_file()
+            and not getattr(args, "force", False)
+            and '"action": "NO_DATA"' not in card_path.read_text(encoding="utf-8")
+        ):
+            logger.info(f"[PORTFOLIO] contest_fade session={session.isoformat()} status=exists_skip")
+            return 0
+        data_root = Path(get_settings().data_root)
+        shadow = contest.get("shadow", {})
+        if not isinstance(shadow, dict):
+            shadow = {}
+        quotes_root = data_root / str(shadow.get("quotes_dir", "contest/quotes"))
+        suffix = str(shadow.get("yahoo_suffix", ".KS"))
+        timeout_s = float(shadow.get("timeout_s", 20))
+        tickers = [settings.long_ticker, settings.inverse_ticker]
+        bars = load_quotes(quotes_root, session)
+        if bars is None:
+            try:
+                bars = fetch_quotes(tickers, session, suffix, timeout_s)
+            except Exception as exc:
+                logger.info(f"[DATA] contest_quotes session={session.isoformat()} status=fetch_fail error={exc!r}")
+                bars = {}
+        try:
+            prev_session = calendar.previous_session(session)
+        except ValueError:
+            prev_session = None
+        prev_bars: dict[str, Any] | None = None
+        if prev_session is not None:
+            prev_bars = load_quotes(quotes_root, prev_session)
+            if prev_bars is None:
+                try:
+                    prev_bars = fetch_quotes(tickers, prev_session, suffix, timeout_s)
+                except Exception as exc:
+                    logger.info(
+                        f"[DATA] contest_quotes session={prev_session.isoformat()} status=fetch_fail error={exc!r}"
+                    )
+                    prev_bars = {}
+        state_name = str(contest.get("decision", {}).get("state_name", "contest_position"))
+        state_alias = _read_state_alias(DataPaths(root=data_root).state(state_name))
+        card = build_fade_card(session, calendar, bars or {}, prev_bars, contest, state_alias)
+    except Exception as exc:
+        logger.error(f"[SYS] contest_fade status=fail error={exc!r}")
+        return 1
+
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(card_path, json.dumps(fade_to_dict(card), ensure_ascii=False, indent=2) + "\n")
+        atomic_write_text(output_dir / f"{session.isoformat()}.md", render_fade_markdown(card, settings.base_alias))
+    except Exception as exc:
+        logger.error(f"[SYS] contest_fade status=fail reason=persist error={exc!r}")
+        return 1
+    change_str = f"{card.long_change_pct:.3f}" if card.long_change_pct is not None else "none"
+    state_str = card.state_alias if card.state_alias is not None else "none"
+    logger.info(
+        f"[PORTFOLIO] contest_fade session={session.isoformat()} action={card.action.value} "
+        f"change_pct={change_str} borderline={card.borderline} state_alias={state_str}"
+    )
+    return 0

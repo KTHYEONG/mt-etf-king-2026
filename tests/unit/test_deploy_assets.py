@@ -146,3 +146,11 @@ def test_weekly_retry_forces_after_no_data(tmp_path: Path) -> None:
     result = _run_wrapper(script, stub, {"ARGS_LOG": str(args_log)})
     assert result.returncode == 0
     assert args_log.read_text(encoding="utf-8").split() == ["run", "mt-etf", "contest-weekly"]
+
+
+def test_daily_script_runs_fade_after_shadow_card() -> None:
+    """Daily script runs fade after shadow card."""
+    text = (SCRIPTS_DIR / "contest_daily.sh").read_text(encoding="utf-8")
+    assert "mt-etf contest-daily" in text
+    assert "mt-etf contest-fade" in text
+    assert text.index("mt-etf contest-daily") < text.index("mt-etf contest-fade")
