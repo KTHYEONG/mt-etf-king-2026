@@ -1,6 +1,28 @@
 {
   "tasks": [
     {
+      "task_id": "contest-fade-state-gate",
+      "date": "2026-09-27",
+      "adr_id": "ADR_20260927_contest-fade-state-gate",
+      "domain": "contest",
+      "title": "Fade 카드 주간 보유 상태 게이트",
+      "why": "contest-fade가 주간 결정을 무시하고 하이닉스 가격만으로 매매를 지시하던 결함을 차단",
+      "resolution": "state_alias를 읽어 base_alias와 다르면 INACTIVE로 fail-closed 처리하는 게이트를 fade.py/CLI에 추가",
+      "impact": "이번 주 보유가 HY2가 아니거나 상태 파일이 없으면 어떤 매매 지시도 나오지 않음",
+      "caveat": "게이트는 contest-weekly가 먼저 성공적으로 상태 파일을 써야 정상 동작"
+    },
+    {
+      "task_id": "contest-fade-overlay",
+      "date": "2026-09-27",
+      "adr_id": "ADR_20260927_contest-fade-overlay",
+      "domain": "contest",
+      "title": "대회 HY2 페이드 오버레이 일일 카드",
+      "why": "HY2 고정보다 1위 확률이 높은 큰 상승 다음날 장중 인버스 전환 전략을 실운영 카드로 제공",
+      "resolution": "src/contest/fade.py 신설, contest-fade CLI 서브커맨드, contest_daily.sh에 연결, configs/contest.yaml에 fade 블록 추가",
+      "impact": "매일 장 마감 후 HY2 등락률 기준 다음날 페이드 여부와 시각별 체크리스트를 자동 생성",
+      "caveat": "+6% 문턱은 고정값이며 borderline_pct 내에서는 HTS 실시간 등락률로 최종 판단 필요"
+    },
+    {
       "task_id": "pipeline_io_safety",
       "date": "2026-09-25",
       "adr_id": "ADR_20260925_pipeline_io_safety",
@@ -989,26 +1011,6 @@
       "why": "Silver panel alone cannot answer which ETFs are tradable at as_of: survivorship-safe existence, sponsor whitelist, ADV liquidity, and leverage-family metadata must be enforced before alpha research.",
       "resolution": "Implemented src/universe/{instruments,families,taxonomy,tournament,provider}.py, configs/taxonomy.yaml, and mt-etf universe CLI: ordered existence→price→history→sponsor→liquidity→eligibility filters, deployment fail-closed sponsor/manifest, PIT ADV and as-of name resolution, LeverageFamilyIndex; 20 contract+invariant scenarios pass.",
       "impact": "L2 universe layer operational: mt-etf universe --date --mode structural|deployment; INV-4/6/20 partially enforced at universe gate; INV-17 deferred to portfolio (max_per_family)."
-    },
-    {
-      "task_id": "TASK_03_SILVER_PANEL",
-      "date": "2026-08-28",
-      "adr_id": "ADR_20260828_03_SILVER_PANEL",
-      "domain": "data",
-      "title": "Silver Panel — schema decode · validation gates · normalize CLI",
-      "why": "Bronze JSON must become typed, fail-closed silver Parquet: empty-string→None decoding, valid_price_ratio session classification, accounting-identity checks, robust tradability flags, and architecture-mandated no_future_dates gate before disk write.",
-      "resolution": "Implemented src/data/{schema,silver,validation}.py, kst_today in src/core/calendar.py, and normalize CLI: DatasetSchema per-endpoint decode, classify_session (ρ≥0.5), PanelValidator V2–V10 (duplicate key, identity, no_future_dates CRITICAL), SilverBuilder incremental/full idempotent build with zstd Parquet; 12 contract scenarios pass.",
-      "impact": "L1 silver layer operational: mt-etf normalize produces validated etf_daily Parquet under data/normalized/; CRITICAL validation blocks contaminated panels; INV-1/2 and integrity gates (duplicate key, future date) enforced at Bronze→Silver conversion."
-    },
-    {
-      "task_id": "TASK_02_KRX_INGESTION",
-      "date": "2026-08-28",
-      "adr_id": "ADR_20260828_02_KRX_INGESTION",
-      "domain": "data",
-      "title": "KRX Ingestion — provider · rate limit · bronze · resumable backfill",
-      "why": "KRX Open API returns HTTP 200 for semantic failures; ingestion must preserve raw payloads write-once, enforce per-second rate limits and daily quota, and resume without re-fetching completed sessions.",
-      "resolution": "Implemented src/data/providers/{base,krx,ratelimit}.py, src/data/{bronze,backfill}.py, and ingest CLI wiring: KRXOpenAPIProvider (basDd-only, verbatim rows, permanent/transient retry), BronzeStore write-once, QuotaLedger + RateLimiter, BackfillPlanner/run_backfill with bounded concurrency; Settings.requests_per_second=5.0; 10 contract scenarios pass.",
-      "impact": "L1 data layer operational: mt-etf ingest supports dry-run and resumable backfill; bronze JSON preserved under data/raw/krx/**; daily quota tracked in data/state/krx_quota.json."
     }
   ]
 }

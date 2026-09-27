@@ -703,5 +703,8 @@
   },
   "src/core/atomic_io.py": {
     "testing": "tests/unit/core/test_atomic_io.py"
+  },
+  "src/contest/fade.py": {
+    "testing": "tests/unit/contest/test_fade.py"
   }
 }

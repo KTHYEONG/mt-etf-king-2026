@@ -13,6 +13,7 @@ from src.cli.commands.config import cmd_calendar, cmd_config_check
 from src.cli.commands.contest import (
     cmd_contest_archive,
     cmd_contest_daily,
+    cmd_contest_fade,
     cmd_contest_seed_reference,
     cmd_contest_weekly,
 )
@@ -36,7 +37,7 @@ from src.core.settings import get_settings
 logger = logging.getLogger(__name__)
 
 _EXCLUSIVE_DATA_COMMANDS = frozenset({"ingest", "normalize", "features", "daily-refresh", "storage-migrate"})
-_SHARED_DATA_COMMANDS = frozenset({"contest-weekly", "contest-daily"})
+_SHARED_DATA_COMMANDS = frozenset({"contest-weekly", "contest-daily", "contest-fade"})
 
 SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "config-check": cmd_config_check,
@@ -58,6 +59,7 @@ SUBCOMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "contest-seed-reference": cmd_contest_seed_reference,
     "contest-weekly": cmd_contest_weekly,
     "contest-daily": cmd_contest_daily,
+    "contest-fade": cmd_contest_fade,
 }
 
 

@@ -16,8 +16,15 @@ UV_BIN="${UV_BIN:-$HOME/.local/bin/uv}"
 echo "[$(date -Iseconds)] contest_daily.sh start" >> "$LOG_FILE"
 set +e
 "$UV_BIN" run mt-etf contest-daily >> "$LOG_FILE" 2>&1
-STATUS=$?
+STATUS_DAILY=$?
+"$UV_BIN" run mt-etf contest-fade >> "$LOG_FILE" 2>&1
+STATUS_FADE=$?
 set -e
+if [ "$STATUS_DAILY" -ne 0 ]; then
+  STATUS=$STATUS_DAILY
+else
+  STATUS=$STATUS_FADE
+fi
 echo "[$(date -Iseconds)] contest_daily.sh end status=$STATUS" >> "$LOG_FILE"
 
 exit "$STATUS"

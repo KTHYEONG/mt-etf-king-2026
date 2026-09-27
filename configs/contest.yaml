@@ -239,3 +239,15 @@ contest:
       g1_min_days: 3
       g2_max_daily_churn: 0.15
       g3_max_no_data_days: 2
+  fade:
+    enabled: true
+    long_ticker: "0193T0"
+    inverse_ticker: "0197X0"
+    base_alias: "HY2"
+    inverse_alias: "HY2I"
+    threshold_pct: 6.0
+    borderline_pct: 0.15
+    mode: "close_return"            # close_return | open_only
+    close_route: "continuous_1515"  # continuous_1515 | auction_plus_afterhours
+    endgame_sessions: 5
+    output_dir: "results/contest_fade"

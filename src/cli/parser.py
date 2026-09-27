@@ -11,6 +11,7 @@ from src.cli.commands.config import cmd_calendar, cmd_config_check
 from src.cli.commands.contest import (
     cmd_contest_archive,
     cmd_contest_daily,
+    cmd_contest_fade,
     cmd_contest_seed_reference,
     cmd_contest_weekly,
 )
@@ -46,6 +47,7 @@ SUBCOMMANDS: Final[tuple[str, ...]] = (
     "contest-seed-reference",
     "contest-weekly",
     "contest-daily",
+    "contest-fade",
 )
 
 
@@ -158,6 +160,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="our cumulative return %% from the contest app (overrides the leaderboard/estimate)",
     )
     p_cd.set_defaults(func=cmd_contest_daily)
+    # contest-fade
+    p_cf = sub.add_parser("contest-fade", help="daily fade overlay card (HY2 fade-up)")
+    p_cf.add_argument("--session", required=False, default=None, help="target session YYYY-MM-DD (default: last session)")
+    p_cf.add_argument("--force", action="store_true", default=False, help="rewrite an existing card")
+    p_cf.set_defaults(func=cmd_contest_fade)
     # storage-migrate
     p_mig = sub.add_parser("storage-migrate", help="migrate bronze plain JSON to gzip")
     p_mig.add_argument("--endpoint", required=False, default="etp/etf_bydd_trd", help="KRX endpoint to migrate")
