@@ -103,8 +103,6 @@ exclude = [
 module = ["tests.*"]
 ignore_errors = true
 
-[tool.uv]
-cache-dir = "scratch/uv-cache"
 
 [project.scripts]
 mt-etf = "src.cli.main:main"
