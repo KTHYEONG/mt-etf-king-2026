@@ -2,7 +2,7 @@
 name = "mt-etf-king-2026"
 version = "0.1.0"
 description = "머니투데이 제 3회 ETF 투자왕 대회용 퀀트 프로젝트"
-requires-python = ">=3.11"
+requires-python = "==3.11.*"
 dependencies = [
     "exchange-calendars>=4.13.2",
     "httpx>=0.28.1",
@@ -65,7 +65,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S105", "S106", "E402", "N802", "N803", "N806", "N813", "N814", "ARG", "I001", "RUF059", "F841", "PT015", "PT018", "B011", "RUF003", "F401", "SIM210", "SIM108", "B009", "SIM300"]
-"tools/agent_skills/lean_check.py" = ["T20", "S607", "S603"]
 "src/backtest/engine.py" = ["S112", "S110", "SIM105", "PERF401", "F841", "SIM102", "SIM114", "SIM108"]
 "src/backtest/execution.py" = ["S110", "SIM105"]
 "src/tournament/distribution.py" = ["S311", "RUF046", "RUF005", "C400", "F841", "S112", "S110", "SIM108", "B007", "PERF401"]
