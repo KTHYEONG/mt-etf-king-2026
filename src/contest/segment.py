@@ -414,13 +414,14 @@ def build_segment_card(
 def executed_side_from_card(card: Mapping[str, Any] | None) -> IntradaySide | None:
     """The intraday side actually governed by a persisted card (the card of the previous signal session).
 
-    HOLD_LONG and NO_DATA map to LONG (no orders were due, the long vehicle stayed held); SWITCH_SHORT maps to SHORT.
-    CONTEST_OVER, a missing card, or an unparseable action yields None so the ledger refuses to guess.
+    HOLD_LONG maps to LONG and SWITCH_SHORT to SHORT. NO_DATA yields None: its card hands the decision to the operator's
+    manual fallback, which may have switched to the inverse, so the side is unknown. CONTEST_OVER, a missing card, or an
+    unparseable action also yields None so the ledger refuses to guess.
     """
     if card is None or not isinstance(card, Mapping):
         return None
     action = card.get("action")
-    if action in (SegmentAction.HOLD_LONG, SegmentAction.NO_DATA):
+    if action == SegmentAction.HOLD_LONG:
         return IntradaySide.LONG
     if action == SegmentAction.SWITCH_SHORT:
         return IntradaySide.SHORT

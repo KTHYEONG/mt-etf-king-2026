@@ -240,7 +240,7 @@ contest:
       g2_max_daily_churn: 0.15
       g3_max_no_data_days: 2
   fade:
-    enabled: true
+    enabled: false
     long_ticker: "0193T0"
     inverse_ticker: "0197X0"
     base_alias: "HY2"
@@ -251,3 +251,22 @@ contest:
     close_route: "continuous_1515"  # continuous_1515 | auction_plus_afterhours
     endgame_sessions: 5
     output_dir: "results/contest_fade"
+  segment:
+    enabled: true
+    long_ticker: "0193T0"
+    long_alias: "HY2"
+    inverse_ticker: "0197X0"
+    inverse_alias: "HY2I"
+    vote:
+      HY2: "0193T0"
+      SEMI2: "494310"
+      K2: "122630"
+    vote_min_down: 2
+    open_window: "09:05-09:15"
+    close_window: "15:10-15:19"
+    cost_bps_round_trip: 12.0
+    prize_rank: 3
+    endgame_sessions: 5
+    ledger_state_name: "contest_segment_equity"
+    output_dir: "results/contest_segment"
+

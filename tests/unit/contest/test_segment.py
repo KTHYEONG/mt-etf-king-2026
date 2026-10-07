@@ -444,8 +444,8 @@ def test_executed_side_mapping() -> None:
     """executed_side_from_card correctly maps actions and handles missing values."""
     assert executed_side_from_card({"action": SegmentAction.HOLD_LONG}) is IntradaySide.LONG
     assert executed_side_from_card({"action": "HOLD_LONG"}) is IntradaySide.LONG
-    assert executed_side_from_card({"action": SegmentAction.NO_DATA}) is IntradaySide.LONG
-    assert executed_side_from_card({"action": "NO_DATA"}) is IntradaySide.LONG
+    assert executed_side_from_card({"action": SegmentAction.NO_DATA}) is None
+    assert executed_side_from_card({"action": "NO_DATA"}) is None
     assert executed_side_from_card({"action": SegmentAction.SWITCH_SHORT}) is IntradaySide.SHORT
     assert executed_side_from_card({"action": "SWITCH_SHORT"}) is IntradaySide.SHORT
     assert executed_side_from_card({"action": SegmentAction.CONTEST_OVER}) is None
