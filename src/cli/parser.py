@@ -15,6 +15,7 @@ from src.cli.commands.contest import (
     cmd_contest_seed_reference,
     cmd_contest_weekly,
 )
+from src.cli.commands.contest_segment import cmd_contest_segment
 from src.cli.commands.data import cmd_ingest, cmd_normalize
 from src.cli.commands.decide import cmd_decide
 from src.cli.commands.feasibility_audit import cmd_feasibility_audit
@@ -48,6 +49,7 @@ SUBCOMMANDS: Final[tuple[str, ...]] = (
     "contest-weekly",
     "contest-daily",
     "contest-fade",
+    "contest-segment",
 )
 
 
@@ -165,6 +167,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_cf.add_argument("--session", required=False, default=None, help="target session YYYY-MM-DD (default: last session)")
     p_cf.add_argument("--force", action="store_true", default=False, help="rewrite an existing card")
     p_cf.set_defaults(func=cmd_contest_fade)
+    # contest-segment
+    p_cs = sub.add_parser("contest-segment", help="daily segment card (overnight long + intraday reversal)")
+    p_cs.add_argument("--session", required=False, default=None, help="signal session YYYY-MM-DD (default: last session)")
+    p_cs.add_argument("--force", action="store_true", default=False, help="rewrite an existing card")
+    p_cs.add_argument(
+        "--our-return", type=float, required=False, default=None, dest="our_return",
+        help="our cumulative return %% at the session close from the contest app (anchors the equity ledger)",
+    )
+    p_cs.set_defaults(func=cmd_contest_segment)
     # storage-migrate
     p_mig = sub.add_parser("storage-migrate", help="migrate bronze plain JSON to gzip")
     p_mig.add_argument("--endpoint", required=False, default="etp/etf_bydd_trd", help="KRX endpoint to migrate")

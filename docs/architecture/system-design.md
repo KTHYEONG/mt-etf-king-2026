@@ -6,10 +6,10 @@
 
 ## 1. System Goals & Boundaries
 
-본 시스템은 일반 펀드의 복리 자산배분(Sharpe 극대화, 저변동성)과 달리, 단기(36거래일) 계단형 상금 구조에서 **대회 1~2위 진입 확률 극대화**를 단일 경제적 목표로 삼습니다.
+본 시스템은 일반 펀드의 복리 자산배분(Sharpe 극대화, 저변동성)과 달리, 단기(36거래일) 계단형 상금 구조에서 **상금권 진입 확률 극대화**(`prize_rank=3`, 부문별 시상은 전체 1·2위 대상/최우수상 수상자를 제외하므로 자율운용부문 상금선은 전체 3위)를 단일 경제적 목표로 삼습니다.
 
 ```text
-Primary Economic Objective: Maximize P(rank in {1, 2}) over 36 trading sessions
+Primary Economic Objective: Maximize P(final rank <= prize_rank) over 36 trading sessions
 ```
 
 | 구분 | 포함 범위 (In-Scope) | 배제 범위 (Out-of-Scope) |
@@ -19,7 +19,7 @@ Primary Economic Objective: Maximize P(rank in {1, 2}) over 36 trading sessions
 | **타임프레임** | 일별 봉(Daily Bar) 기반 시계열 피처 및 일별 리밸런싱 | 틱(Tick) 및 분(Minute) 단위 인트라데이 초단타 |
 | **체결 모델** | $t$일 장 마감 후 시그널 확정 $\to$ $t+1$일 개장 시가(09:00) 체결 | 당일 종가 동시체결 (Same-bar Fill, 미래 참조 편향) |
 | **주문 집행** | 최적 포트폴리오 목표 수량/금액 산출 $\to$ 코스콤 HTS 수동 주문 | DMA 전산 자동 주문 연동 (대회 규정상 API 주문 미지원) |
-| **실전 오버라이드** | 실시간 순위표 군중(~1,200명) 재현 기반 주간 $P(\text{rank}=1)$ 결정 | 주중 잦은 노이즈 손절 (시뮬레이션상 1위 확률 저하 유발) |
+| **실전 오버라이드** | 16:55 KST 일일 구간 카드(`SegmentCard`) 기반 오버나이트 롱 + 장중 반전 | 주간 군중 시뮬레이터 및 페이드 오버레이 (실전 거래 권한 퇴역, 연구/감사용 보존) |
 | **머신러닝** | 용량 제약형 얕은 GBDT Ranker (`max_depth=4`, `num_leaves=8`) | 딥러닝(Transformer/LSTM), 강화학습 등 고용량 과적합 모델 |
 
 ---
@@ -66,12 +66,10 @@ flowchart TD
 
     subgraph S4 ["4. 검증 하네스 및 실전 대회 오버라이드"]
         Backtest["NextOpenExecution\n익일 시가 체결 롤링 36D 시뮬레이터"]:::stage4
-        ContestLive["CrowdSimulator & decide_week\n1200명 부트스트랩 1위 확률 산출"]:::stage4
+        ContestLive["SegmentCard & LeaderboardArchive\n일일 구간 카드 및 계좌 평가액 원장"]:::stage4
         State --> Backtest
-        State --> HTS
         MT --> ContestLive
-        Gold -.-> ContestLive
-        ContestLive -.->|실전 대회 모드 시 일일 결정 대체| HTS
+        ContestLive -->|16:55 KST 일일 구간 카드 거래 권한| HTS
     end
 ```
 
@@ -82,13 +80,15 @@ flowchart TD
 | **PIT Features** | `PointInTimeUniverse`, `FeatureBuilder` | 듀얼 유니버스 판정, 모멘텀/변동성/레짐 벡터 연산 | `assert_pit` 런타임 가드, 임시 휴장 팬텀 세션 격리 |
 | **Alpha & Policy** | `StickyStrategyEngine`, `PortfolioSizing` | 챔피언 룰 스코어링, 레버리지 중복 제거, 비중 산출 | 기초지수 패밀리 중복 금지, Top-1 95% 집중 + ADV 5% 참여율 캡 |
 | **Execution** | `NextOpenExecution`, `PositionStateManager` | 익일 09:00 시가 체결 시뮬레이션, 포지션 원장 관리 | Same-bar Fill 원천 배제, 프로세스 재시작 간 해시 연속성 검증 |
-| **Contest Live** | `LeaderboardArchive`, `CrowdSimulator` | 순위표 불변 아카이브, 군중 부트스트랩, $P(\text{rank}=1)$ 산출 | 순위표 기준일 불일치 시 `NO_DATA` 유지, 5%p 미만 전환 금지 |
+| **Contest Live** | `LeaderboardArchive`, `SegmentCard` (`src/contest/segment.py`) | daily overnight-long / intraday-reversal card, equity ledger, prize-line standing | vote incomplete → NO_DATA (no orders), switches only in continuous-session windows, ledger as_of monotone |
+
+> *참고*: 주간 `CrowdSimulator`/`decide_week` 경로 및 `contest-fade` 오버레이는 실전 거래 권한에서 퇴역하여 연구/감사용 코드로 보존됩니다.
 
 ---
 
 ## 3. 24/7 State Machine & Orchestration Lifecycle
 
-일일 운용 및 주간 대회 의사결정은 엄격한 시간축 전이 규칙을 따릅니다.
+일일 운용 및 실전 대회 의사결정은 엄격한 시간축 전이 규칙을 따릅니다.
 
 ```mermaid
 flowchart LR
@@ -98,17 +98,16 @@ flowchart LR
     classDef stage4 fill:#fff4e6,stroke:#f76707,stroke-width:2px,color:#7c2d12;
 
     T1["15:30 KST 장 마감\n당일 OHLCV 및 NAV 확정"]:::stage1 -->|정규장 종료| T2["16:00 KST 데이터 수집\nKRX API 및 순위표 JSON 아카이브"]:::stage2
-    T2 -->|무결성 검증 완료| T3["16:03 KST 피처 및 포지션 확정\nassert_pit 가드 및 연속성 검증"]:::stage3
-    T3 -->|익일 개장 전 가이드| T4["익일 09:00 KST HTS 체결\nNext-Open 시가 주문 집행"]:::stage4
-    T3 -.->|주말 토요일 자동 오버라이드| T5["토요일 10:00 KST 주간 결정\n1200명 군중 부트스트랩 1위 확률 계산"]:::stage4
-    T5 -.->|5%p 이상 우월 시| T4
+    T2 -->|시세 아카이브 완료| T3["16:55 KST segment card\n오버나이트 롱 + 장중 반전 투표 확정"]:::stage3
+    T3 -->|익일 장중 세션 가이드| T4["next session 09:05–09:15 / 15:10–15:19 HTS orders\n정규장 연속호가 창 시장가 집행"]:::stage4
 ```
 
 ### 포지션 상태 머신 전이 불변식
 1. **FLAT $\to$ ENTER**: 유동성 필터(20일 ADV $\ge$ 1억 원) 및 동일 기초지수 패밀리 최상위 1개 종목에 95% 집중 배분 (5% 현금 버퍼).
 2. **ENTER $\to$ HOLD**: 최소 보유 기간(2거래일) 동안 임의 청산 불가(불필요한 매매 회전율 및 슬리피지 방지).
-3. **HOLD $\to$ EXIT**: 60일 모멘텀 음전, 급락 반등 앵커 15% 손절 가드 발동, 또는 주간 $P(\text{rank}=1)$ 우월 종목 발견 시 $t+1$ 시가 전량 청산.
-4. **Fail-Closed 장애 방어**: 전일 저장 포지션 해시 불일치, 데이터 결측, 순위표 불일치 발생 시 즉시 주문 생성을 차단하고 현 포지션을 동결 유지.
+3. **HOLD $\to$ EXIT**: 60일 모멘텀 음전, 급락 반등 앵커 15% 손절 가드 발동, 또는 일일 구간 카드(`SegmentCard`)의 스위칭 시그널에 따라 정해진 창에서 집행.
+4. **Fail-Closed 장애 방어**: 전일 저장 포지션 해시 불일치, 데이터 결측, 순위표 불일치 발생 시 즉시 주문 생성을 차단하고 현 포지션을 동결 유지(`NO_DATA`).
+5. **거래 권한 단일화**: 주간 `CrowdSimulator`/`decide_week` 및 `contest-fade`는 거래 권한에서 퇴역하였으며, `contest-segment` 카드가 일일 실전 거래의 단일 권한을 가짐.
 
 ---
 

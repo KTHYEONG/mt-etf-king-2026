@@ -144,7 +144,7 @@ def _find_test_files(py_files: list[str]) -> tuple[list[str], list[str]]:
     then to ``tests/unit/<pkg>/<mod>/`` when that package directory exists.
     Source modules without a mapped test are reported as ``unmapped``.
     """
-    test_files = [f for f in py_files if f.startswith("tests/") or "test_" in f]
+    test_files = [f for f in py_files if f.startswith("tests/") or (not f.startswith("src/") and "test_" in f)]
     source_files = [f for f in py_files if f.startswith("src/") and not f.endswith("__init__.py")]
     unmapped: list[str] = []
 
@@ -154,12 +154,15 @@ def _find_test_files(py_files: list[str]) -> tuple[list[str], list[str]]:
         rel = sf[4:]  # strip 'src/'
         parts = rel.split("/")
         mod_name = parts[-1]
+        base_name = mod_name[:-3] if mod_name.endswith(".py") else mod_name
         test_name = f"test_{mod_name}"
         sub_path = "/".join(parts[:-1])
 
         candidates = [
             f"tests/unit/{sub_path}/{test_name}" if sub_path else f"tests/unit/{test_name}",
             f"tests/unit/{test_name}",
+            f"tests/unit/cli/test_{base_name}_cli.py" if sub_path.startswith("cli") else "",
+            f"tests/unit/cli/test_{base_name}.py" if sub_path.startswith("cli") else "",
         ]
         nested_dir = f"tests/unit/{sub_path}/{mod_name[:-3]}" if sub_path and mod_name.endswith(".py") else ""
         found = False
