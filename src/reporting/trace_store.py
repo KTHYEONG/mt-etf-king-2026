@@ -203,8 +203,7 @@ def write_trace_artifacts(
             out: dict[str, object] = {}
             for k, v in g.items():
                 if isinstance(v, float):
-                    # format to 3dp then convert back to float via round? But spec says JSONL 3 decimal places
-                    # We'll keep as formatted string? But keep numeric with 3dp
+                    # Round floats to 3 decimal places for JSONL serialization.
                     out[k] = round(float(v), 3)
                 else:
                     out[k] = v

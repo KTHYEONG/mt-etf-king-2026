@@ -167,10 +167,8 @@ def aggregate_session_diagnostics(sessions: Sequence[SessionTransitionDiagnostic
             if bool(getattr(s, "delever_required_next_session", False)):
                 delever_count += 1
             eg = float(getattr(s, "close_realized_gross", getattr(s, "effective_gross", 0.0)) or 0.0)
-            # effective_gross_max should be max of close_realized_gross (alias effective_gross)
             if eg > effective_gross_max:
                 effective_gross_max = float(eg)
-            # also track post_fill max? spec says effective_gross_max, use close
             turnover_sum += float(getattr(s, "turnover_weight", 0.0) or 0.0)
             fill_sum += int(getattr(s, "fill_count", 0) or 0)
             unfilled_sum += int(getattr(s, "unfilled_count", 0) or 0)

@@ -1,1 +1,1 @@
-# package scaffold for project_refactor spec
+"""Sticky portfolio strategies package."""

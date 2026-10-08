@@ -103,7 +103,6 @@ def add_momentum_acceleration(
         )
         result = result.with_columns(acc_expr)
     else:
-        # fallback: if mom columns only, compute diff of mom directly? But spec requires rs diff.
-        # Emit null column
+        # Emit null column when required RS columns are missing.
         result = result.with_columns(pl.lit(None, dtype=pl.Float64).alias("mom_accel"))
     return result

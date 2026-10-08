@@ -40,9 +40,7 @@ class BacktestContext:
     commission_bps: float | None
     slippage_bps: float | None
     participation: float | None
-    # Spec-gap completion (P4): the contract's field list omits the run flags
-    # that gate per-cell trace/forensics behavior. Defaulted so every existing
-    # construction keeps working; required for bitwise-equivalent moves (R14).
+    # Run flags gating per-cell trace and forensics behavior; defaulted for backwards compatibility.
     trace: bool = False
     forensics: bool = False
 

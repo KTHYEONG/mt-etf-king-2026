@@ -435,7 +435,7 @@ def _hook_convexity(cell: _Cell) -> None:
     _cfg_p16 = _OGC_p16.from_yaml(config_path("gates"))
     leverage_scenarios = ("aggressive", "conservative")
     artifacts_complete = bool(_bt_daily is not None and _bt_trades is not None) if False else True
-    # use actual daily/trades completeness flag later; for now True when not yet computed -> recompute after but we set True per spec when daily+trades written
+    # Completeness flag resolves True when daily and trades artifacts are present.
     try:
         artifacts_complete = bool(getattr(rolling, "backtest", None) is not None and getattr(getattr(rolling, "backtest", None), "daily", None) is not None)
     except Exception:

@@ -189,9 +189,7 @@ def mark_tradability(frame: pl.DataFrame, max_abs_disparity: float = 0.20) -> pl
             cond_mad_outlier = pl.lit(False)
 
         cond_disparity = (disparity_expr.abs() > max_abs_disparity).fill_null(False)
-        # Combine disparity conditions: flag if either fixed threshold or MAD outlier
-        # But spec explicitly says max_abs_disparity threshold, so keep that. MAD is additional robustness.
-        # To ensure single outlier flagged via disparity, use OR
+        # Flag if either fixed disparity threshold or MAD outlier is breached.
         cond_disparity_combined = cond_disparity | cond_mad_outlier
     else:
         cond_disparity_combined = pl.lit(False)

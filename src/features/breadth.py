@@ -28,10 +28,7 @@ def market_breadth(
     )
     sorted_panel = sorted_panel.drop([ma_col]) if ma_col in sorted_panel.columns else sorted_panel
     sorted_panel = sorted_panel.join(calc.select(["ticker", "date", ma_col]), on=["ticker", "date"], how="left")
-    # Filter to decision_date only for breadth calculation
-    # But need to compute for each date? For this function, return one row per date present up to decision_date?
-    # Spec expects for that date; we return single row for decision_date
-    # Determine unique dates up to decision_date
+    # Compute breadth metrics per date up to decision_date.
     dates = sorted_panel.select(pl.col("date").unique()).to_series().to_list()
     dates = sorted([d for d in dates if d <= decision_date])
     rows: list[dict[str, object]] = []
@@ -77,8 +74,7 @@ def market_breadth(
         df = df.with_columns(pl.lit(None, dtype=pl.Float64).alias("advance_decline_ratio"))
     # Order by date
     df = df.sort("date")
-    # Return only decision_date row if only one requested? The spec says market_breadth returns breadth for that date.
-    # Return rows filtered to decision_date
+    # Filter to decision_date if present in results.
     filtered = df.filter(pl.col("date") == decision_date)
     if filtered.height > 0:
         return filtered

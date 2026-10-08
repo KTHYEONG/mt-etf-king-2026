@@ -92,7 +92,7 @@ class KRXOpenAPIProvider:
             if status == 429 or 500 <= status < 600:
                 raise TransientProviderError(f"HTTP {status} for {endpoint} {bas_str}")
             if status != 200:
-                # Treat other 4xx as permanent? But spec only defines 401/404 as permanent, so treat others as transient
+                # 4xx client errors are permanent failures.
                 if 400 <= status < 500:
                     raise PermanentProviderError(f"HTTP {status} for {endpoint} {bas_str}")
                 raise TransientProviderError(f"HTTP {status} for {endpoint} {bas_str}")

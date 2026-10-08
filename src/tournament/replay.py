@@ -100,16 +100,9 @@ class TournamentReplay:
                 exec_date = self.calendar.next_session(decision_date)
             except Exception:
                 exec_date = None
-            # need to ensure exec_date beyond end yields None? For last session,
-            # next_session would be beyond end but still a valid calendar date
-            # (outside range). Spec says final entry has execution_date None.
-            # So treat if idx == n-1 => None regardless of calendar.
+            # Final session has no subsequent execution date.
             if idx == n - 1:
                 exec_date = None
-            else:
-                # Verify exec_date within sessions? Actually spec says compute via calendar.next_session, but for replay final entry execution None.
-                # Keep as computed for non-final.
-                pass
             # Universe snapshot
             filt = config.filters
             snap = self.engine.universe.get(decision_date, filt)

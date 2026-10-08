@@ -100,7 +100,7 @@ def oneshot_independent_window_returns(
             cache = None
     if cache is None:
         return ()
-    # also support calendar.sessions(start, config.end) fallback if needed but spec says skip not in sessions
+    # Skip start dates not present in trading sessions.
     out: list[tuple[int, date, float]] = []
     for st in starts:
         if st not in idx_map:

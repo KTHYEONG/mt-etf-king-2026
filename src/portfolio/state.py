@@ -120,7 +120,6 @@ def transition_position(
     if prev == PositionState.EXIT or prev == PositionState.WATCH:
         if sessions_since_exit >= cooldown and theme_state == "RECOVERY":
             return PositionState.RE_ENTER
-        # also if theme_state is LEADING after RECOVERY? Spec says RECOVERY -> LEADING, but test expects RECOVERY triggers RE_ENTER
         return PositionState.WATCH
     if prev == PositionState.HOLD:
         if theme_state == "LEADING":

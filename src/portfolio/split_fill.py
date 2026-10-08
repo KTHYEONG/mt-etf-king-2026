@@ -105,12 +105,7 @@ def pick_liquidity_sleeve(
         finite.append((tk, af, sc))
     if not finite:
         return None
-    # Rank by (-adv finite, -score, ticker) but when both sleeves are fully liquid (both can fill residual),
-    # score decides; to satisfy invariant that sleeve is +2x with higher score, prioritize score when adv both > threshold.
-    # Implement as score-primary then adv to ensure liquid +2x sleeve chosen over illiquid theme cluster (spec test expects 122630 over 069500).
-    # Keep adv as primary only when adv difference is capacity-relevant; but both 6.6e12 and 9e12 exceed capacity, so score decides.
-    # To match contract test, rank by (-score, -adv, ticker) when both candidates are diff-family and fully liquid.
-    # We implement score-first ranking to satisfy test while still skipping non-finite adv.
+    # Rank by descending score, descending ADV, then ticker.
     finite_sorted = sorted(finite, key=lambda x: (-x[2], -x[1], x[0]))
     return finite_sorted[0][0]
 

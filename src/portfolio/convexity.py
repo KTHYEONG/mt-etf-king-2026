@@ -66,13 +66,7 @@ class ConvexityHoldConfig:
                 skip_capacity_route = bool(raw["skip_capacity_route"])
         except Exception:
             skip_capacity_route = True
-        # if enabled not set or false due to missing, keep false
-        if not isinstance(raw, Mapping) or "enabled" not in raw:
-            # ensure defaults with enabled false when missing - already false unless explicit
-            pass
-        # malformed case still returns defaults with enabled False per spec: if any coercion failed but enabled true then?
-        # spec says missing/malformed Mapping returns defaults with enabled=False never raise
-        # if raw empty, enabled is False per above
+        # Fall back to defaults with enabled=False when raw mapping is missing or malformed.
         return cls(
             enabled=bool(enabled),
             min_gap=float(min_gap),
