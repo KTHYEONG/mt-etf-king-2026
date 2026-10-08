@@ -81,10 +81,8 @@ class DatasetSchema:
                     else:
                         decoded[col.column] = decode_bas_dd(raw)
                 elif col.dtype == "str":
-                    # Keep as string (including empty string becomes None? but spec says string fields keep value)
-                    # For ticker, validate pattern if non-empty
+                    # Convert empty strings to None for nullable columns.
                     decoded[col.column] = raw if raw != "" else None if not col.required else raw
-                    # Actually for string nullable, keep None for empty? But for name etc empty may be allowed
                     # Keep original string for non-ticker; for ticker allow alphanum
                     if col.column == "ticker" and decoded[col.column] is not None:
                         val = decoded[col.column]

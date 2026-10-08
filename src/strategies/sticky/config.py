@@ -119,10 +119,7 @@ def load_sticky_exposure_limits(strategy_id: str, path: Path | None = None) -> t
     try:
         from src.portfolio.constraints import load_p27_exposure_limits, load_p26_exposure_limits
 
-        # Use p27 semantics for mom60_raw etc; for now all sticky return p27 limits
-        # Try semantic-specific path if exists, else legacy
-        # Per spec, renamed loaders replace load_p27_*/load_p26_* but we just delegate
-        # Check if strategy_key resolves to sticky.mom60_concentrated -> p26 else p27
+        # Resolve strategy-specific exposure limits.
         canon = _resolve_semantic_key(strategy_id)
         if canon == "sticky.mom60_concentrated":
             return load_p26_exposure_limits(path)

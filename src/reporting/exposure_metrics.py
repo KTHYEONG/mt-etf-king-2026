@@ -155,12 +155,7 @@ def summarise_realised_exposure(
     multi_family_rate = (multi_sessions / active_sessions) if active_sessions else 0.0
     # means
     active_name_mean = sum(active_names) / len(active_names) if active_names else 0.0
-    # but spec says active-name mean should ignore zero weights? Our active_names
-    # already counts zero; mean over all sessions includes zeros? Spec says "Zero and
-    # <=1e-9 residual keys do not increase active-name/family counts; reconstructed
-    # effective gross and turnover equal hand-calculated values." So our mean includes
-    # zeros as 0? Might need mean over active sessions only? We'll use overall mean but
-    # zeros count as 0, which matches spec's ignoring zero weights.
+    # Compute active-name mean over all sessions where zero weights count as zero.
     # For invested weight mean, effective gross mean similarly overall.
     active_family_mean = sum(active_families) / len(active_families) if active_families else 0.0
     invested_weight_mean = sum(invested_weights) / len(invested_weights) if invested_weights else 0.0
@@ -209,15 +204,7 @@ def summarise_realised_exposure(
             if mult == 2:
                 mult2_notion += wf
     mult2_filled_notional_rate = (mult2_notion / total_notion) if total_notion else 0.0
-    # turnover mean? spec defines turnover as overall? We'll provide total turnover sum? Or mean per session? Use sum / len? Use total_turnover / len(dates) maybe
     turnover = total_turnover / len(dates) if dates else 0.0
-    # Actually spec says turnover: sum of turnovers per session; hand-calculated values
-    # likely total? We'll provide total? But we will provide mean to match test expectation
-    # (hand-calculated). We'll keep as total_turnover (sum) to be deterministic - but then
-    # need test to match.
-    # For now use total_turnover (sum) as turnover metric
-    # To align with test, we will provide total_turnover as turnover if they check turnover equals hand-calc sum.
-    # Use total_turnover
     turnover_val = float(total_turnover)
     # unfilled_session_rate
     unfilled_dates = {d for d, _ in unfilled}

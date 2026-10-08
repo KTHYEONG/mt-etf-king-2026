@@ -1,1 +1,1 @@
-# package scaffold for project_refactor spec
+"""Baseline strategies package."""

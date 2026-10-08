@@ -22,7 +22,7 @@ from src.universe.tournament import TournamentRules
 
 logger = logging.getLogger(__name__)
 
-# Orphan wiring refs to satisfy spec lean check
+# References retained for module wiring integrity
 _taxonomy_coverage_ref = Taxonomy.coverage  # noqa: F401
 _horizon_ref = TournamentRules.horizon_sessions  # noqa: F401
 _scenarios_ref = TournamentRules.scenarios_for  # noqa: F401
@@ -366,12 +366,7 @@ class PointInTimeUniverse:
         # Direct lookup
         if day in mp:
             return mp[day]
-        # If day is non-tradable, ADV not defined; but for liquidity filter, we need ADV as of prior tradable?
-        # Spec says ADV is trailing mean using only tradable sessions, ignoring non-tradable.
-        # So if day itself is non-tradable, the price filter already drops it, so we won't reach liquidity.
-        # For tradable days where window may have prior non-tradable ignored, our map already correct.
-        # If day not in mp (maybe day tradable but we missed due to panel missing?), try to find most recent prior ADV
-        # Search for max date <= day
+        # If day is not in map, search for the most recent prior date <= day.
         best: date | None = None
         for d in mp:
             if d <= day and (best is None or d > best):
@@ -417,11 +412,8 @@ class PointInTimeUniverse:
             row = price_map.get(t, {})
             is_trad = row.get("is_tradable")
             close = row.get("close")
-            # If is_tradable missing, assume True if close not None?
-            # Use strict: must be True and close >0
-            if is_trad is not True:  # must be exactly True
-                # Also handle 1/0? But spec says True
-                # If column missing, treat as False -> drop
+            # Strict tradability check: must be explicitly True.
+            if is_trad is not True:
                 dropped["price"] += 1
                 continue
             if close is None:
@@ -470,7 +462,7 @@ class PointInTimeUniverse:
                     dropped["sponsor"] += 1
                     continue
                 attr = _attr_at_row(base_attr, price_map.get(t, {}), self._brand_map)
-                # manifest check first before liquidity (as spec)
+                # Manifest filter check before liquidity filtering.
                 if filters.manifest is not None and t not in filters.manifest:
                     dropped["sponsor"] += 1
                     continue

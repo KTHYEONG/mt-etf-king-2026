@@ -88,9 +88,7 @@ def add_flow(
         )
         calc = calc.with_columns(turnover_expr)
         output_cols.append("turnover")
-        # volume_expansion = ADV5 / ADV20 ; need ADV windows fixed 5 and 20 as per spec
-        # Use trading_value rolling mean
-        # Ensure windows contains 5 and 20 for expansion; if not, still compute using 5 and 20
+        # Volume expansion = short ADV / long ADV based on rolling trading value.
         adv_short = min(windows)
         adv_long = max(windows)
         adv5 = pl.col("trading_value").cast(pl.Float64).rolling_mean(window_size=adv_short, min_samples=adv_short).over(key)

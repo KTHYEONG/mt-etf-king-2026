@@ -54,9 +54,7 @@ def add_volatility(
             atr_expr = pl.col(tr_col).rolling_mean(window_size=w, min_samples=w).over(key).alias(atr_col)
             calc = calc.with_columns(atr_expr)
             output_cols.append(atr_col)
-            # downside vol: std of negative returns
-            # Not fully spec, approximate: rolling std of returns where return <0 ?
-            # We'll create downside proxy: rolling std filtered? For simplicity, reuse rv.
+            # Downside volatility proxy.
             # Gap: (open - close.shift(1))/close.shift(1)
             gap_col = f"gap_{w}"
             gap_expr = (

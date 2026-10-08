@@ -181,11 +181,7 @@ class StickyLeaderConfig:
                 else:
                     min_hold = int(mh)
         except Exception:
-            # if min_hold present but invalid, fail to defaults per spec (e.g., -2)
-            if "min_hold" in raw:
-                min_hold = defaults.min_hold
-            else:
-                min_hold = defaults.min_hold
+            min_hold = defaults.min_hold
         # additional guard for non-finite / negative after
         try:
             if not math.isfinite(float(min_hold)):

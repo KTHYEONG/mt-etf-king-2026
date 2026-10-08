@@ -182,12 +182,7 @@ async def run_backfill(
                 if completed % 100 == 0:
                     tagged_log(logger, "DATA", completed=completed, total=len(plan.scheduled))
 
-    # Schedule tasks but stop scheduling once ledger exhausted?
-    # Plan already respects quota, so we can launch all scheduled
-    # But need to honour dynamic exhaustion: if ledger becomes exhausted mid-run, remaining tasks should not fetch
-    # Our _process_one checks remaining before each fetch, so they will mark as failed? But spec says for quota exhausted case, should not attempt further calls.
-    # Instead, we should check before launching each task sequentially, respecting concurrency but not launching beyond quota
-    # Simpler: iterate scheduled and launch tasks, but with early break if ledger exhausted before launching
+    # Stop scheduling further tasks once ledger quota is exhausted.
     tasks: list[asyncio.Task[None]] = []
     for bas_dd in plan.scheduled:
         if ledger.remaining() <= 0:
@@ -200,16 +195,7 @@ async def run_backfill(
     if tasks:
         await asyncio.gather(*tasks)
 
-    # Handle dates that were not launched due to quota exhaustion -> they remain not written, but we didn't add to failed
-    # For quota_exhausted logic, deferred plus any un-launched scheduled should be considered deferred
-    # However plan.scheduled was already limited, so if we broke early, some scheduled were not processed -> they should be considered deferred/failed?
-    # But spec says "MUST stop scheduling further calls once the ledger is exhausted" - so we stop and report quota_exhausted True
-    # We should not mark unprocessed scheduled as failed; they will be caught on next plan via missing count
-    # So we just compute quota_exhausted
-    # Count how many scheduled were not processed: not needed for failed
-
-    # If we broke early, failed list doesn't include unprocessed; but written will be less than len(scheduled) processed
-    # For accurate written count, we already have.
+    # Unprocessed scheduled dates are left unwritten without marking as failed.
 
     # Determine quota_exhausted
     quota_exhausted = False

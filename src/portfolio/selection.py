@@ -25,8 +25,7 @@ def select_positions(
         return []
     # deterministic sort descending score then ticker
     sorted_tickers = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
-    # Step 1: family dedup (leverage_family_key) precedes theme dedup
-    # Need to keep top max_per_family per family
+    # Family dedup (leverage_family_key) precedes theme dedup.
     family_counts: dict[str, int] = {}
     after_family: list[tuple[str, float]] = []
     for ticker, sc in sorted_tickers:
@@ -46,7 +45,7 @@ def select_positions(
             family_counts[fk] = cnt + 1
         else:
             continue
-    # Step 2: theme dedup
+    # Theme dedup.
     theme_counts: dict[str, int] = {}
     result: list[str] = []
     for ticker, _sc in after_family:

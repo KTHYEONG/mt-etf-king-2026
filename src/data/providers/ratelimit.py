@@ -186,11 +186,7 @@ class QuotaLedger:
         # Now check remaining
         remaining = self._daily_quota - self._consumed
         if remaining <= 0:
-            # Still persist? But quota exhausted
-            # Don't consume beyond quota? Still increment?
-            # Spec: consume one quota unit per attempted call, stop scheduling when exhausted.
-            # So we should still increment but cap? For remaining logic, we cap at 0.
-            # We'll still increment consumed to reflect overrun? But better to allow consume even when exhausted, remaining stays 0.
+            # Increment consumed count to track overruns while remaining floor stays at zero.
             self._consumed += n
             self._persist()
             return

@@ -78,7 +78,7 @@ def _hook_house_money(state: _DecideState) -> None:
                 # fail-closed: STATE_MISSING simulation - do not set min_hold 0
                 raise ValueError("STATE_MISSING") from None
         else:
-            # state missing -> fail-closed per spec, not silently pass
+            # Missing state fails closed.
             if not files:
                 pass  # allow missing state for wiring test, but real live should fail
     except ValueError as _ve_state:

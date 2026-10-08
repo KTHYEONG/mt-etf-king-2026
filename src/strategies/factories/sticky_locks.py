@@ -130,10 +130,8 @@ def make_sticky_split_fill_lock() -> object:
     from src.alpha.sticky import resolve_lock_level as _rl
 
     cfg.lock_level = _rl(cfg.lock_level, default=0.40)
-    # ensure lock_level exactly 0.40 if not explicitly set differently? Contract says 0.40
-    # keep 0.40 unless yaml overrides but wiring expects 0.40
+    # Enforce default lock_level of 0.40.
     if abs(float(cfg.lock_level) - 0.40) > 1e-9:
-        # still enforce 0.40 per spec (P23 lock_level 0.40)
         cfg.lock_level = 0.40
     return SplitFillStickyModel(name="sticky.split_fill_lock", config=cfg)
 

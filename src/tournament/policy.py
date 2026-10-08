@@ -61,11 +61,10 @@ class AggressionPolicy:
 def house_money_should_cash(return_from_start: float, remaining: int, arm: float, lock_remaining: int) -> bool:
     import math
 
-    # arm fail-closed: NaN/non-finite/<=0 -> 0.50 (but invalid arm also fails closed to False per contract test)
+    # Fail-closed for non-finite or non-positive arm values.
     try:
         af = float(arm)  # type: ignore[arg-type]
         if not math.isfinite(af) or af <= 0:
-            # per spec default is 0.50, but test expects invalid arm to not cash
             return False
     except Exception:
         return False

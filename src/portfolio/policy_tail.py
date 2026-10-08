@@ -580,9 +580,8 @@ class PortfolioPolicyTailMixin:
                 rationale[t] = f"{t} weight={float(w):.3f} state={st_str} vehicle={t} mult={mult_val}{lottery_flag} WHY: allocated via ClusterAwareSelection and confidence sizing"
             else:
                 rationale[t] = f"{t} weight={float(w):.3f} state={st_str} vehicle=identity mult={mult_val}{lottery_flag} WHY: allocated via ClusterAwareSelection and confidence sizing"
-        # Purge vehicles entries for tickers not in final weights? Keep mapping src->dst where dst in weights
         final_vehicles = {s: d for s, d in vehicles.items() if d in weights}
-        # If master None, final_vehicles may be identity but spec expects rationale to contain vehicle=identity
+        # Fall back to identity mapping when no vehicles are explicitly mapped.
         if not final_vehicles and weights:
             final_vehicles = {k: k for k in weights}
         return PortfolioDecision(weights=dict(weights), rationale=rationale, vehicles=final_vehicles, gross=float(gross_val) if gross_val is not None else None)

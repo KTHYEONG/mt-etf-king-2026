@@ -211,7 +211,7 @@ class ExposureSelector:
                     available_delta=cap,
                 )
 
-        # Try +2x route eligibility order per spec §3.5
+        # Evaluate +2x route eligibility conditions.
         # 1 leverage allowed
         if leverage_allowed is not True:
             # fail to +2x, try +1x
@@ -310,9 +310,7 @@ class ExposureSelector:
                         required_delta=req2,
                         available_delta=cap2 if cap2 is not None else 0.0,
                     )
-                # fallback to +1x even if not fully executable? Actually spec says demote to executable +1x; otherwise retain current or cash
-                # If no held, return +1x with CAPACITY_DEMOTE even if not fully? But cap check failed above
-                # So return cash hold (vehicle = plus1? but weight zero) -> we return plus1 with reason
+                # Demote to +1x vehicle when +2x capacity is insufficient.
                 cap1 = self._cap_for(plus1_ticker, capacity) if plus1_ticker else None
                 return VehicleRoute(
                     source_ticker=source_ticker,

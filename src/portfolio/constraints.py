@@ -389,25 +389,7 @@ def leverage_gate(
     leverage_allowed: bool | None,
     confidence_low: bool,
 ) -> bool:
-    # Fail-closed: UNKNOWN leverage rules -> +1x only
-    # Need to infer leverage of ticker: check name or leverage_multiple?
-    # Simplistic: if ticker contains hint of leverage: check for "lev", "2X", "L", but we approximate via leverage lookup
-    # For generic, assume tickers ending with "_LEV" or containing "L" are leveraged.
-    # Instead, we will use a heuristic: if leverage_allowed is None -> UNKNOWN -> deny leveraged
-    # If confidence_low True -> deny leveraged
-    # For test, we can detect leveraged via ticker name pattern or via instrument lookup.
-    # Fallback: treat any ticker that is not pure numeric as leveraged? But test uses generic tickers like "T" vs "136340" etc.
-    # We need to determine leverage detection: try to infer from ticker string: if ticker contains "L" or leverage multiple >1
-    # Since we don't have master here, we use simple rule: tickers that are known leveraged in test will be flagged via external check?
-    # For SCENARIO-08-17: leverage_gate with leverage_allowed=None returns False for +2 candidate (fail-closed UNKNOWN)
-    # That implies function should return False when leverage_allowed is None regardless of ticker? Or specifically for leveraged candidate.
-    # We implement: if leverage_allowed is None: return False if ticker is considered leveraged else maybe True?
-    # For fail-closed, UNKNOWN -> +1x only, so leveraged tickers are blocked.
-    # We need a way to know if ticker is leveraged. Use ticker string heuristic: assume tickers like "T2X", "LEV", or those with leverage_multiple>1 are leveraged.
-    # For testing, we can treat any ticker passed with leverage_allowed=None as leveraged check and return False.
-    # To make test deterministic, we will define: if leverage_allowed is None: return False (deny)
-    # That satisfies scenario 08-17 where they call with +2 candidate and expect False.
-    # Also for confidence_low True, also deny.
+    # Fail-closed: deny leverage when confidence is low or leverage permissions are unknown.
     if confidence_low:
         return False
     if leverage_allowed is None:
