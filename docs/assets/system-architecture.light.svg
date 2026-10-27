@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 740" width="1200" height="740" data-skin="current-v1" data-Copy-mode="light" data-surface-profile="architecture">
+  <defs>
+    <style>
+      .t-eyebrow { font-family: 'JetBrains Mono', 'Noto Sans KR', monospace; font-size: 13px; font-weight: 700; letter-spacing: 0.1em; }
+      .t-h1 { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+      .t-sub { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 15px; font-weight: 600; }
+      .t-sec { font-family: 'JetBrains Mono', 'Noto Sans KR', monospace; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; }
+      .t-kpi { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 40px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+      .t-kpi-md { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 32px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+      .t-card-title { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+      .t-node-title { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+      .t-body { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 14.5px; font-weight: 600; }
+      .t-step { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 14.5px; font-weight: 700; }
+      .t-mono { font-family: 'JetBrains Mono', 'Noto Sans KR', monospace; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .t-badge { font-family: 'JetBrains Mono', 'Noto Sans KR', monospace; font-size: 12.5px; font-weight: 700; letter-spacing: 0.04em; }
+</style>
+    <marker id="arrow-h" viewBox="0 0 10 10" refX="6" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" data-fill-role="focus" fill="#2E6DA4"/>
+    </marker>
+    <marker id="arrow-v" viewBox="0 0 10 10" refX="6" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" data-fill-role="positive" fill="#3F8F72"/>
+    </marker>
+  </defs>
+
+  <!-- Canvas -->
+  <rect x="0" y="0" width="1200" height="740" data-fill-role="canvas" fill="#F7F7F5"/>
+
+  <!-- Header -->
+  <g id="arch-header">
+    <text x="40" y="40" class="t-eyebrow" data-fill-role="focus" fill="#2E6DA4">SYSTEM ARCHITECTURE &amp; EXECUTION LIFECYCLE</text>
+    <text x="40" y="74" class="t-h1" data-fill-role="ink" fill="#252B35">4-Tier 메달리온 데이터 파이프라인 및 실전 대회 의사결정 토폴로지</text>
+    <text x="40" y="100" class="t-sub" data-fill-role="muted" fill="#363A40">단방향 계층 의존성(Core → Data → Features → Portfolio → Execution → Tournament/Contest) AST 강제</text>
+
+    <rect x="920" y="32" width="240" height="36" rx="18" data-fill-role="edge-fill" data-stroke-role="edge-line" fill="#EAF0F6" stroke="#2E6DA4" stroke-width="1.5"/>
+    <text x="942" y="55" class="t-badge" data-fill-role="edge-ink" fill="#193C5A">ZERO CYCLIC DEPENDENCY</text>
+  </g>
+
+  <!-- TIER 1: DATA & MEDALLION -->
+  <g id="tier-1">
+    <rect x="40" y="122" width="1120" height="134" rx="14" data-fill-role="strip" data-stroke-role="rule" fill="#F7F9FB" stroke="#DEE0E2" stroke-width="1.5"/>
+    <rect x="54" y="138" width="184" height="102" rx="10" data-fill-role="edge-fill" data-stroke-role="edge-line" fill="#EAF0F6" stroke="#2E6DA4" stroke-width="1.5"/>
+    <text x="70" y="166" class="t-badge" data-fill-role="edge-ink" fill="#193C5A">TIER 01 · INGEST</text>
+    <text x="70" y="192" class="t-node-title" data-fill-role="ink" fill="#252B35">데이터 수집·정제</text>
+    <text x="70" y="216" class="t-mono" data-fill-role="edge-ink" fill="#193C5A">src/data/ + core/</text>
+
+    <!-- Node 1.1 -->
+    <rect x="252" y="138" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="edge-line" fill="#FFFFFF" stroke="#2E6DA4" stroke-width="1.5"/>
+    <text x="268" y="162" class="t-badge" data-fill-role="edge-ink" fill="#193C5A">KRX ASYNC PROVIDER</text>
+    <text x="268" y="186" class="t-node-title" data-fill-role="ink" fill="#252B35">비동기 수집 &amp; 쿼터 원장</text>
+    <text x="268" y="208" class="t-body" data-fill-role="muted" fill="#363A40">나노초 토큰버킷 · 일일 쿼터 추적</text>
+    <text x="268" y="228" class="t-mono" data-fill-role="edge-ink" fill="#193C5A">krx.py · ratelimit.py</text>
+
+    <path d="M 532 189 H 552" fill="none" data-stroke-role="focus" stroke="#2E6DA4" stroke-width="2" marker-end="url(#arrow-h)"/>
+
+    <!-- Node 1.2 -->
+    <rect x="558" y="138" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="edge-line" fill="#FFFFFF" stroke="#2E6DA4" stroke-width="1.5"/>
+    <text x="574" y="162" class="t-badge" data-fill-role="edge-ink" fill="#193C5A">BRONZE &amp; 10-GATE VALIDATOR</text>
+    <text x="574" y="186" class="t-node-title" data-fill-role="ink" fill="#252B35">원본 보존 &amp; 이상치 필터링</text>
+    <text x="574" y="208" class="t-body" data-fill-role="muted" fill="#363A40">빈값 None 디코딩 · 휴장 더미 차단</text>
+    <text x="574" y="228" class="t-mono" data-fill-role="edge-ink" fill="#193C5A">bronze.py · validation.py</text>
+
+    <path d="M 838 189 H 858" fill="none" data-stroke-role="focus" stroke="#2E6DA4" stroke-width="2" marker-end="url(#arrow-h)"/>
+
+    <!-- Node 1.3 -->
+    <rect x="864" y="138" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="edge-line" fill="#FFFFFF" stroke="#2E6DA4" stroke-width="1.5"/>
+    <text x="880" y="162" class="t-badge" data-fill-role="edge-ink" fill="#193C5A">ATOMIC SILVER &amp; UNIVERSE</text>
+    <text x="880" y="186" class="t-node-title" data-fill-role="ink" fill="#252B35">원자적 Parquet &amp; 패밀리</text>
+    <text x="880" y="208" class="t-body" data-fill-role="muted" fill="#363A40">fsync 원자적 교체 · 파생형 군집화</text>
+    <text x="880" y="228" class="t-mono" data-fill-role="edge-ink" fill="#193C5A">silver.py · families.py</text>
+  </g>
+
+  <!-- Connector Tier 1 -> Tier 2 -->
+  <path d="M 1004 240 V 264 H 392 V 286" fill="none" data-stroke-role="positive" stroke="#3F8F72" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrow-v)"/>
+
+  <!-- TIER 2: FEATURE & ALPHA -->
+  <g id="tier-2">
+    <rect x="40" y="274" width="1120" height="134" rx="14" data-fill-role="compute-band" data-stroke-role="rule" fill="#F7FBF9" stroke="#DEE0E2" stroke-width="1.5"/>
+    <rect x="54" y="290" width="184" height="102" rx="10" data-fill-role="compute-fill" data-stroke-role="compute-line" fill="#ECF4F1" stroke="#3F8F72" stroke-width="1.5"/>
+    <text x="70" y="318" class="t-badge" data-fill-role="compute-ink" fill="#234F3F">TIER 02 · ALPHA</text>
+    <text x="70" y="344" class="t-node-title" data-fill-role="ink" fill="#252B35">인과 피처·전략</text>
+    <text x="70" y="368" class="t-mono" data-fill-role="compute-ink" fill="#234F3F">features/ + strategies/</text>
+
+    <!-- Node 2.1 -->
+    <rect x="252" y="290" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="compute-line" fill="#FFFFFF" stroke="#3F8F72" stroke-width="1.5"/>
+    <text x="268" y="314" class="t-badge" data-fill-role="compute-ink" fill="#234F3F">POINT-IN-TIME FEATURE ENGINE</text>
+    <text x="268" y="338" class="t-node-title" data-fill-role="ink" fill="#252B35">시점 정합성 &amp; 벡터 피처</text>
+    <text x="268" y="360" class="t-body" data-fill-role="muted" fill="#363A40">assert_pit · 실거래일만 롤링 연산</text>
+    <text x="268" y="380" class="t-mono" data-fill-role="compute-ink" fill="#234F3F">pit.py · builder.py</text>
+
+    <path d="M 532 341 H 552" fill="none" data-stroke-role="focus" stroke="#2E6DA4" stroke-width="2" marker-end="url(#arrow-h)"/>
+
+    <!-- Node 2.2 -->
+    <rect x="558" y="290" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="compute-line" fill="#FFFFFF" stroke="#3F8F72" stroke-width="1.5"/>
+    <text x="574" y="314" class="t-badge" data-fill-role="compute-ink" fill="#234F3F">CHAMPIONSHIP REGIME SLEEVE</text>
+    <text x="574" y="338" class="t-node-title" data-fill-role="ink" fill="#252B35">국면 분류 &amp; 급락 반등 앵커</text>
+    <text x="574" y="360" class="t-body" data-fill-role="muted" fill="#363A40">급락 후 현금도피 우회 · 2X 앵커</text>
+    <text x="574" y="380" class="t-mono" data-fill-role="compute-ink" fill="#234F3F">sticky_mom60.py · regime.py</text>
+
+    <path d="M 838 341 H 858" fill="none" data-stroke-role="focus" stroke="#2E6DA4" stroke-width="2" marker-end="url(#arrow-h)"/>
+
+    <!-- Node 2.3 -->
+    <rect x="864" y="290" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="compute-line" fill="#FFFFFF" stroke="#3F8F72" stroke-width="1.5"/>
+    <text x="880" y="314" class="t-badge" data-fill-role="compute-ink" fill="#234F3F">CLUSTER-AWARE SELECTION</text>
+    <text x="880" y="338" class="t-node-title" data-fill-role="ink" fill="#252B35">패밀리 중복 배제 &amp; 리스크 캡</text>
+    <text x="880" y="360" class="t-body" data-fill-role="muted" fill="#363A40">기초지수 1종목 제한 · -15% 손절</text>
+    <text x="880" y="380" class="t-mono" data-fill-role="compute-ink" fill="#234F3F">selection.py · sizing.py</text>
+  </g>
+
+  <!-- Connector Tier 2 -> Tier 3 -->
+  <path d="M 1004 392 V 416 H 392 V 438" fill="none" data-stroke-role="positive" stroke="#3F8F72" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrow-v)"/>
+
+  <!-- TIER 3: EXECUTION & HARNESS -->
+  <g id="tier-3">
+    <rect x="40" y="426" width="1120" height="134" rx="14" data-fill-role="strip" data-stroke-role="rule" fill="#F7F9FB" stroke="#DEE0E2" stroke-width="1.5"/>
+    <rect x="54" y="442" width="184" height="102" rx="10" data-fill-role="api-fill" data-stroke-role="api-line" fill="#EFEEF6" stroke="#5B54A8" stroke-width="1.5"/>
+    <text x="70" y="470" class="t-badge" data-fill-role="api-ink" fill="#322E5C">TIER 03 · LEDGER</text>
+    <text x="70" y="496" class="t-node-title" data-fill-role="ink" fill="#252B35">체결 원장·검증</text>
+    <text x="70" y="520" class="t-mono" data-fill-role="api-ink" fill="#322E5C">execution/ + backtest/</text>
+
+    <!-- Node 3.1 -->
+    <rect x="252" y="442" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="api-line" fill="#FFFFFF" stroke="#5B54A8" stroke-width="1.5"/>
+    <text x="268" y="466" class="t-badge" data-fill-role="api-ink" fill="#322E5C">NEXT-OPEN EXECUTION</text>
+    <text x="268" y="490" class="t-node-title" data-fill-role="ink" fill="#252B35">t+1 시가 체결 &amp; 유동성 캡</text>
+    <text x="268" y="512" class="t-body" data-fill-role="muted" fill="#363A40">당일 체결 차단 · 20d ADV 1~5%</text>
+    <text x="268" y="532" class="t-mono" data-fill-role="api-ink" fill="#322E5C">execution.py · liquidity.py</text>
+
+    <path d="M 532 493 H 552" fill="none" data-stroke-role="focus" stroke="#2E6DA4" stroke-width="2" marker-end="url(#arrow-h)"/>
+
+    <!-- Node 3.2 -->
+    <rect x="558" y="442" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="api-line" fill="#FFFFFF" stroke="#5B54A8" stroke-width="1.5"/>
+    <text x="574" y="466" class="t-badge" data-fill-role="api-ink" fill="#322E5C">CONSERVATION LEDGER</text>
+    <text x="574" y="490" class="t-node-title" data-fill-role="ink" fill="#252B35">현금·수량 보존 &amp; 가격 이월</text>
+    <text x="574" y="512" class="t-body" data-fill-role="muted" fill="#363A40">무가격 세션 종가 이월 · 불변 원장</text>
+    <text x="574" y="532" class="t-mono" data-fill-role="api-ink" fill="#322E5C">ledger_state.py · transition.py</text>
+
+    <path d="M 838 493 H 858" fill="none" data-stroke-role="focus" stroke="#2E6DA4" stroke-width="2" marker-end="url(#arrow-h)"/>
+
+    <!-- Node 3.3 -->
+    <rect x="864" y="442" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="api-line" fill="#FFFFFF" stroke="#5B54A8" stroke-width="1.5"/>
+    <text x="880" y="466" class="t-badge" data-fill-role="api-ink" fill="#322E5C">ROLLING 36D HARNESS</text>
+    <text x="880" y="490" class="t-node-title" data-fill-role="ink" fill="#252B35">2,097개 롤링 윈도우 평가</text>
+    <text x="880" y="512" class="t-body" data-fill-role="muted" fill="#363A40">P(R&gt;30%) 꼬리 확률 · CVaR 검증</text>
+    <text x="880" y="532" class="t-mono" data-fill-role="api-ink" fill="#322E5C">simulator_rolling.py · harness.py</text>
+  </g>
+
+  <!-- Connector Tier 3 -> Tier 4 -->
+  <path d="M 1004 544 V 568 H 392 V 590" fill="none" data-stroke-role="positive" stroke="#3F8F72" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrow-v)"/>
+
+  <!-- TIER 4: LIVE & CONTEST OVERRIDE -->
+  <g id="tier-4">
+    <rect x="40" y="578" width="1120" height="134" rx="14" data-fill-role="compute-band" data-stroke-role="rule" fill="#F7FBF9" stroke="#DEE0E2" stroke-width="1.5"/>
+    <rect x="54" y="594" width="184" height="102" rx="10" data-fill-role="surface-tint" data-stroke-role="focus" fill="#E4EDF3" stroke="#2E6DA4" stroke-width="1.5"/>
+    <text x="70" y="622" class="t-badge" data-fill-role="focus" fill="#2E6DA4">TIER 04 · CONTEST</text>
+    <text x="70" y="648" class="t-node-title" data-fill-role="ink" fill="#252B35">실전·군중 시뮬</text>
+    <text x="70" y="672" class="t-mono" data-fill-role="focus" fill="#2E6DA4">contest/ + tournament/</text>
+
+    <!-- Node 4.1 -->
+    <rect x="252" y="594" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="focus" fill="#FFFFFF" stroke="#2E6DA4" stroke-width="1.5"/>
+    <text x="268" y="618" class="t-badge" data-fill-role="focus" fill="#2E6DA4">SELF-HEALING DAILY PIPELINE</text>
+    <text x="268" y="642" class="t-node-title" data-fill-role="ink" fill="#252B35">누락 세션 자동 복구·따라잡기</text>
+    <text x="268" y="664" class="t-body" data-fill-role="muted" fill="#363A40">결손일 재수집 · 스티키 원장 복원</text>
+    <text x="268" y="684" class="t-mono" data-fill-role="focus" fill="#2E6DA4">pipeline.py · live_decision.py</text>
+
+    <path d="M 532 645 H 552" fill="none" data-stroke-role="focus" stroke="#2E6DA4" stroke-width="2" marker-end="url(#arrow-h)"/>
+
+    <!-- Node 4.2 -->
+    <rect x="558" y="594" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="focus" fill="#FFFFFF" stroke="#2E6DA4" stroke-width="1.5"/>
+    <text x="574" y="618" class="t-badge" data-fill-role="focus" fill="#2E6DA4">1,268-CROWD MONTE CARLO</text>
+    <text x="574" y="642" class="t-node-title" data-fill-role="ink" fill="#252B35">리더보드 아카이브 &amp; P(rank=1)</text>
+    <text x="574" y="664" class="t-body" data-fill-role="muted" fill="#363A40">8k Worlds 부트스트랩 · +5%p 교체</text>
+    <text x="574" y="684" class="t-mono" data-fill-role="focus" fill="#2E6DA4">leaderboard.py · engine.py</text>
+
+    <path d="M 838 645 H 858" fill="none" data-stroke-role="focus" stroke="#2E6DA4" stroke-width="2" marker-end="url(#arrow-h)"/>
+
+    <!-- Node 4.3 -->
+    <rect x="864" y="594" width="280" height="102" rx="10" data-fill-role="surface" data-stroke-role="focus" fill="#FFFFFF" stroke="#2E6DA4" stroke-width="2"/>
+    <text x="880" y="618" class="t-badge" data-fill-role="focus" fill="#2E6DA4">SEGMENT EXECUTION CARD</text>
+    <text x="880" y="642" class="t-node-title" data-fill-role="ink" fill="#252B35">오버나이트 롱 &amp; 장중 반전</text>
+    <text x="880" y="664" class="t-body" data-fill-role="muted" fill="#363A40">단일가 회피(09:05 / 15:10)</text>
+    <text x="880" y="684" class="t-mono" data-fill-role="focus" fill="#2E6DA4">segment.py · fade.py · decision.py</text>
+  </g>
+</svg>

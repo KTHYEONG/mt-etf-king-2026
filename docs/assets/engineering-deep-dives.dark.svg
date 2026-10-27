@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 740" width="1200" height="740" data-skin="current-v1" data-Copy-mode="dark" data-surface-profile="social-card">
+  <defs>
+    <style>
+      .t-eyebrow { font-family: 'JetBrains Mono', 'Noto Sans KR', monospace; font-size: 13px; font-weight: 700; letter-spacing: 0.1em; }
+      .t-h1 { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+      .t-sub { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 15px; font-weight: 600; }
+      .t-sec { font-family: 'JetBrains Mono', 'Noto Sans KR', monospace; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; }
+      .t-kpi { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 40px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+      .t-kpi-md { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 32px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+      .t-card-title { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+      .t-node-title { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+      .t-body { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 14.5px; font-weight: 600; }
+      .t-step { font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif; font-size: 14.5px; font-weight: 700; }
+      .t-mono { font-family: 'JetBrains Mono', 'Noto Sans KR', monospace; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .t-badge { font-family: 'JetBrains Mono', 'Noto Sans KR', monospace; font-size: 12.5px; font-weight: 700; letter-spacing: 0.04em; }
+</style>
+    <marker id="arrow-dd" viewBox="0 0 10 10" refX="6" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" data-fill-role="focus" fill="#6FA3D3"/>
+    </marker>
+  </defs>
+
+  <!-- Canvas -->
+  <rect x="0" y="0" width="1200" height="740" data-fill-role="canvas" fill="#16191E"/>
+
+  <!-- Header -->
+  <g id="dd-header">
+    <text x="40" y="40" class="t-eyebrow" data-fill-role="focus" fill="#6FA3D3">ENGINEERING DEEP DIVES · TROUBLESHOOTING &amp; INVARIANT DESIGN</text>
+    <text x="40" y="74" class="t-h1" data-fill-role="ink" fill="#E9ECEF">핵심 엔지니어링 문제 해결 사례 3선 (문제 정의 → 3단계 해법 → 실측 성과)</text>
+    <text x="40" y="100" class="t-sub" data-fill-role="muted" fill="#D8DBDF">시계열 데이터 오염 방어 · 급락장 현금 도피(Whip-saw) 극복 · 대회 목적함수(P(rank=1)) 및 원장 무결성 보장</text>
+  </g>
+
+  <!-- CASE 01 ROW -->
+  <g id="case-01">
+    <rect x="40" y="122" width="1120" height="184" rx="14" data-fill-role="surface" data-stroke-role="rule" fill="#20242B" stroke="#363B44" stroke-width="1.5"/>
+    <rect x="40" y="122" width="8" height="184" rx="4" data-fill-role="focus" fill="#6FA3D3"/>
+
+    <!-- Left: Problem (width 296) -->
+    <rect x="62" y="138" width="296" height="152" rx="10" data-fill-role="edge-fill" data-stroke-role="edge-line" fill="#2A3746" stroke="#6FA3D3" stroke-width="1.5"/>
+    <text x="78" y="164" class="t-badge" data-fill-role="edge-ink" fill="#C5DAED">CASE 01 · CAUSAL &amp; DATA GUARD</text>
+    <text x="78" y="192" class="t-card-title" data-fill-role="ink" fill="#E9ECEF">KRX 결측·휴장 더미 오염</text>
+    <text x="78" y="218" class="t-body" data-fill-role="muted" fill="#D8DBDF">빈값(&quot;&quot;) 0 치환 시 -100% 폭락 왜곡</text>
+    <text x="78" y="242" class="t-body" data-fill-role="muted" fill="#D8DBDF">휴장일 1,163행 더미가 롤링 오염</text>
+    <text x="78" y="268" class="t-mono" data-fill-role="danger" fill="#CE8378">당일 종가 체결 → 미래 참조 발생</text>
+
+    <path d="M 358 214 H 378" fill="none" data-stroke-role="focus" stroke="#6FA3D3" stroke-width="2" marker-end="url(#arrow-dd)"/>
+
+    <!-- Center: 3-Step Solution (width 476) -->
+    <rect x="384" y="138" width="476" height="152" rx="10" data-fill-role="strip" data-stroke-role="rule" fill="#1F2730" stroke="#363B44" stroke-width="1.5"/>
+    <text x="402" y="164" class="t-badge" data-fill-role="focus" fill="#6FA3D3">ENGINEERING RESOLUTION (DETECT → ACTION → VERIFY)</text>
+    <text x="402" y="194" class="t-step" data-fill-role="ink" fill="#E9ECEF">① 탐지: classify_session(50%) 및 10단계 PanelValidator</text>
+    <text x="402" y="222" class="t-step" data-fill-role="ink" fill="#E9ECEF">② 조치: 빈값 None 디코딩 · 실거래 세션만 롤링 연산</text>
+    <text x="402" y="250" class="t-step" data-fill-role="ink" fill="#E9ECEF">③ 검증: assert_pit 시점 가드 &amp; NextOpen(t+1 시가) 체결</text>
+    <text x="402" y="274" class="t-mono" data-fill-role="edge-ink" fill="#C5DAED">validation.py · pit.py · execution.py · ledger_state.py</text>
+
+    <path d="M 860 214 H 880" fill="none" data-stroke-role="focus" stroke="#6FA3D3" stroke-width="2" marker-end="url(#arrow-dd)"/>
+
+    <!-- Right: Verified Outcome (width 256) -->
+    <rect x="886" y="138" width="256" height="152" rx="10" data-fill-role="compute-fill" data-stroke-role="compute-line" fill="#263A37" stroke="#5FAE8F" stroke-width="1.5"/>
+    <text x="904" y="164" class="t-badge" data-fill-role="compute-ink" fill="#BFDFD2">VERIFIED OUTCOME</text>
+    <text x="904" y="208" class="t-kpi-md" data-fill-role="positive" fill="#5FAE8F">0건 · 0.00%</text>
+    <text x="904" y="238" class="t-node-title" data-fill-role="ink" fill="#E9ECEF">미래 참조 &amp; 결측 왜곡 제로</text>
+    <text x="904" y="262" class="t-body" data-fill-role="muted" fill="#D8DBDF">8.7년 전 구간 정합성 보장</text>
+    <text x="904" y="280" class="t-mono" data-fill-role="compute-ink" fill="#BFDFD2">test_pit.py · priceless_session</text>
+  </g>
+
+  <!-- CASE 02 ROW -->
+  <g id="case-02">
+    <rect x="40" y="326" width="1120" height="184" rx="14" data-fill-role="surface" data-stroke-role="rule" fill="#20242B" stroke="#363B44" stroke-width="1.5"/>
+    <rect x="40" y="326" width="8" height="184" rx="4" data-fill-role="positive" fill="#5FAE8F"/>
+
+    <!-- Left: Problem -->
+    <rect x="62" y="342" width="296" height="152" rx="10" data-fill-role="compute-fill" data-stroke-role="compute-line" fill="#263A37" stroke="#5FAE8F" stroke-width="1.5"/>
+    <text x="78" y="368" class="t-badge" data-fill-role="compute-ink" fill="#BFDFD2">CASE 02 · POST-CRASH WHIP-SAW</text>
+    <text x="78" y="396" class="t-card-title" data-fill-role="ink" fill="#E9ECEF">급락 직후 현금 도피 딜레마</text>
+    <text x="78" y="422" class="t-body" data-fill-role="muted" fill="#D8DBDF">폭락 후 mom_60 &lt; 0 절대 모멘텀이</text>
+    <text x="78" y="446" class="t-body" data-fill-role="muted" fill="#D8DBDF">현금 철수를 유발해 V자 반등 상실</text>
+    <text x="78" y="472" class="t-mono" data-fill-role="danger" fill="#CE8378">동일 지수 1X·2X 중복 과집중 위험</text>
+
+    <path d="M 358 418 H 378" fill="none" data-stroke-role="focus" stroke="#6FA3D3" stroke-width="2" marker-end="url(#arrow-dd)"/>
+
+    <!-- Center: 3-Step Solution -->
+    <rect x="384" y="342" width="476" height="152" rx="10" data-fill-role="strip" data-stroke-role="rule" fill="#1F2730" stroke="#363B44" stroke-width="1.5"/>
+    <text x="402" y="368" class="t-badge" data-fill-role="focus" fill="#6FA3D3">ENGINEERING RESOLUTION (DETECT → ACTION → VERIFY)</text>
+    <text x="402" y="398" class="t-step" data-fill-role="ink" fill="#E9ECEF">① 탐지: tail_forensics로 폭락 직후 반등 누락 규명</text>
+    <text x="402" y="426" class="t-step" data-fill-role="ink" fill="#E9ECEF">② 조치: 급락 후 mom_20 반등 시 2X 대표지수 앵커링</text>
+    <text x="402" y="454" class="t-step" data-fill-role="ink" fill="#E9ECEF">③ 검증: 패밀리 중복 배제(Max 1) 및 -15% 손절 결합</text>
+    <text x="402" y="478" class="t-mono" data-fill-role="compute-ink" fill="#BFDFD2">sticky_mom60.py · championship_regime.py · selection.py</text>
+
+    <path d="M 860 418 H 880" fill="none" data-stroke-role="focus" stroke="#6FA3D3" stroke-width="2" marker-end="url(#arrow-dd)"/>
+
+    <!-- Right: Verified Outcome -->
+    <rect x="886" y="342" width="256" height="152" rx="10" data-fill-role="edge-fill" data-stroke-role="edge-line" fill="#2A3746" stroke="#6FA3D3" stroke-width="1.5"/>
+    <text x="904" y="368" class="t-badge" data-fill-role="edge-ink" fill="#C5DAED">VERIFIED OUTCOME</text>
+    <text x="904" y="412" class="t-kpi-md" data-fill-role="focus" fill="#6FA3D3">7.77% (3.06x)</text>
+    <text x="904" y="442" class="t-node-title" data-fill-role="ink" fill="#E9ECEF">+30% 달성 확률 1위 챔피언</text>
+    <text x="904" y="466" class="t-body" data-fill-role="muted" fill="#D8DBDF">P27(6.78%) 대비 확률·방어 우위</text>
+    <text x="904" y="484" class="t-mono" data-fill-role="edge-ink" fill="#C5DAED">CVaR(5%) -21.56% · q95 +43.85%</text>
+  </g>
+
+  <!-- CASE 03 ROW -->
+  <g id="case-03">
+    <rect x="40" y="530" width="1120" height="184" rx="14" data-fill-role="surface" data-stroke-role="rule" fill="#20242B" stroke="#363B44" stroke-width="1.5"/>
+    <rect x="40" y="530" width="8" height="184" rx="4" data-fill-role="api-line" fill="#9490C6"/>
+
+    <!-- Left: Problem -->
+    <rect x="62" y="546" width="296" height="152" rx="10" data-fill-role="api-fill" data-stroke-role="api-line" fill="#323343" stroke="#9490C6" stroke-width="1.5"/>
+    <text x="78" y="572" class="t-badge" data-fill-role="api-ink" fill="#D4D3E8">CASE 03 · CONTEST &amp; ATOMIC OPS</text>
+    <text x="78" y="600" class="t-card-title" data-fill-role="ink" fill="#E9ECEF">우승 확률 괴리 &amp; 운영 장애</text>
+    <text x="78" y="626" class="t-body" data-fill-role="muted" fill="#D8DBDF">평균 수익률과 1위 확률 P(rank=1) 괴리</text>
+    <text x="78" y="650" class="t-body" data-fill-role="muted" fill="#D8DBDF">순위표 덮어쓰기 및 단일가 괴리 위험</text>
+    <text x="78" y="676" class="t-mono" data-fill-role="danger" fill="#CE8378">배치 중단 시 원장 손상·오주문 위험</text>
+
+    <path d="M 358 622 H 378" fill="none" data-stroke-role="focus" stroke="#6FA3D3" stroke-width="2" marker-end="url(#arrow-dd)"/>
+
+    <!-- Center: 3-Step Solution -->
+    <rect x="384" y="546" width="476" height="152" rx="10" data-fill-role="strip" data-stroke-role="rule" fill="#1F2730" stroke="#363B44" stroke-width="1.5"/>
+    <text x="402" y="572" class="t-badge" data-fill-role="focus" fill="#6FA3D3">ENGINEERING RESOLUTION (DETECT → ACTION → VERIFY)</text>
+    <text x="402" y="602" class="t-step" data-fill-role="ink" fill="#E9ECEF">① 탐지: 수익률 매칭 기반 경쟁자 보유 추론·단절 감지</text>
+    <text x="402" y="630" class="t-step" data-fill-role="ink" fill="#E9ECEF">② 조치: 1,268명×8k 부트스트랩 및 정규장 구간 카드</text>
+    <text x="402" y="658" class="t-step" data-fill-role="ink" fill="#E9ECEF">③ 검증: +5%p 교체 임계치 · fsync 저장 및 자동 복구</text>
+    <text x="402" y="682" class="t-mono" data-fill-role="api-ink" fill="#D4D3E8">engine.py · segment.py · atomic_io.py · pipeline.py</text>
+
+    <path d="M 860 622 H 880" fill="none" data-stroke-role="focus" stroke="#6FA3D3" stroke-width="2" marker-end="url(#arrow-dd)"/>
+
+    <!-- Right: Verified Outcome -->
+    <rect x="886" y="546" width="256" height="152" rx="10" data-fill-role="compute-fill" data-stroke-role="compute-line" fill="#263A37" stroke="#5FAE8F" stroke-width="1.5"/>
+    <text x="904" y="572" class="t-badge" data-fill-role="compute-ink" fill="#BFDFD2">VERIFIED OUTCOME</text>
+    <text x="904" y="616" class="t-kpi-md" data-fill-role="positive" fill="#5FAE8F">64,000 Worlds</text>
+    <text x="904" y="646" class="t-node-title" data-fill-role="ink" fill="#E9ECEF">초고속 시뮬 &amp; 원장 손상 0건</text>
+    <text x="904" y="670" class="t-body" data-fill-role="muted" fill="#D8DBDF">8개 시나리오 조합 × 8,000 경로</text>
+    <text x="904" y="688" class="t-mono" data-fill-role="compute-ink" fill="#BFDFD2">Torn Write 0 · 단일가 경매 회피</text>
+  </g>
+</svg>
