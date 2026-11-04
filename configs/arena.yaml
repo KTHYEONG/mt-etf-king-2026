@@ -6,3 +6,6 @@ evaluation:
   ci_level: 0.95
   exceedance_grid: [1.1, 1.3, 1.5, 2.0, 2.3, 3.0]
   min_sessions: 252
+panel:
+  lock_timeout_s: 900.0          # same wait as the pipeline lock (configs/base.yaml:21)
+  nav_divergence_max: 0.10       # |r_cc - r_nav| above this flags a print far from NAV
