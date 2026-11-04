@@ -540,3 +540,17 @@ def test_drift_is_removed_within_each_window(tmp_path: Path) -> None:
     assert evidence.full_dn is not None
     assert abs(evidence.holdout_dn.edge.mean_gross) < 1e-12
     assert evidence.holdout_dn.edge.p_value > 0.4
+
+
+def test_regime_views_use_regime_floor_not_eval_floor(tmp_path: Path) -> None:
+    rng = np.random.default_rng(4)
+    calm = rng.normal(0.0, 0.002, 150)
+    wild = rng.normal(0.0, 0.05, 50)
+    panel = _panel({"AAA": _random(200, 5), REF: np.concatenate([calm, wild]).tolist()})
+    cfg = _cfg(holdout_start=panel.sessions[100], regime_min_sessions=30, regime_window=5)
+    strict_eval = replace(EVAL, min_sessions=100)
+    evidence = gather_evidence(
+        Toy("s", "F"), panel, SIM, strict_eval, cfg, track="t", capital_krw=CAPITAL, registry=tmp_path / "r.jsonl", recorded_at=NOW
+    )
+    assert "extreme" in evidence.regimes
+    assert evidence.regimes["extreme"].edge.n_sessions < strict_eval.min_sessions

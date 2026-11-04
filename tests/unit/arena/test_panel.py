@@ -57,6 +57,7 @@ OUTPUT_COLUMNS = [
     "r_ref",
     "r_nav",
     "nav_divergence",
+    "shares_outstanding",
 ]
 
 

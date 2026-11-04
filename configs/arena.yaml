@@ -28,3 +28,39 @@ research:
   gate_min_plateau_share: 0.5        # share of the same family's grid with positive drift-neutral edge
   causality_cuts: 3
   annualization: 252
+strategies:
+  trend:                                   # shared multi-horizon trend score (unfitted)
+    horizons: [10, 20, 40, 60, 120]
+    vol_window: 60                         # daily std window for normalization
+    band: 0.10                             # |score| below band -> neutral
+    er_window: 20                          # efficiency ratio window
+    er_min: 0.30                           # ER below this -> choppy -> cash (filter variants only)
+  sleeves:                                 # name: [signal_ticker, long_2x_ticker]
+    kospi200: ["069500", "122630"]
+    kosdaq150: ["229200", "233740"]
+    semis: ["091160", "494310"]
+    battery: ["305720", "462330"]
+    it200: ["139260", "243880"]
+    nasdaq100: ["133690", "418660"]
+    sox: ["381180", "423920"]
+    skhynix: ["0193T0", "0193T0"]
+    samsung: ["0193W0", "0193W0"]
+  inverse: {kospi200: "252670", kosdaq150: "251340"}
+  min_listed_sessions: 20                  # a long leg must have this many listed sessions before it can be picked
+  trend_switch:                            # family 1: long / cash / inverse on one sleeve
+    sleeves: [kospi200, kosdaq150]
+    chop_filter: [false, true]
+  rotation:                                # family 2: strongest sleeve's long 2x, else KOSPI200 inverse, else cash
+    hold: [5, 10]
+  flow_contrarian:                         # family 3: fade net creations into leverage vs inverse (KOSPI200)
+    flow_window: [5, 20]
+    z_window: 60
+    z_threshold: 1.0
+  committee:                               # family 4: equal vote of trend_switch(kospi200, no filter) and flow_contrarian(flow_window 20)
+    enabled: true
+  brake:                                   # family 5: trend_switch(kospi200, no filter) + cash after N straight down sessions of the signal
+    down_streak: 3
+  baselines:                               # reference only; track "<track>-baseline", never selected
+    hold: ["122630", "0193T0"]
+    coin_pair: ["122630", "252670"]
+    coin_seed: 20261105

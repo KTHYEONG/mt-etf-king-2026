@@ -114,9 +114,7 @@ def _previous(name: str) -> pl.Expr:
     return pl.col(name).shift(1).over("ticker")
 
 
-def build_panel(
-    rows: pl.DataFrame, tickers: Collection[str], start: date, end: date, cfg: PanelConfig
-) -> Panel:
+def build_panel(rows: pl.DataFrame, tickers: Collection[str], start: date, end: date, cfg: PanelConfig) -> Panel:
     """Build the per-session panel of `tickers` over [start, end]; raises ValueError on malformed or ambiguous input."""
     if start > end:
         raise ValueError(f"start {start} is after end {end}")
@@ -135,12 +133,8 @@ def build_panel(
         raise ValueError(f"null or non-positive close at {first['date']} for {first['ticker']}")
 
     calendar = rows.select(pl.col("date").unique().sort())
-    sessions = tuple(
-        calendar.filter((pl.col("date") >= start) & (pl.col("date") <= end))["date"].to_list()
-    )
-    spans = requested.group_by("ticker").agg(
-        span_start=pl.col("date").min(), span_end=pl.col("date").max()
-    )
+    sessions = tuple(calendar.filter((pl.col("date") >= start) & (pl.col("date") <= end))["date"].to_list())
+    spans = requested.group_by("ticker").agg(span_start=pl.col("date").min(), span_end=pl.col("date").max())
     missing = wanted.join(spans.select("ticker"), on="ticker", how="anti").sort("ticker")["ticker"].to_list()
 
     grid = (
@@ -152,11 +146,7 @@ def build_panel(
         .sort(["ticker", "date"])
     )
     traded = (
-        pl.col("listed")
-        & (pl.col("volume") > 0)
-        & (pl.col("open") > 0)
-        & (pl.col("high") > 0)
-        & (pl.col("low") > 0)
+        pl.col("listed") & (pl.col("volume") > 0) & (pl.col("open") > 0) & (pl.col("high") > 0) & (pl.col("low") > 0)
     ).fill_null(False)
     grid = grid.with_columns(traded=traded).with_columns(
         open_t=pl.when(pl.col("traded")).then(pl.col("open")),
@@ -195,5 +185,6 @@ def build_panel(
         "r_ref",
         "r_nav",
         "nav_divergence",
+        pl.when(pl.col("listed")).then(pl.col("shares_outstanding")).alias("shares_outstanding"),
     )
     return Panel(start=start, end=end, sessions=sessions, frame=frame, missing_tickers=tuple(missing))

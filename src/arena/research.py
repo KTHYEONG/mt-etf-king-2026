@@ -280,6 +280,7 @@ def gather_evidence(
         picked: tuple[list[date], FloatArray, FloatArray],
         cost_bps: float,
         mode: ReturnMode,
+        view_cfg: EvalConfig = eval_cfg,
     ) -> EvaluationReport | None:
         sessions, net, costs = picked
         params = {**strategy.params, "strategy": strategy.family, "view": view, "cost_bps": cost_bps, "mode": mode}
@@ -292,7 +293,7 @@ def gather_evidence(
                 sessions,
                 net,
                 costs,
-                eval_cfg,
+                view_cfg,
                 recorded_at=recorded_at,
             )
         except (InsufficientDataError, DegenerateSeriesError) as exc:
@@ -310,9 +311,7 @@ def gather_evidence(
     holdout_dn = run(
         "holdout_dn", _select(drift, _window(drift.sessions, cfg.holdout_start, None)), base_cost, "drift_neutral"
     )
-    full_dn = run(
-        "full_dn", _select(drift_full, _window(drift_full.sessions, None, None)), base_cost, "drift_neutral"
-    )
+    full_dn = run("full_dn", _select(drift_full, _window(drift_full.sessions, None, None)), base_cost, "drift_neutral")
     holdout_stress = run(
         "holdout_stress", _select(stress, _window(stress.sessions, cfg.holdout_start, None)), stress_cost, "actual"
     )
@@ -328,7 +327,9 @@ def gather_evidence(
                 f"regime_{regime}: {int(mask.sum())} sessions < regime_min_sessions {cfg.regime_min_sessions}"
             )
             continue
-        report = run(f"regime_{regime}", _select(stress, mask), stress_cost, "actual")
+        # Regime subsets are shorter than a full evaluation history by design; their floor is regime_min_sessions.
+        regime_cfg = replace(eval_cfg, min_sessions=max(cfg.regime_min_sessions, eval_cfg.horizon_sessions))
+        report = run(f"regime_{regime}", _select(stress, mask), stress_cost, "actual", regime_cfg)
         if report is not None:
             regimes[regime] = report
 
@@ -349,7 +350,7 @@ def _p_criterion(name: str, report: EvaluationReport | None, alpha: float) -> Cr
     return Criterion(name, value, alpha, value is not None and value <= alpha)
 
 
-def _leave_one_year_out(full: EvaluationReport | None) -> Criterion:
+def leave_one_year_out(full: EvaluationReport | None) -> Criterion:
     if full is None or len(full.by_year) < _MIN_YEARS:
         return Criterion("leave_one_year_out", None, 0.0, False)
     n = np.array([y.n_sessions for y in full.by_year], dtype=np.float64)
@@ -382,7 +383,7 @@ def gate(evidence: Evidence, cfg: ResearchConfig, band: tuple[float, float], fam
     criteria = (
         _p_criterion("discovery_edge", evidence.discovery_dn, cfg.gate_alpha),
         _p_criterion("holdout_edge", evidence.holdout_dn, cfg.gate_alpha),
-        _leave_one_year_out(evidence.full_dn),
+        leave_one_year_out(evidence.full_dn),
         _lift_criterion("lift_lo", None if lift_at_band is None else lift_at_band[0]),
         _lift_criterion("lift_hi", None if lift_at_band is None else lift_at_band[1]),
         Criterion("plateau", share, cfg.gate_min_plateau_share, share >= cfg.gate_min_plateau_share),

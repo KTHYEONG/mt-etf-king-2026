@@ -77,9 +77,7 @@ def test_issuer_table_rejects_duplicates_and_malformed(monkeypatch: pytest.Monke
 
 def test_issuer_table_is_longest_first_and_deterministic() -> None:
     table = _table()
-    assert table.brands_longest_first == tuple(
-        sorted(table.brand_to_issuer, key=lambda b: (-len(b), b))
-    )
+    assert table.brands_longest_first == tuple(sorted(table.brand_to_issuer, key=lambda b: (-len(b), b)))
     assert table.brand_to_issuer["koact"] == "삼성액티브자산운용"
     assert table.brand_to_issuer["won"] == ""
 
