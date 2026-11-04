@@ -6,7 +6,7 @@ paths:
 ---
 # Quantitative Engineering Core Directives
 
-> **Financial correctness, temporal causality, and execution realism without phantom alpha; maximize net risk-adjusted growth $g = \mathbb{E}[\ln(1 + r_{\text{net}})]$ within five pillars.**
+> **Financial correctness, temporal causality, and execution realism without phantom alpha. Contest objective: maximize $P(M \ge W)$, the probability that the net 8-week multiple reaches the ex-ante prize line, using only edge validated against a zero-edge twin; mock capital carries no loss penalty.**
 
 ## 1. Temporal Causality
 - **Point-in-Time Availability:** Every signal, feature, universe selection, and portfolio decision at $T$ uses only data observable at or before $T$.
@@ -27,7 +27,8 @@ paths:
 - **Parameter Surface Robustness:** No knife-edge alpha; require stable plateaus across neighboring regimes.
 - **Strict Out-of-Sample Isolation:** Keep discovery/training and evaluation temporally separated; never leak validation statistics into model formulation.
 
-## 5. Tail-Risk & Ruin
+## 5. Integrity & Tail Modeling
 - **Conservation Law:** Ledgers (cash, asset units, fees, taxes) reconcile exactly in integer base units (KRW/cents) or `Decimal`; float valuations use `rtol`/`atol` (`pytest.approx`), never exact equality.
-- **Deterministic Fail-Closed:** On unrecoverable data anomalies or feed disruption, never substitute arbitrary defaults; abort to `NO_TRADE`, preserve capital, and prevent catastrophic ruin.
-- **Non-Gaussian Survival:** Never assume Gaussian returns; survive fat-tailed drawdowns, liquidity freezes, and regime shifts.
+- **Deterministic Fail-Closed:** On unrecoverable data anomalies or feed disruption, never substitute arbitrary defaults; abort to `NO_TRADE` (an operational safeguard against acting on bad data, not a risk preference).
+- **Non-Gaussian Estimation:** Never assume Gaussian returns; estimate outcome distributions with fat tails, volatility regimes and regime shifts.
+- **No Real-Money Preferences:** Do not add loss constraints, median/log-growth objectives, or drawdown breakers; never raise or cut exposure based on live rank or distance to the prize line.
