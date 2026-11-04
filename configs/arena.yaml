@@ -16,3 +16,15 @@ simulate:
   adv_window: 20                  # sessions of trading_value used for ADV (ending at d)
   weight_levels: [0.0, 0.25, 0.5, 0.75, 1.0]
   weight_tolerance: 1.0e-9
+research:
+  discovery_start: 2018-01-02
+  holdout_start: 2025-01-02          # holdout is evaluated only through registered views
+  regime_reference: "069500"         # KODEX 200
+  regime_window: 20
+  regime_edges: [0.15, 0.25, 0.40]   # annualized vol: low < 0.15 <= mid < 0.25 <= high < 0.40 <= extreme
+  regime_min_sessions: 120
+  stress_cost_bps: 45.0              # 3x the base cost (crypto-pilot practice)
+  gate_alpha: 0.05
+  gate_min_plateau_share: 0.5        # share of the same family's grid with positive drift-neutral edge
+  causality_cuts: 3
+  annualization: 252

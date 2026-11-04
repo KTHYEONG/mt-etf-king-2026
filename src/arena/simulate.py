@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from itertools import pairwise
@@ -157,12 +157,16 @@ def load_sim_config(name: str = "arena") -> SimConfig:
     )
 
 
-def _demean(x: FloatArray) -> FloatArray:
-    finite = np.isfinite(x)
-    count = finite.sum(axis=0)
-    total = np.where(finite, x, 0.0).sum(axis=0)
-    mean = np.divide(total, count, out=np.zeros_like(total), where=count > 0)
-    demeaned: FloatArray = x - mean
+def _demean(x: FloatArray, segment: IntArray) -> FloatArray:
+    demeaned: FloatArray = np.array(x, copy=True)
+    for seg in np.unique(segment):
+        rows = segment == seg
+        block = x[rows]
+        finite = np.isfinite(block)
+        count = finite.sum(axis=0)
+        total = np.where(finite, block, 0.0).sum(axis=0)
+        mean = np.divide(total, count, out=np.zeros_like(total), where=count > 0)
+        demeaned[rows] = block - mean
     return demeaned
 
 
@@ -250,10 +254,18 @@ def _target_matrix(
     return matrix, has_decision
 
 
-def _legs(dense: _Dense, targets: FloatArray, has: BoolArray, first: int, cfg: SimConfig, drift_neutral: bool) -> _Legs:
+def _legs(
+    dense: _Dense,
+    targets: FloatArray,
+    has: BoolArray,
+    first: int,
+    cfg: SimConfig,
+    drift_neutral: bool,
+    segment: IntArray,
+) -> _Legs:
     def window(x: FloatArray) -> FloatArray:
         sliced = x[first:]
-        return _demean(sliced) if drift_neutral else sliced
+        return _demean(sliced, segment) if drift_neutral else sliced
 
     r_on, r_id, r_cc, r_ref = (window(x) for x in (dense.r_on, dense.r_id, dense.r_cc, dense.r_ref))
     if drift_neutral:
@@ -328,6 +340,7 @@ def simulate(
     *,
     capital_krw: int,
     mode: ReturnMode = "actual",
+    drift_segments: Sequence[date] = (),
 ) -> SimResult:
     """Simulate target-weight decisions on a panel; raises ValueError on bad targets and SimulationDataError on held-position gaps."""
     _validate_targets(targets)
@@ -342,7 +355,15 @@ def simulate(
 
     k0 = int(np.flatnonzero(has)[0])
     first = k0 + 1
-    legs = _legs(dense, targets_matrix, has, first, cfg, mode == "drift_neutral")
+    if any(b <= a for a, b in pairwise(drift_segments)):
+        raise ValueError("drift_segments must be strictly increasing")
+    # Each segment is demeaned on its own so a window's evaluation never carries another window's drift.
+    segment = np.searchsorted(
+        np.array(drift_segments, dtype="datetime64[D]"),
+        np.array(sessions[first:], dtype="datetime64[D]"),
+        side="right",
+    ).astype(np.int64)
+    legs = _legs(dense, targets_matrix, has, first, cfg, mode == "drift_neutral", segment)
     n = len(sessions) - first
     cost = cfg.cost_bps_per_side / _BPS_PER_UNIT
 

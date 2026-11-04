@@ -394,3 +394,23 @@ def test_drift_neutral_open_hold_has_no_leg_covariance_drift() -> None:
     r_cc = panel.frame.filter(pl.col("date").is_in(list(neutral.sessions)))["r_cc"].to_numpy()
     held = 1.0 + neutral.gross_returns[1:]
     assert np.allclose(held, 1.0 + r_cc[1:] - r_cc.mean(), rtol=0.0, atol=1e-12)
+
+
+def test_drift_segments_demean_each_window() -> None:
+    days = [date(2026, 1, 1) + timedelta(days=i) for i in range(40)]
+    closes = [100.0]
+    for k in range(39):
+        closes.append(closes[-1] * (1.0 + (0.002 if k < 19 else 0.02) + 0.003 * (-1.0) ** k))
+    panel = _panel(_rows("A", closes, days=days), days=days)
+    cfg = SimConfig("close", 0.0, 1.0, 1, LEVELS, 1e-9)
+    split = days[20]
+    whole = _run(panel, [(days[0], "A", 1.0)], cfg=cfg, mode="drift_neutral")
+    seg = simulate(
+        panel, _targets([(days[0], "A", 1.0)]), cfg, capital_krw=CAPITAL, mode="drift_neutral", drift_segments=(split,)
+    )
+    late = np.array([d >= split for d in seg.sessions])
+    held = np.arange(len(seg.sessions)) > 0
+    assert abs(float(seg.gross_returns[late & held].mean())) < 1e-12
+    assert float(whole.gross_returns[late].mean()) > 1e-3
+    with pytest.raises(ValueError, match="strictly increasing"):
+        simulate(panel, _targets([(days[0], "A", 1.0)]), cfg, capital_krw=CAPITAL, drift_segments=(split, split))
