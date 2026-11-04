@@ -9,3 +9,10 @@ evaluation:
 panel:
   lock_timeout_s: 900.0          # same wait as the pipeline lock (configs/base.yaml:21)
   nav_divergence_max: 0.10       # |r_cc - r_nav| above this flags a print far from NAV
+simulate:
+  execution: open                 # open | close: fill price session of d+1
+  cost_bps_per_side: 15.0         # commission + slippage per side; conservative while mock fees are unknown
+  participation_max: 0.05         # max |trade| as a share of ADV traded value
+  adv_window: 20                  # sessions of trading_value used for ADV (ending at d)
+  weight_levels: [0.0, 0.25, 0.5, 0.75, 1.0]
+  weight_tolerance: 1.0e-9
