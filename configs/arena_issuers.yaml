@@ -1,0 +1,16 @@
+# Issuer resolution by ETF name prefix (KRX daily data has no issuer field).
+# A brand belongs to exactly one issuer; renamed brands stay listed for history.
+issuers:
+  삼성자산운용: [KODEX]
+  미래에셋자산운용: [TIGER]
+  KB자산운용: [RISE, KBSTAR]
+  한국투자신탁운용: [ACE, KINDEX, 네비게이터]
+  신한자산운용: [SOL, SMART]
+  한화자산운용: [PLUS, ARIRANG]
+  타임폴리오자산운용: [TIME, TIMEFOLIO]
+  NH아문디자산운용: [HANARO]
+  키움투자자산운용: [KIWOOM, KOSEF, 히어로즈]
+  하나자산운용: [1Q, KTOP]
+  삼성액티브자산운용: [KoAct]
+# Brands of non-sponsor issuers whose issuer name is not needed; they classify as NON_SPONSOR.
+other_brands: [WON, WOORI, 마이티, 파워, FOCUS, 에셋플러스, BNK, IBK, HK, 흥국, MIDAS, 마이다스, UNICORN, ITF, DAISHIN, DAISHIN343, 대신343, TREX, KCGI, MASTER, DS, VITA, TRUSTON, 더제이, 아이엠에셋]

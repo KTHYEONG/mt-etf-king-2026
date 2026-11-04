@@ -1,0 +1,21 @@
+editions:
+  2026:
+    title: 제3회 머니투데이 ETF 투자왕 대회
+    start: 2026-09-21
+    end: 2026-11-13
+    initial_capital_krw: 1000000000
+    ranking_metric: cumulative_return
+    sponsors: [삼성자산운용, 미래에셋자산운용, KB자산운용, 한국투자신탁운용, 신한자산운용, 한화자산운용, 타임폴리오자산운용, NH아문디자산운용, 키움투자자산운용, 하나자산운용]
+    tracks:
+      domestic_equity: {label: 국내주식형, scope: domestic_equity, leverage: false, inverse: false, futures: null}
+      pension:         {label: 연금형, scope: pension, leverage: false, inverse: false, futures: false}
+      global:          {label: 글로벌형, scope: overseas_or_mixed, leverage: false, inverse: false, futures: null}
+      autonomous:      {label: 자율형, scope: any, leverage: true, inverse: true, futures: true}
+    prize_places_per_track: 3      # 대상 #1, 최우수 #2, 부문 우수상 = track #1 excluding those two
+    prize_line: null               # human decision O1 (band of terminal multiples, fixed before registration)
+    observed:
+      - {track: autonomous, rank: 3, multiple: 2.309, as_of: 2026-11-03, final: false, source: "https://www.mt.co.kr/etf/array/etfRankTotal.json"}
+    unknowns: [commission_tax, fill_rules, valuation_price, tie_rules, eligible_list]
+    sources:
+      - https://www.mt.co.kr/etf/join/
+      - https://www.mt.co.kr/stock/2026/08/14/2026081416135978575
