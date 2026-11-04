@@ -5,6 +5,17 @@ FORBIDDEN = {
     "src/strategies/factories": ("src.portfolio", "src.tournament", "src.cli"),
     "src/alpha": ("src.tournament", "src.cli"),
     "src/portfolio": ("src.tournament", "src.cli"),
+    "src/arena": (
+        "src.tournament",
+        "src.contest",
+        "src.strategies",
+        "src.portfolio",
+        "src.alpha",
+        "src.features",
+        "src.backtest",
+        "src.cli",
+        "src.universe",
+    ),
 }
 
 

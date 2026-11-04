@@ -1,0 +1,8 @@
+evaluation:
+  horizon_sessions: 36
+  bootstrap_mean_block: 10
+  bootstrap_draws: 5000
+  seed: 20261104
+  ci_level: 0.95
+  exceedance_grid: [1.1, 1.3, 1.5, 2.0, 2.3, 3.0]
+  min_sessions: 252
