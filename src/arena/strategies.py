@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from itertools import pairwise
-from typing import Any, Final
+from typing import Any, ClassVar, Final, Literal
 
 import numpy as np
 import polars as pl
@@ -27,6 +27,16 @@ _TARGET_SCHEMA: Final[dict[str, pl.DataType]] = {
     "ticker": pl.String(),
     "weight": pl.Float64(),
 }
+_SEGMENT_SCHEMA: Final[dict[str, pl.DataType]] = {
+    "decision_date": pl.Date(),
+    "leg": pl.String(),
+    "ticker": pl.String(),
+    "weight": pl.Float64(),
+}
+SegmentSignal = Literal["own", "vote3"]
+SegmentOvernight = Literal["cash", "long"]
+_SEGMENT_SIGNALS: Final[tuple[str, ...]] = ("own", "vote3")
+_SEGMENT_OVERNIGHT: Final[tuple[str, ...]] = ("cash", "long")
 _STRATEGY_KEYS: Final = frozenset(
     {
         "trend",
@@ -38,6 +48,7 @@ _STRATEGY_KEYS: Final = frozenset(
         "flow_contrarian",
         "committee",
         "brake",
+        "segment_fade",
         "baselines",
     }
 )
@@ -47,6 +58,7 @@ _ROTATION_KEYS: Final = frozenset({"hold"})
 _FLOW_KEYS: Final = frozenset({"flow_window", "z_window", "z_threshold"})
 _COMMITTEE_KEYS: Final = frozenset({"enabled"})
 _BRAKE_KEYS: Final = frozenset({"down_streak"})
+_SEGMENT_KEYS: Final = frozenset({"sleeves", "signal", "overnight", "vote_basket"})
 _BASELINE_KEYS: Final = frozenset({"hold", "coin_pair", "coin_seed"})
 
 
@@ -71,6 +83,10 @@ class StrategiesConfig:
     baseline_hold: tuple[str, ...]
     coin_pair: tuple[str, str]
     coin_seed: int
+    segment_sleeves: tuple[str, ...]
+    segment_signal: tuple[SegmentSignal, ...]
+    segment_overnight: tuple[SegmentOvernight, ...]
+    vote_basket: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -260,6 +276,72 @@ class Brake:
 
 
 @dataclass(frozen=True)
+class SegmentFade:
+    sleeve: str
+    signal: SegmentSignal
+    overnight: SegmentOvernight
+    cfg: StrategiesConfig
+    execution_model: ClassVar[Literal["segment"]] = "segment"
+
+    @property
+    def family(self) -> str:
+        return "segment_fade"
+
+    @property
+    def strategy_id(self) -> str:
+        return f"segment_fade:{self.sleeve}:{self.signal}:{self.overnight}"
+
+    @property
+    def params(self) -> Mapping[str, Any]:
+        signal, long = self.cfg.sleeves[self.sleeve]
+        out: dict[str, Any] = {
+            "sleeve": self.sleeve,
+            "signal_ticker": signal,
+            "long": long,
+            "inverse": self.cfg.inverse[self.sleeve],
+            "signal": self.signal,
+            "overnight": self.overnight,
+            "min_listed_sessions": self.cfg.min_listed_sessions,
+        }
+        if self.signal == "vote3":
+            out["vote_basket"] = list(self.cfg.vote_basket)
+        return out
+
+    def targets(self, panel: Panel) -> pl.DataFrame:
+        signal, long = self.cfg.sleeves[self.sleeve]
+        inverse = self.cfg.inverse[self.sleeve]
+        members = (signal, *self.cfg.vote_basket) if self.signal == "vote3" else (signal,)
+        returns = {ticker: _values(_series(panel, "r_ref", ticker)) for ticker in members}
+        listed = {ticker: _listed_sessions(_series(panel, "listed", ticker)) for ticker in (long, inverse)}
+        minimum = self.cfg.min_listed_sessions
+        days: list[date] = []
+        legs: list[str] = []
+        tickers: list[str] = []
+        weights: list[float] = []
+        for day_index, day in enumerate(panel.sessions):
+            signs = [_sign(returns[ticker][day_index]) for ticker in members]
+            defined = (
+                all(value is not None for value in signs)
+                and listed[long][day_index] >= minimum
+                and listed[inverse][day_index] >= minimum
+            )
+            side = _sign(sum(value for value in signs if value is not None)) if defined else None
+            if side is not None and side > 0:
+                intraday: Holding = inverse
+            elif side is not None and side < 0:
+                intraday = long
+            else:
+                intraday = None
+            days.extend([day, day])
+            legs.extend(["intraday", "overnight"])
+            tickers.extend([inverse if intraday == inverse else long, long])
+            weights.extend([0.0 if intraday is None else 1.0, 1.0 if defined and self.overnight == "long" else 0.0])
+        return pl.DataFrame(
+            {"decision_date": days, "leg": legs, "ticker": tickers, "weight": weights}, schema=_SEGMENT_SCHEMA
+        )
+
+
+@dataclass(frozen=True)
 class HoldLong:
     ticker: str
     min_listed_sessions: int
@@ -381,6 +463,13 @@ def _bool_list(value: Any, where: str) -> tuple[bool, ...]:
     return items
 
 
+def _choices(value: Any, allowed: tuple[str, ...], where: str) -> tuple[Any, ...]:
+    items = _strings(value, where)
+    if not set(items) <= set(allowed):
+        raise ConfigError(f"{where} values must be in {list(allowed)}")
+    return items
+
+
 def _exact(value: Any, keys: frozenset[str], where: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping) or set(value) != keys:
         raise ConfigError(f"{where} keys must be exactly {sorted(keys)}")
@@ -429,6 +518,16 @@ def load_strategies_config(name: str = "arena") -> StrategiesConfig:
     committee = _exact(root["committee"], _COMMITTEE_KEYS, "strategies.committee")
     brake = _exact(root["brake"], _BRAKE_KEYS, "strategies.brake")
     baselines = _exact(root["baselines"], _BASELINE_KEYS, "strategies.baselines")
+    segment = _exact(root["segment_fade"], _SEGMENT_KEYS, "strategies.segment_fade")
+    segment_sleeves = _strings(segment["sleeves"], "segment_fade.sleeves")
+    for sleeve in segment_sleeves:
+        if sleeve not in sleeves or sleeve not in inverse:
+            raise ConfigError(f"segment_fade sleeve {sleeve} must be in sleeves and inverse")
+    vote_basket = _tickers(segment["vote_basket"], "segment_fade.vote_basket")
+    if len(set(vote_basket)) != len(vote_basket):
+        raise ConfigError("segment_fade.vote_basket must not repeat entries")
+    if (1 + len(vote_basket)) % 2 == 0:
+        raise ConfigError("segment_fade vote count (1 + vote_basket) must be odd")
 
     return StrategiesConfig(
         horizons=horizons,
@@ -450,6 +549,10 @@ def load_strategies_config(name: str = "arena") -> StrategiesConfig:
         baseline_hold=_tickers(baselines["hold"], "baselines.hold"),
         coin_pair=_pair(baselines["coin_pair"], "baselines.coin_pair"),
         coin_seed=_integer(baselines["coin_seed"], "baselines.coin_seed", 0),
+        segment_sleeves=segment_sleeves,
+        segment_signal=_choices(segment["signal"], _SEGMENT_SIGNALS, "segment_fade.signal"),
+        segment_overnight=_choices(segment["overnight"], _SEGMENT_OVERNIGHT, "segment_fade.overnight"),
+        vote_basket=vote_basket,
     )
 
 
@@ -474,6 +577,12 @@ def candidate_grid(cfg: StrategiesConfig) -> tuple[Strategy, ...]:
     if cfg.committee:
         grid.append(Committee(cfg))
     grid.append(Brake(cfg))
+    grid.extend(
+        SegmentFade(sleeve, signal, overnight, cfg)
+        for sleeve in cfg.segment_sleeves
+        for signal in cfg.segment_signal
+        for overnight in cfg.segment_overnight
+    )
     return tuple(grid)
 
 
@@ -504,6 +613,11 @@ def _tickers_of(strategy: Strategy) -> frozenset[str]:
     if isinstance(strategy, Committee | Brake):
         signal, long = strategy.cfg.sleeves[_KOSPI]
         return frozenset({signal, long, strategy.cfg.inverse[_KOSPI]})
+    if isinstance(strategy, SegmentFade):
+        signal, long = strategy.cfg.sleeves[strategy.sleeve]
+        inverse = strategy.cfg.inverse[strategy.sleeve]
+        basket = strategy.cfg.vote_basket if strategy.signal == "vote3" else ()
+        return frozenset({signal, long, inverse, *basket})
     if isinstance(strategy, HoldLong):
         return frozenset({strategy.ticker})
     if isinstance(strategy, CoinFlip):
@@ -519,6 +633,12 @@ def _trend_params(cfg: StrategiesConfig) -> dict[str, Any]:
         "er_window": cfg.er_window,
         "er_min": cfg.er_min,
     }
+
+
+def _sign(value: float) -> int | None:
+    if math.isnan(value):
+        return None
+    return (value > 0.0) - (value < 0.0)
 
 
 def _values(series: pl.Series) -> list[float]:

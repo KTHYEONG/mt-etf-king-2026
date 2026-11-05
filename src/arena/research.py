@@ -22,6 +22,7 @@ from src.arena.evaluation import (
 )
 from src.arena.panel import Panel
 from src.arena.registry import evaluate_and_register
+from src.arena.segment import SegmentConfig, simulate_segments
 from src.arena.simulate import ReturnMode, SimConfig, SimResult, simulate
 from src.core.config import ConfigError, load_config
 
@@ -227,7 +228,8 @@ def truncate_panel(panel: Panel, cut: date) -> Panel:
 
 
 def _up_to(targets: pl.DataFrame, cut: date) -> pl.DataFrame:
-    return targets.filter(pl.col("decision_date") <= cut).sort(["decision_date", "ticker"])
+    keys = [name for name in ("decision_date", "leg", "ticker") if name in targets.columns]
+    return targets.filter(pl.col("decision_date") <= cut).sort(keys)
 
 
 def check_causality(strategy: Strategy, panel: Panel, cfg: ResearchConfig) -> pl.DataFrame:
@@ -243,6 +245,37 @@ def check_causality(strategy: Strategy, panel: Panel, cfg: ResearchConfig) -> pl
         if not expected.equals(observed):
             raise CausalityError(f"strategy {strategy.strategy_id} changes decisions at or before {cut}")
     return full
+
+
+def _simulate_view(
+    panel: Panel,
+    targets: pl.DataFrame,
+    sim_cfg: SimConfig,
+    cost_bps: float,
+    *,
+    segment: bool,
+    capital_krw: int,
+    mode: ReturnMode,
+    drift_segments: Sequence[date] = (),
+) -> SimResult:
+    if segment:
+        return simulate_segments(
+            panel,
+            targets,
+            sim_cfg,
+            cost_bps,
+            capital_krw=capital_krw,
+            mode=mode,
+            drift_segments=drift_segments,
+        )
+    return simulate(
+        panel,
+        targets,
+        replace(sim_cfg, cost_bps_per_side=cost_bps),
+        capital_krw=capital_krw,
+        mode=mode,
+        drift_segments=drift_segments,
+    )
 
 
 def _window(sessions: Sequence[date], lo: date | None, hi: date | None) -> BoolArray:
@@ -266,12 +299,16 @@ def gather_evidence(
     registry: Path,
     recorded_at: datetime,
     trial_tags: Mapping[str, str] | None = None,
+    segment_cfg: SegmentConfig | None = None,
 ) -> Evidence:
     """Run the causality guard, simulate, and register every evidence view; views with too little data are None."""
     tags = dict(trial_tags or {})
     clash = sorted(set(tags) & (_TRIAL_KEYS | set(strategy.params)))
     if clash:
         raise ValueError(f"trial tags collide with trial params: {clash}")
+    segment = getattr(strategy, "execution_model", "daily") == "segment"
+    if segment and segment_cfg is None:
+        raise ValueError(f"strategy {strategy.strategy_id} needs a segment config")
     targets = check_causality(strategy, panel, cfg)
     if targets.is_empty():
         return Evidence(
@@ -284,12 +321,22 @@ def gather_evidence(
             regimes={},
             missing=("all views: the strategy emits no decision on this panel",),
         )
-    stress_cfg = replace(sim_cfg, cost_bps_per_side=cfg.stress_cost_bps)
-    drift = simulate(
-        panel, targets, sim_cfg, capital_krw=capital_krw, mode="drift_neutral", drift_segments=(cfg.holdout_start,)
+    base_cost = segment_cfg.cost_bps_per_side if segment and segment_cfg else sim_cfg.cost_bps_per_side
+    stress_cost = segment_cfg.stress_cost_bps if segment and segment_cfg else cfg.stress_cost_bps
+    drift = _simulate_view(
+        panel,
+        targets,
+        sim_cfg,
+        base_cost,
+        segment=segment,
+        capital_krw=capital_krw,
+        mode="drift_neutral",
+        drift_segments=(cfg.holdout_start,),
     )
-    drift_full = simulate(panel, targets, sim_cfg, capital_krw=capital_krw, mode="drift_neutral")
-    stress = simulate(panel, targets, stress_cfg, capital_krw=capital_krw, mode="actual")
+    drift_full = _simulate_view(
+        panel, targets, sim_cfg, base_cost, segment=segment, capital_krw=capital_krw, mode="drift_neutral"
+    )
+    stress = _simulate_view(panel, targets, sim_cfg, stress_cost, segment=segment, capital_krw=capital_krw, mode="actual")
     missing: list[str] = []
 
     def run(
@@ -317,8 +364,6 @@ def gather_evidence(
             missing.append(f"{view}: {exc}")
             return None
 
-    base_cost = sim_cfg.cost_bps_per_side
-    stress_cost = cfg.stress_cost_bps
     discovery_dn = run(
         "discovery_dn",
         _select(drift, _window(drift.sessions, cfg.discovery_start, cfg.holdout_start)),

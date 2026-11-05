@@ -3,7 +3,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 import polars as pl
@@ -28,6 +28,7 @@ from src.arena.research import (
     select,
     truncate_panel,
 )
+from src.arena.segment import SegmentConfig
 from src.arena.simulate import SimConfig, simulate
 from src.core.config import ConfigError, load_config
 
@@ -620,3 +621,85 @@ def test_strategy_without_decisions_has_no_evidence(tmp_path: Path) -> None:
     assert evidence.regimes == {}
     assert evidence.missing and evidence.missing[0].startswith("all views:")
     assert not registry.exists()
+
+
+@dataclass(frozen=True)
+class SegToy(Toy):
+    execution_model: ClassVar[Literal["segment"]] = "segment"
+
+    def targets(self, panel: Panel) -> pl.DataFrame:
+        daily = super().targets(panel)
+        intraday = daily.with_columns(pl.lit("intraday").alias("leg"))
+        overnight = daily.with_columns(pl.lit("overnight").alias("leg"), pl.lit(0.0).alias("weight"))
+        return pl.concat([intraday, overnight])
+
+
+SEG_COST = SegmentConfig(cost_bps_per_side=6.5, stress_cost_bps=19.5)
+
+
+def _segment_panel(series: Mapping[str, Sequence[float]]) -> Panel:
+    n = len(next(iter(series.values())))
+    days = _bdays(n)
+    rows: list[dict[str, Any]] = []
+    for ticker, returns in series.items():
+        rows.extend(_rows(ticker, returns, days))
+    frame = pl.DataFrame(rows, schema=SCHEMA).with_columns(
+        pl.col("close").shift(1).over("ticker").fill_null(pl.col("close")).alias("open")
+    )
+    return build_panel(frame, list(series), days[0], days[-1], PANEL_CFG)
+
+
+def test_segment_strategy_uses_segment_costs_per_view(tmp_path: Path) -> None:
+    panel = _segment_panel({"AAA": _random(240, 31), REF: _random(240, 32)})
+    cfg = _cfg(discovery_start=panel.sessions[0], holdout_start=panel.sessions[120], regime_min_sessions=5)
+    registry = tmp_path / "registry.jsonl"
+    evidence = gather_evidence(
+        SegToy("seg", "F1"),
+        panel,
+        SIM,
+        EVAL,
+        cfg,
+        track="arena_t",
+        capital_krw=CAPITAL,
+        registry=registry,
+        recorded_at=NOW,
+        segment_cfg=SEG_COST,
+    )
+    assert evidence.family == "F1"
+    lines = _registry_lines(registry)
+    assert lines
+    for line in lines:
+        view = line["strategy_family"].split("/")[1]
+        stressed = view == "holdout_stress" or view.startswith("regime_")
+        expected = SEG_COST.stress_cost_bps if stressed else SEG_COST.cost_bps_per_side
+        assert line["params"]["cost_bps"] == expected
+
+
+def test_segment_strategy_requires_segment_config(tmp_path: Path) -> None:
+    panel = _segment_panel({"AAA": _random(240, 33), REF: _random(240, 34)})
+    cfg = _cfg(discovery_start=panel.sessions[0], holdout_start=panel.sessions[120])
+    registry = tmp_path / "registry.jsonl"
+    with pytest.raises(ValueError, match="needs a segment config"):
+        _gather(SegToy("seg", "F1"), panel, cfg, registry)
+    assert not registry.exists()
+
+
+def test_daily_registry_lines_ignore_segment_config(tmp_path: Path) -> None:
+    panel = _panel({"AAA": _random(240, 35), REF: _random(240, 36)})
+    cfg = _cfg(discovery_start=panel.sessions[0], holdout_start=panel.sessions[120], regime_min_sessions=5)
+    plain = tmp_path / "plain.jsonl"
+    with_segment = tmp_path / "with_segment.jsonl"
+    _gather(Toy("s1", "F1"), panel, cfg, plain)
+    gather_evidence(
+        Toy("s1", "F1"),
+        panel,
+        SIM,
+        EVAL,
+        cfg,
+        track="arena_t",
+        capital_krw=CAPITAL,
+        registry=with_segment,
+        recorded_at=NOW,
+        segment_cfg=SEG_COST,
+    )
+    assert _registry_lines(with_segment) == _registry_lines(plain)

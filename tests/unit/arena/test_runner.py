@@ -14,12 +14,13 @@ import pytest
 from src.arena import runner
 from src.arena.contest import EditionSpec, load_edition
 from src.arena.evaluation import EvalConfig, evaluate
-from src.arena.panel import PanelConfig
+from src.arena.panel import PanelConfig, build_panel
 from src.arena.proxy import ProxyCalibration, ProxyConfig, ProxyProduct
 from src.arena.research import Evidence, ResearchConfig, Selection, load_research_config
 from src.arena.runner import ResearchReport, StrategyRow, main, run_research, write_report
+from src.arena.segment import load_segment_config
 from src.arena.simulate import load_sim_config
-from src.arena.strategies import candidate_grid, baselines, load_strategies_config
+from src.arena.strategies import SegmentFade, baselines, candidate_grid, load_strategies_config, strategy_tickers
 from src.arena.universe import load_issuer_table
 
 NOW = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
@@ -43,12 +44,18 @@ CFG = replace(
     rotation_hold=(5,),
     switch_sleeves=("kospi200",),
     chop_filter=(False, True),
-    sleeves={"kospi200": ("069500", "122630"), "kosdaq150": ("229200", "233740")},
-    inverse={"kospi200": "252670", "kosdaq150": "251340"},
+    sleeves={
+        "kospi200": ("069500", "122630"),
+        "kosdaq150": ("229200", "233740"),
+        "skhynix": ("0193T0", "0193T0"),
+    },
+    inverse={"kospi200": "252670", "kosdaq150": "251340", "skhynix": "0197X0"},
     baseline_hold=("122630",),
     coin_pair=("122630", "252670"),
     coin_seed=1,
+    segment_sleeves=("skhynix",),
 )
+SEGMENT = load_segment_config()
 RESEARCH = replace(
     load_research_config(),
     discovery_start=date(2024, 1, 2),
@@ -62,6 +69,9 @@ NAMES = {
     "233740": "KODEX 코스닥150레버리지",
     "252670": "KODEX 200선물인버스2X",
     "251340": "KODEX 코스닥150선물인버스",
+    "0193T0": "KODEX SK하이닉스레버리지2X",
+    "0197X0": "KODEX SK하이닉스인버스2X",
+    "091160": "KODEX 반도체",
 }
 SCHEMA: dict[str, pl.DataType] = {
     "date": pl.Date(),
@@ -97,14 +107,15 @@ def _silver(n: int = 300) -> pl.DataFrame:
     rows: list[dict[str, Any]] = []
     for ticker, name in NAMES.items():
         closes = 100.0 * np.cumprod(1.0 + rng.normal(0.0005, 0.01, n))
+        opens = np.concatenate([[closes[0]], closes[:-1]])
         shares = np.maximum(1000 + np.cumsum(rng.integers(-40, 41, n)), 1)
-        for day, close, count in zip(days, closes.tolist(), shares.tolist(), strict=True):
+        for day, open_, close, count in zip(days, opens.tolist(), closes.tolist(), shares.tolist(), strict=True):
             rows.append(
                 {
                     "date": day,
                     "ticker": ticker,
                     "name": name,
-                    "open": close,
+                    "open": open_,
                     "high": close * 1.01,
                     "low": close * 0.99,
                     "close": close,
@@ -133,6 +144,7 @@ def _run(
         issuers=ISSUERS,
         track="autonomous",
         strategies_cfg=CFG,
+        segment_cfg=SEGMENT,
         research_cfg=RESEARCH,
         sim_cfg=SIM,
         eval_cfg=eval_cfg,
@@ -236,6 +248,7 @@ def test_empty_rows_and_unknown_track_are_rejected(tmp_path: Path) -> None:
             issuers=ISSUERS,
             track="nosuchtrack",
             strategies_cfg=CFG,
+        segment_cfg=SEGMENT,
             research_cfg=RESEARCH,
             sim_cfg=SIM,
             eval_cfg=EVAL,
@@ -466,7 +479,8 @@ def test_main_proxy_end_to_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     stock = _stock_silver()
-    _write_silver(tmp_path, pl.concat([_silver(), _proxied_etf(stock)]))
+    listed = _silver().filter(pl.col("ticker") != "0193T0")
+    _write_silver(tmp_path, pl.concat([listed, _proxied_etf(stock)]))
     stock.write_parquet(tmp_path / "normalized" / "stock_daily.parquet")
     monkeypatch.setattr(runner, "load_strategies_config", lambda: CFG)
     monkeypatch.setattr(runner, "load_research_config", lambda: RESEARCH)
@@ -548,6 +562,7 @@ def test_strategy_without_decisions_is_reported_not_fatal(tmp_path: Path) -> Non
         issuers=ISSUERS,
         track="autonomous",
         strategies_cfg=replace(CFG, horizons=(400,)),
+        segment_cfg=SEGMENT,
         research_cfg=RESEARCH,
         sim_cfg=SIM,
         eval_cfg=EVAL,
@@ -563,3 +578,59 @@ def test_strategy_without_decisions_is_reported_not_fatal(tmp_path: Path) -> Non
         assert row.evidence.holdout_dn is None and row.evidence.full_dn is None
         assert row.evidence.missing[0].startswith("all views:")
     assert any(row.evidence.full_dn is not None for row in report.rows if row.baseline)
+
+
+def test_segment_rows_are_reported_with_note_and_contest_multiple(tmp_path: Path) -> None:
+    covered = replace(EDITION, start=date(2024, 1, 2), end=date(2024, 12, 31))
+    report = _run(tmp_path / "inside", edition=covered)
+    segment_rows = [row for row in report.rows if row.family == "segment_fade"]
+    assert len(segment_rows) == 4
+    assert all(row.strategy_id.startswith("segment_fade:skhynix:") for row in segment_rows)
+    assert all(row.contest_window_multiple is not None for row in segment_rows)
+    _, md_path = write_report(report, tmp_path / "out")
+    text = md_path.read_text(encoding="utf-8")
+    assert "segment_fade trades at the open and at the close of each session" in text
+
+
+def test_main_proxy_applies_imply_open_to_the_spliced_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stock = _stock_silver()
+    listed = _silver().filter(pl.col("ticker") != "0193T0")
+    _write_silver(tmp_path, pl.concat([listed, _proxied_etf(stock)]))
+    stock.write_parquet(tmp_path / "normalized" / "stock_daily.parquet")
+    monkeypatch.setattr(runner, "load_strategies_config", lambda: CFG)
+    monkeypatch.setattr(runner, "load_research_config", lambda: RESEARCH)
+    monkeypatch.setattr(runner, "load_eval_config", lambda: EVAL)
+    monkeypatch.setattr(runner, "load_proxy_config", lambda: PROXY_RUN_CFG)
+    original = runner.imply_open
+    seen: list[tuple[pl.DataFrame, pl.DataFrame]] = []
+
+    def spy(rows: pl.DataFrame, stock_rows: pl.DataFrame, cfg: ProxyConfig) -> pl.DataFrame:
+        implied = original(rows, stock_rows, cfg)
+        seen.append((rows, implied))
+        return implied
+
+    monkeypatch.setattr(runner, "imply_open", spy)
+    assert main(["research", "--data-root", str(tmp_path), "--run-id", "q", "--proxy"]) == 0
+    assert len(seen) == 1
+    before, after = seen[0]
+    etf_before = before.filter(pl.col("ticker") == "0193T0").sort("date")
+    etf_after = after.filter(pl.col("ticker") == "0193T0").sort("date")
+    assert etf_before["close"].to_list() == etf_after["close"].to_list()
+    assert etf_before["open"].to_list() != etf_after["open"].to_list()
+    assert capsys.readouterr().out.strip().endswith("report.md")
+
+
+def test_segment_contest_multiple_requires_segment_config() -> None:
+    strategy = SegmentFade("skhynix", "own", "cash", CFG)
+    rows = _silver()
+    panel = build_panel(
+        rows,
+        sorted(strategy_tickers([strategy])),
+        rows["date"].min(),
+        rows["date"].max(),
+        PANEL_CFG,
+    )
+    with pytest.raises(ValueError, match="needs a segment config"):
+        runner._contest_multiple(strategy, panel, SIM, EDITION, None)

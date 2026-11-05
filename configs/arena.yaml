@@ -61,6 +61,11 @@ strategies:
     enabled: true
   brake:                                   # family 5: trend_switch(kospi200, no filter) + cash after N straight down sessions of the signal
     down_streak: 3
+  segment_fade:                            # family 6: intraday fade of the prior close-to-close move on single-stock 2x pairs
+    sleeves: [skhynix, samsung]            # long = sleeves[s][1], short = inverse[s]
+    signal: [own, vote3]                   # own: sign of the sleeve signal's r_ref at d; vote3: majority with vote_basket
+    overnight: [cash, long]                # overnight book after the close of d+1
+    vote_basket: ["091160", "069500"]
   baselines:                               # reference only; track "<track>-baseline", never selected
     hold: ["122630", "0193T0", "0193W0"]
     coin_pair: ["122630", "252670"]

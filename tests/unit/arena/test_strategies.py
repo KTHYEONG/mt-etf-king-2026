@@ -12,6 +12,7 @@ from src.arena import strategies as sg
 from src.arena.panel import Panel, PanelConfig, build_panel
 from src.arena.registry import config_digest
 from src.arena.research import check_causality, load_research_config
+from src.arena.segment import load_segment_config, simulate_segments
 from src.arena.simulate import load_sim_config, simulate
 from src.arena.strategies import (
     Brake,
@@ -20,6 +21,7 @@ from src.arena.strategies import (
     FlowContrarian,
     HoldLong,
     Rotation,
+    SegmentFade,
     StrategiesConfig,
     TrendSwitch,
     baselines,
@@ -31,6 +33,7 @@ from src.core.config import ConfigError, load_config
 
 PANEL_CFG = PanelConfig(lock_timeout_s=900.0, nav_divergence_max=0.10)
 BASE = load_strategies_config()
+SEGMENT = load_segment_config()
 RESEARCH = load_research_config()
 SIM = load_sim_config()
 CASH = "CASH"
@@ -171,7 +174,7 @@ def test_loaded_config_documents_the_shipped_values() -> None:
     assert BASE.coin_seed == 20261105
 
 
-def test_candidate_grid_has_fourteen_unique_ids_in_documented_order() -> None:
+def test_candidate_grid_has_twenty_two_unique_ids_in_documented_order() -> None:
     ids = [strategy.strategy_id for strategy in candidate_grid(BASE)]
     assert ids == [
         "trend_switch:kospi200:plain",
@@ -188,9 +191,17 @@ def test_candidate_grid_has_fourteen_unique_ids_in_documented_order() -> None:
         "flow_contrarian:w20",
         "committee:trend+flow",
         "brake:kospi200:down3",
+        "segment_fade:skhynix:own:cash",
+        "segment_fade:skhynix:own:long",
+        "segment_fade:skhynix:vote3:cash",
+        "segment_fade:skhynix:vote3:long",
+        "segment_fade:samsung:own:cash",
+        "segment_fade:samsung:own:long",
+        "segment_fade:samsung:vote3:cash",
+        "segment_fade:samsung:vote3:long",
     ]
-    assert len(set(ids)) == 14
-    assert len({config_digest(s.params) for s in candidate_grid(BASE)}) == 14
+    assert len(set(ids)) == 22
+    assert len({config_digest(s.params) for s in candidate_grid(BASE)}) == 22
     assert [s.strategy_id for s in baselines(BASE)] == [
         "hold:122630",
         "hold:0193T0",
@@ -252,6 +263,14 @@ def _mutated(section: str, key: str, value: Any) -> Callable[[dict[str, Any]], N
         ("baselines", "coin_pair", ["122630"]),
         ("baselines", "coin_seed", -1),
         ("baselines", "coin_seed", True),
+        ("segment_fade", "signal", ["own", "mid"]),
+        ("segment_fade", "signal", []),
+        ("segment_fade", "overnight", ["hold"]),
+        ("segment_fade", "overnight", ["cash", "cash"]),
+        ("segment_fade", "sleeves", ["semis"]),
+        ("segment_fade", "sleeves", ["skhynix", "skhynix"]),
+        ("segment_fade", "vote_basket", ["091160"]),
+        ("segment_fade", "vote_basket", []),
     ],
 )
 def test_config_violations_raise(monkeypatch: pytest.MonkeyPatch, section: str, key: str, value: Any) -> None:
@@ -538,7 +557,93 @@ def test_all_candidates_and_baselines_are_causal_and_simulable() -> None:
     assert strategy_tickers((*candidate_grid(BASE), *baselines(BASE))) == frozenset(tickers)
     for strategy in (*candidate_grid(BASE), *baselines(BASE)):
         targets = check_causality(strategy, panel, RESEARCH)
-        _schema_ok(targets)
-        result = simulate(panel, targets, SIM, capital_krw=10**9)
+        if isinstance(strategy, SegmentFade):
+            assert targets.schema["leg"] == pl.String
+            result = simulate_segments(panel, targets, SIM, SEGMENT.cost_bps_per_side, capital_krw=10**9)
+        else:
+            _schema_ok(targets)
+            result = simulate(panel, targets, SIM, capital_krw=10**9)
         assert len(result.sessions) > 0
     assert [type(s) for s in candidate_grid(BASE)].count(Rotation) == 2
+
+
+def _segment(overnight: str, signal: str = "own", cfg: StrategiesConfig = BASE) -> SegmentFade:
+    return SegmentFade("skhynix", signal, overnight, replace(cfg, min_listed_sessions=1))  # type: ignore[arg-type]
+
+
+def _book(targets: pl.DataFrame, leg: str) -> list[tuple[str, float]]:
+    part = targets.filter(pl.col("leg") == leg).sort("decision_date")
+    return [(ticker, weight) for ticker, weight in part.select("ticker", "weight").rows()]
+
+
+def test_segment_fade_books_follow_the_signal_and_wait_on_undefined_days() -> None:
+    panel = _panel({"0193T0": [100.0, 110.0, 99.0, None], "0197X0": [100.0, 101.0, 102.0, 103.0]})
+    for overnight in ("cash", "long"):
+        targets = _segment(overnight).targets(panel)
+        assert targets.height == 2 * len(panel.sessions)
+        assert targets.select("decision_date", "leg").is_duplicated().any() is False
+        assert _book(targets, "intraday") == [("0193T0", 0.0), ("0197X0", 1.0), ("0193T0", 1.0), ("0193T0", 0.0)]
+        over_weight = 0.0 if overnight == "cash" else 1.0
+        assert _book(targets, "overnight") == [
+            ("0193T0", 0.0),
+            ("0193T0", over_weight),
+            ("0193T0", over_weight),
+            ("0193T0", 0.0),
+        ]
+
+
+def test_segment_fade_vote3_follows_the_majority_of_the_basket() -> None:
+    panel = _panel(
+        {
+            "0193T0": [100.0, 95.0, 96.0],
+            "091160": [100.0, 105.0, 104.0],
+            "069500": [100.0, 103.0, 102.0],
+            "0197X0": [100.0, 101.0, 102.0],
+        }
+    )
+    targets = _segment("cash", signal="vote3").targets(panel)
+    assert _book(targets, "intraday")[1] == ("0197X0", 1.0)
+
+
+def test_segment_fade_is_causal_under_future_perturbation() -> None:
+    rng = np.random.default_rng(20261105)
+    base = _wave(0.0, 0.01, 40)
+    prices = _closes(rng.normal(0.0, 0.02, 40).tolist())
+    panel = _panel({"0193T0": prices, "0197X0": _closes(base)})
+    strategy = _segment("long", signal="vote3")
+    targets = check_causality(strategy, panel, RESEARCH)
+    cut = panel.sessions[20]
+    perturbed = list(prices)
+    perturbed[25:] = [value * 3.0 for value in perturbed[25:]]
+    other = _panel({"0193T0": perturbed, "0197X0": _closes(base)})
+    observed = strategy.targets(other)
+    assert targets.filter(pl.col("decision_date") <= cut).sort(["decision_date", "leg", "ticker"]).equals(
+        observed.filter(pl.col("decision_date") <= cut).sort(["decision_date", "leg", "ticker"])
+    )
+
+
+def test_segment_fade_waits_for_the_inverse_listing() -> None:
+    panel = _panel({"0193T0": _closes(_wave(0.0, 0.01, 12)), "0197X0": [None] * 10 + [100.0, 101.0]})
+    for overnight in ("cash", "long"):
+        strategy = replace(_segment(overnight), cfg=replace(BASE, min_listed_sessions=3))
+        targets = strategy.targets(panel)
+        assert all(weight == 0.0 for _, weight in _book(targets, "intraday"))
+        assert all(weight == 0.0 for _, weight in _book(targets, "overnight"))
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("signal", ["own", "mid"]),
+        ("overnight", ["hold"]),
+        ("sleeves", ["semis"]),
+        ("vote_basket", ["091160"]),
+        ("vote_basket", ["091160", "069500", "091160"]),
+    ],
+)
+def test_segment_config_violations_raise(monkeypatch: pytest.MonkeyPatch, key: str, value: Any) -> None:
+    data = copy.deepcopy(dict(load_config("arena")))
+    data["strategies"]["segment_fade"][key] = value
+    monkeypatch.setattr(sg, "load_config", lambda name: data)
+    with pytest.raises(ConfigError):
+        load_strategies_config()

@@ -18,7 +18,7 @@ import polars as pl
 from src.arena.contest import EditionSpec, load_edition
 from src.arena.evaluation import EvalConfig, EvaluationReport, load_eval_config, report_to_dict
 from src.arena.panel import Panel, PanelConfig, PanelSourceError, build_panel, load_etf_silver, load_panel_config
-from src.arena.proxy import ProxyCalibration, load_proxy_config, load_stock_silver, splice_proxy
+from src.arena.proxy import ProxyCalibration, imply_open, load_proxy_config, load_stock_silver, splice_proxy
 from src.arena.registry import count_trials
 from src.arena.research import (
     Evidence,
@@ -32,6 +32,7 @@ from src.arena.research import (
     load_research_config,
     select,
 )
+from src.arena.segment import SegmentConfig, load_segment_config, simulate_segments
 from src.arena.simulate import SimConfig, load_sim_config, simulate
 from src.arena.strategies import (
     StrategiesConfig,
@@ -58,6 +59,10 @@ _NOTE_HAIRCUT = (
     "haircut re-applied with the final family size K at report time (registry lines keep sequential counts)."
 )
 _NOTE_KOSDAQ = "The KOSDAQ150 inverse leg (251340) is 1x, so the KOSDAQ pair is asymmetric."
+_NOTE_SEGMENT = (
+    "segment_fade trades at the open and at the close of each session; costs come from the `segment` config "
+    "(base/stress per side); proxied intraday legs are underlying-implied (09:10-style fills)."
+)
 _NOTE_PROXY = (
     "Pre-listing rows of proxied ETFs are synthetic: daily-reset multiple x KRX underlying return minus drag, "
     "with capacity = underlying traded value / |multiple|. They are evidence about the vehicle, "
@@ -130,11 +135,28 @@ def _restate_evidence(evidence: Evidence, family: str, registry: Path) -> Eviden
     )
 
 
-def _contest_multiple(strategy: Strategy, panel: Panel, sim_cfg: SimConfig, edition: EditionSpec) -> float | None:
+def _contest_multiple(
+    strategy: Strategy,
+    panel: Panel,
+    sim_cfg: SimConfig,
+    edition: EditionSpec,
+    segment_cfg: SegmentConfig | None,
+) -> float | None:
     targets = strategy.targets(panel)
     if targets.is_empty():
         return None
-    result = simulate(panel, targets, sim_cfg, capital_krw=edition.initial_capital_krw)
+    if getattr(strategy, "execution_model", "daily") == "segment":
+        if segment_cfg is None:
+            raise ValueError(f"strategy {strategy.strategy_id} needs a segment config")
+        result = simulate_segments(
+            panel,
+            targets,
+            sim_cfg,
+            segment_cfg.cost_bps_per_side,
+            capital_krw=edition.initial_capital_krw,
+        )
+    else:
+        result = simulate(panel, targets, sim_cfg, capital_krw=edition.initial_capital_krw)
     in_window = np.array([edition.start <= day <= edition.end for day in result.sessions], dtype=bool)
     picked = result.net_returns[in_window]
     if picked.size == 0:
@@ -158,6 +180,7 @@ def run_research(
     run_id: str,
     trial_tags: Mapping[str, str] | None = None,
     proxy: tuple[ProxyCalibration, ...] = (),
+    segment_cfg: SegmentConfig | None = None,
 ) -> ResearchReport:
     """Evaluate every registered candidate and baseline and gate the candidates when the prize line is set."""
     if track not in edition.tracks:
@@ -194,8 +217,9 @@ def run_research(
             registry=registry,
             recorded_at=recorded_at,
             trial_tags=trial_tags,
+            segment_cfg=segment_cfg,
         )
-        multiple = _contest_multiple(strategy, panel, sim_cfg, edition)
+        multiple = _contest_multiple(strategy, panel, sim_cfg, edition, segment_cfg)
         evidence_rows.append((strategy, baseline, evidence, multiple))
 
     evidence_rows = [
@@ -414,7 +438,14 @@ def _markdown(report: ResearchReport, registry_path: Path) -> str:
         if not row.baseline and row.evidence.holdout_dn is not None
     ]
     proxied = report.data_variant == "proxy"
-    notes = [_NOTE_CONTEST, _NOTE_KOSDAQ, _NOTE_HAIRCUT, *([_NOTE_PROXY] if proxied else [])]
+    has_segment = any(row.family == "segment_fade" for row in report.rows)
+    notes = [
+        _NOTE_CONTEST,
+        _NOTE_KOSDAQ,
+        _NOTE_HAIRCUT,
+        *([_NOTE_SEGMENT] if has_segment else []),
+        *([_NOTE_PROXY] if proxied else []),
+    ]
     lines = [
         f"# Arena research {report.run_id}",
         "",
@@ -470,6 +501,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         edition = load_edition(args.edition)
         issuers = load_issuer_table()
         strategies_cfg = load_strategies_config()
+        segment_cfg = load_segment_config()
         research_cfg = load_research_config()
         sim_cfg = load_sim_config()
         eval_cfg = load_eval_config()
@@ -482,6 +514,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             proxy_cfg = load_proxy_config()
             stock = load_stock_silver(paths, panel_cfg, sorted({product.underlying for product in proxy_cfg.products}))
             rows, proxy = splice_proxy(rows, stock, proxy_cfg)
+            rows = imply_open(rows, stock, proxy_cfg)
             sim_cfg = replace(sim_cfg, execution=proxy_cfg.execution)
             tags = {"panel": proxy_cfg.tag, "execution": proxy_cfg.execution}
         report = run_research(
@@ -499,6 +532,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_id=run_id,
             trial_tags=tags,
             proxy=proxy,
+            segment_cfg=segment_cfg,
         )
         _, md_path = write_report(report, paths.results(f"arena/{run_id}"))
     except (ConfigError, PanelSourceError, ValueError) as exc:
