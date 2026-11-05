@@ -24,11 +24,17 @@ _EVAL_KEYS: Final = (
     "min_sessions",
     "lock_in",
     "lock_exit_cost_bps",
+    "lock_trigger_buffer",
+    "lock_noise_sd",
+    "lock_noise_df",
 )
-_SEED_STREAMS: Final = 3
+_SEED_STREAMS: Final = 4
 _EDGE_STREAM: Final = 0
 _HORIZON_STREAM: Final = 1
 _SIGN_STREAM: Final = 2
+_LOCK_STREAM: Final = 3
+_NOISE_CLIP: Final = 0.5
+_NOISE_SD_MAX: Final = 0.5
 _MAX_LOSS: Final = -1.0
 _Q_LOW: Final = 0.05
 _Q_MEDIAN: Final = 0.5
@@ -47,6 +53,9 @@ class EvalConfig:
     min_sessions: int
     lock_in: bool = False
     lock_exit_cost_bps: float = 0.0
+    lock_trigger_buffer: float = 0.0
+    lock_noise_sd: float = 0.0
+    lock_noise_df: float = 4.0
 
 
 @dataclass(frozen=True)
@@ -152,6 +161,9 @@ def load_eval_config(name: str = "arena") -> EvalConfig:
         min_sessions=_as_int(section["min_sessions"], "min_sessions"),
         lock_in=_as_bool(section["lock_in"]),
         lock_exit_cost_bps=_as_float(section["lock_exit_cost_bps"], "lock_exit_cost_bps"),
+        lock_trigger_buffer=_as_float(section["lock_trigger_buffer"], "lock_trigger_buffer"),
+        lock_noise_sd=_as_float(section["lock_noise_sd"], "lock_noise_sd"),
+        lock_noise_df=_as_float(section["lock_noise_df"], "lock_noise_df"),
     )
     _require(cfg.horizon_sessions >= 1, "evaluation.horizon_sessions must be >= 1")
     _require(cfg.bootstrap_mean_block >= 1, "evaluation.bootstrap_mean_block must be >= 1")
@@ -167,6 +179,9 @@ def load_eval_config(name: str = "arena") -> EvalConfig:
         0.0 <= cfg.lock_exit_cost_bps < _BPS_PER_UNIT,
         "evaluation.lock_exit_cost_bps must be in [0, 10000)",
     )
+    _require(0.0 <= cfg.lock_trigger_buffer < 1.0, "evaluation.lock_trigger_buffer must be in [0, 1)")
+    _require(0.0 <= cfg.lock_noise_sd < _NOISE_SD_MAX, "evaluation.lock_noise_sd must be in [0, 0.5)")
+    _require(cfg.lock_noise_df > 2.0, "evaluation.lock_noise_df must be > 2")
     return cfg
 
 
@@ -212,23 +227,51 @@ def edge_stats(gross: npt.NDArray[np.float64], idx: npt.NDArray[np.int64], cfg: 
     )
 
 
-def lock_in_multiples(paths: npt.NDArray[np.float64], threshold: float, exit_cost: float) -> npt.NDArray[np.float64]:
-    """Return each path's terminal multiple under lock-in at `threshold`; the flatten executes one session after the crossing."""
+def lock_in_multiples(
+    paths: npt.NDArray[np.float64],
+    quotes: npt.NDArray[np.float64],
+    threshold: float | npt.NDArray[np.float64],
+    exit_cost: float,
+    trigger_buffer: float = 0.0,
+) -> npt.NDArray[np.float64]:
+    """Return each row's terminal multiple under lock-in: the decision reads `quotes`, the flatten fills at `paths` in that session's close."""
     if paths.ndim != 2 or paths.shape[1] < 1:
         raise ValueError("paths must be 2-D with at least one session")
-    if not threshold > 0.0:
+    if quotes.shape != paths.shape:
+        raise ValueError("quotes must have the same shape as paths")
+    draws, horizon = paths.shape
+    level = np.asarray(threshold, dtype=np.float64)
+    if level.ndim == 0:
+        level = np.full(draws, float(level))
+    elif level.shape != (draws,):
+        raise ValueError("array threshold must have shape (draws,)")
+    if not bool(np.all(level > 0.0)):
         raise ValueError("threshold must be > 0")
     if not 0.0 <= exit_cost < 1.0:
         raise ValueError("exit_cost must be in [0, 1)")
-    horizon = paths.shape[1]
-    crossed = paths >= threshold
+    if not 0.0 <= trigger_buffer < 1.0:
+        raise ValueError("trigger_buffer must be in [0, 1)")
+    crossed = quotes >= (level * (1.0 + trigger_buffer))[:, None]
     hit = crossed.any(axis=1)
-    exit_idx = crossed.argmax(axis=1) + 1
-    use_exit = hit & (exit_idx < horizon - 1)
-    rows = np.arange(paths.shape[0])
+    first = crossed.argmax(axis=1)
+    use_exit = hit & (first < horizon - 1)
+    rows = np.arange(draws)
     out = paths[:, -1].copy()
-    out[use_exit] = paths[rows[use_exit], exit_idx[use_exit]] * (1.0 - exit_cost)
+    out[use_exit] = paths[rows[use_exit], first[use_exit]] * (1.0 - exit_cost)
     return out
+
+
+def pre_auction_quotes(
+    paths: npt.NDArray[np.float64], noise_sd: float, noise_df: float, rng: np.random.Generator
+) -> npt.NDArray[np.float64]:
+    """Model the 15:19 account value as `paths / (1 + eta)`; the 15:19-to-close move is fat-tailed noise to the decision."""
+    if not noise_sd >= 0.0 or not noise_df > 2.0:
+        raise ValueError("noise_sd must be >= 0 and noise_df must be > 2")
+    if noise_sd == 0.0:
+        return paths.copy()
+    scale = noise_sd / sqrt(noise_df / (noise_df - 2.0))
+    eta = np.clip(scale * rng.standard_t(noise_df, size=paths.shape), -_NOISE_CLIP, _NOISE_CLIP)
+    return paths / (1.0 + eta)
 
 
 def _hit_rates(terminal: npt.NDArray[np.float64], thresholds: npt.NDArray[np.float64]) -> tuple[float, ...]:
@@ -241,6 +284,7 @@ def exceedance(
     idx: npt.NDArray[np.int64],
     signs: npt.NDArray[np.int8],
     cfg: EvalConfig,
+    rng: np.random.Generator | None = None,
 ) -> Exceedance:
     """Compare strategy and zero-edge twin multiples over the grid; `p_*` follow lock-in when enabled, quantiles stay hold-to-end."""
     r = np.maximum(net[idx], _MAX_LOSS)
@@ -251,11 +295,21 @@ def exceedance(
     p_strategy_hold = _hit_rates(m, thresholds)
     p_twin_hold = _hit_rates(m0, thresholds)
     if cfg.lock_in:
+        if rng is None:
+            raise ValueError("lock-in needs an rng for the pre-auction quotes")
         exit_cost = cfg.lock_exit_cost_bps / _BPS_PER_UNIT
         cp = np.cumprod(1.0 + r, axis=1, dtype=np.float64)
         cp0 = np.cumprod(1.0 + r0, axis=1, dtype=np.float64)
-        p_strategy = tuple(float(np.mean(lock_in_multiples(cp, float(w), exit_cost) >= w)) for w in cfg.exceedance_grid)
-        p_twin = tuple(float(np.mean(lock_in_multiples(cp0, float(w), exit_cost) >= w)) for w in cfg.exceedance_grid)
+        quotes = pre_auction_quotes(cp, cfg.lock_noise_sd, cfg.lock_noise_df, rng)
+        quotes0 = pre_auction_quotes(cp0, cfg.lock_noise_sd, cfg.lock_noise_df, rng)
+        buffer = cfg.lock_trigger_buffer
+        p_strategy = tuple(
+            float(np.mean(lock_in_multiples(cp, quotes, float(w), exit_cost, buffer) >= w)) for w in cfg.exceedance_grid
+        )
+        p_twin = tuple(
+            float(np.mean(lock_in_multiples(cp0, quotes0, float(w), exit_cost, buffer) >= w))
+            for w in cfg.exceedance_grid
+        )
     else:
         p_strategy, p_twin = p_strategy_hold, p_twin_hold
     q_low, q_median, q_high = np.quantile(m, [_Q_LOW, _Q_MEDIAN, _Q_HIGH])
@@ -331,7 +385,7 @@ def evaluate(
         first_session=sessions[0],
         last_session=sessions[-1],
         edge=edge_stats(gross, edge_idx, cfg, n_trials),
-        exceedance=exceedance(net_returns, costs, horizon_idx, signs, cfg),
+        exceedance=exceedance(net_returns, costs, horizon_idx, signs, cfg, np.random.default_rng(seeds[_LOCK_STREAM])),
         by_year=by_year,
         positive_year_share=positive_year_share,
     )

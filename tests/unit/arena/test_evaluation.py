@@ -19,6 +19,7 @@ from src.arena.evaluation import (
     exceedance,
     lock_in_multiples,
     load_eval_config,
+    pre_auction_quotes,
     report_to_dict,
     stationary_bootstrap_indices,
 )
@@ -63,7 +64,7 @@ def _load_with(monkeypatch: pytest.MonkeyPatch, mutate: Callable[[dict[str, Any]
 
 def test_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:
     assert load_eval_config() == EvalConfig(
-        36, 10, 5000, 20261104, 0.95, (1.1, 1.3, 1.5, 2.0, 2.3, 3.0), 252, True, 3.0
+        36, 10, 5000, 20261104, 0.95, (1.1, 1.3, 1.5, 2.0, 2.3, 3.0), 252, True, 3.0, 0.01, 0.0093, 4.0
     )
 
     def _set(**changes: Any) -> Callable[[dict[str, Any]], None]:
@@ -90,6 +91,13 @@ def test_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:
         _set(lock_in=1),
         _set(lock_exit_cost_bps=-1.0),
         _set(lock_exit_cost_bps=10_000.0),
+        _drop("lock_trigger_buffer"),
+        _set(lock_trigger_buffer=1.0),
+        _set(lock_trigger_buffer=-0.01),
+        _drop("lock_noise_sd"),
+        _set(lock_noise_sd=0.5),
+        _set(lock_noise_sd=-0.1),
+        _set(lock_noise_df=2.0),
     ]
     for mutate in bad_mutations:
         with pytest.raises(ConfigError):
@@ -272,39 +280,128 @@ def test_json_has_hold_fields() -> None:
 
 def test_lock_in_no_cross_unchanged() -> None:
     paths = np.array([[0.9, 0.95, 0.97, 0.99, 1.0, 1.02]])
-    assert np.array_equal(lock_in_multiples(paths, 1.1, 0.001), paths[:, -1])
+    assert np.array_equal(lock_in_multiples(paths, paths, 1.1, 0.001), paths[:, -1])
 
 
-def test_lock_in_exit_next_session_with_cost() -> None:
-    paths = np.array([[1.0, 1.1, 1.2, 1.25, 1.1, 1.05]])
-    result = lock_in_multiples(paths, 1.2, 0.001)
-    assert result[0] == pytest.approx(paths[0, 3] * 0.999)
+def test_lock_in_flatten_same_close_with_cost() -> None:
+    paths = np.array([[1.0, 1.1, 1.25, 1.3, 1.1, 1.05]])
+    quotes = np.array([[1.0, 1.1, 1.21, 1.3, 1.1, 1.05]])
+    result = lock_in_multiples(paths, quotes, 1.2, 0.001)
+    assert result[0] == pytest.approx(paths[0, 2] * 0.999)
 
 
-def test_lock_in_late_cross_no_cost() -> None:
+def test_lock_in_decision_uses_quotes_not_fill() -> None:
+    paths = np.array([[1.0, 1.25, 1.0, 1.1, 1.05, 1.0]])
+    quotes = np.array([[1.0, 1.1, 1.0, 1.21, 1.0, 1.0]])
+    result = lock_in_multiples(paths, quotes, 1.2, 0.0)
+    assert result[0] == pytest.approx(paths[0, 3])
+
+
+def test_lock_in_fill_can_end_below_w() -> None:
+    paths = np.array([[1.0, 1.05, 1.1, 1.15, 1.1, 1.05]])
+    quotes = np.array([[1.0, 1.21, 1.3, 1.3, 1.3, 1.3]])
+    result = lock_in_multiples(paths, quotes, 1.2, 0.001)
+    assert result[0] == pytest.approx(paths[0, 1] * 0.999)
+    assert result[0] < 1.2
+
+
+def test_lock_in_quotes_shape_mismatch() -> None:
+    paths = np.ones((2, 4))
+    with pytest.raises(ValueError, match="quotes must have the same shape"):
+        lock_in_multiples(paths, np.ones((2, 3)), 1.1, 0.0)
+
+
+def test_lock_in_last_session_cross_no_cost() -> None:
     paths = np.array([[1.0, 1.0, 1.0, 1.2, 1.3], [1.0, 1.0, 1.0, 1.0, 1.3]])
-    paths[0, 3] = 1.2
-    result = lock_in_multiples(paths, 1.2, 0.5)
+    quotes = np.array([[1.0, 1.0, 1.0, 1.0, 1.3], [1.0, 1.0, 1.0, 1.0, 1.0]])
+    result = lock_in_multiples(paths, quotes, 1.2, 0.5)
     assert np.array_equal(result, paths[:, -1])
+
+
+def test_lock_in_buffer_delays_trigger() -> None:
+    paths = np.array([[1.0, 1.005, 1.009, 1.02, 1.03, 1.0]])
+    result = lock_in_multiples(paths, paths, 1.0, 0.0, trigger_buffer=0.01)
+    assert result[0] == pytest.approx(paths[0, 3])
+
+
+def test_lock_in_array_threshold_per_row() -> None:
+    paths = np.array([[1.0, 1.15, 1.2, 1.2], [1.0, 1.15, 1.2, 1.2]])
+    result = lock_in_multiples(paths, paths, np.array([1.1, 1.3]), 0.0)
+    assert result[0] == pytest.approx(paths[0, 1])
+    assert result[1] == pytest.approx(paths[1, -1])
+    with pytest.raises(ValueError, match="shape"):
+        lock_in_multiples(paths, paths, np.array([1.1, 1.2, 1.3]), 0.0)
+
+
+def test_lock_in_rejects_bad_buffer() -> None:
+    paths = np.ones((2, 4))
+    with pytest.raises(ValueError, match="trigger_buffer must be in"):
+        lock_in_multiples(paths, paths, 1.1, 0.0, trigger_buffer=-0.1)
+    with pytest.raises(ValueError, match="trigger_buffer must be in"):
+        lock_in_multiples(paths, paths, 1.1, 0.0, trigger_buffer=1.0)
 
 
 def test_lock_in_rejects_bad_args() -> None:
     paths = np.ones((2, 4))
     with pytest.raises(ValueError, match="2-D"):
-        lock_in_multiples(np.ones(4), 1.1, 0.0)
+        lock_in_multiples(np.ones(4), np.ones(4), 1.1, 0.0)
     with pytest.raises(ValueError, match="threshold must be > 0"):
-        lock_in_multiples(paths, 0.0, 0.0)
+        lock_in_multiples(paths, paths, 0.0, 0.0)
     with pytest.raises(ValueError, match="exit_cost must be in"):
-        lock_in_multiples(paths, 1.1, 1.0)
+        lock_in_multiples(paths, paths, 1.1, 1.0)
     with pytest.raises(ValueError, match="exit_cost must be in"):
-        lock_in_multiples(paths, 1.1, -0.1)
+        lock_in_multiples(paths, paths, 1.1, -0.1)
 
 
 def test_lock_in_does_not_mutate() -> None:
     paths = np.array([[1.0, 1.2, 1.3, 1.1], [0.9, 0.95, 1.0, 1.05]])
+    quotes = paths.copy()
     before = paths.copy()
-    lock_in_multiples(paths, 1.2, 0.001)
+    lock_in_multiples(paths, quotes, 1.2, 0.001)
     assert np.array_equal(paths, before)
+    assert np.array_equal(quotes, before)
+
+
+def test_pre_auction_quotes_zero_noise_is_copy() -> None:
+    paths = np.array([[1.0, 1.1, 1.2]])
+    out = pre_auction_quotes(paths, 0.0, 4.0, np.random.default_rng(1))
+    assert np.array_equal(out, paths)
+    assert out is not paths
+
+
+def test_pre_auction_quotes_fat_tail_and_bounds() -> None:
+    paths = np.ones((1, 100_000))
+    out = pre_auction_quotes(paths, 0.0093, 4.0, np.random.default_rng(2))
+    eta = 1.0 / out - 1.0
+    assert float(eta.min()) >= -0.5 - 1e-12 and float(eta.max()) <= 0.5 + 1e-12
+    assert float(np.std(eta)) == pytest.approx(0.0093, rel=0.05)
+    assert int(np.count_nonzero(np.abs(eta) > 4.0 * 0.0093)) > 50
+
+
+def test_pre_auction_quotes_deterministic_for_fixed_rng() -> None:
+    paths = np.array([[1.0, 1.1, 1.2], [1.0, 0.9, 1.05]])
+    first = pre_auction_quotes(paths, 0.01, 4.0, np.random.default_rng(3))
+    second = pre_auction_quotes(paths, 0.01, 4.0, np.random.default_rng(3))
+    assert np.array_equal(first, second)
+
+
+def test_pre_auction_quotes_rejects_bad_args() -> None:
+    paths = np.ones((1, 3))
+    with pytest.raises(ValueError, match="noise_sd must be"):
+        pre_auction_quotes(paths, -0.1, 4.0, np.random.default_rng(0))
+    with pytest.raises(ValueError, match="noise_df must be"):
+        pre_auction_quotes(paths, 0.01, 2.0, np.random.default_rng(0))
+
+
+def test_evaluate_seed_streams_backward_compatible() -> None:
+    old = np.random.SeedSequence(CFG.seed).spawn(3)
+    new = np.random.SeedSequence(CFG.seed).spawn(4)
+    for i in range(3):
+        assert np.array_equal(old[i].generate_state(4), new[i].generate_state(4))
+    net, costs = _series(120, 0.002, 0.02, 26)
+    report = _report(net, costs)
+    assert report.exceedance.lock_in is False
+    assert report.exceedance.p_strategy == report.exceedance.p_strategy_hold
 
 
 def _lock_draws() -> tuple[FloatArray, FloatArray, npt.NDArray[np.int64], npt.NDArray[np.int8]]:
@@ -326,11 +423,17 @@ def test_exceedance_lock_off_matches_hold() -> None:
 def test_exceedance_lock_on_probabilities_and_lift() -> None:
     net, costs, idx, signs = _lock_draws()
     cfg = replace(CFG, lock_in=True, lock_exit_cost_bps=3.0)
-    ex = exceedance(net, costs, idx, signs, cfg)
+    ex = exceedance(net, costs, idx, signs, cfg, np.random.default_rng(4))
     assert ex.lock_in is True
     assert all(0.0 <= p <= 1.0 for p in ex.p_strategy + ex.p_twin)
     assert ex.lift == tuple(s - t for s, t in zip(ex.p_strategy, ex.p_twin, strict=True))
     assert ex.p_strategy_hold == exceedance(net, costs, idx, signs, CFG).p_strategy
+
+
+def test_exceedance_lock_on_requires_rng() -> None:
+    net, costs, idx, signs = _lock_draws()
+    with pytest.raises(ValueError, match="rng"):
+        exceedance(net, costs, idx, signs, replace(CFG, lock_in=True))
 
 
 def test_exceedance_lock_on_certain_for_monotone_growth() -> None:
@@ -339,7 +442,8 @@ def test_exceedance_lock_on_certain_for_monotone_growth() -> None:
     costs = np.zeros(n)
     idx = np.zeros((4, CFG.horizon_sessions), dtype=np.int64)
     signs = np.ones((4, CFG.horizon_sessions), dtype=np.int8)
-    ex = exceedance(net, costs, idx, signs, replace(CFG, lock_in=True, lock_exit_cost_bps=0.0))
+    cfg = replace(CFG, lock_in=True, lock_exit_cost_bps=0.0)
+    ex = exceedance(net, costs, idx, signs, cfg, np.random.default_rng(5))
     reached = [k for k, w in enumerate(ex.thresholds) if w <= 1.02**5]
     assert reached
     assert all(ex.p_strategy[k] == 1.0 for k in reached)
@@ -348,5 +452,7 @@ def test_exceedance_lock_on_certain_for_monotone_growth() -> None:
 def test_exceedance_lock_quantiles_unchanged() -> None:
     net, costs, idx, signs = _lock_draws()
     off = exceedance(net, costs, idx, signs, CFG)
-    on = exceedance(net, costs, idx, signs, replace(CFG, lock_in=True, lock_exit_cost_bps=3.0))
+    on = exceedance(
+        net, costs, idx, signs, replace(CFG, lock_in=True, lock_exit_cost_bps=3.0), np.random.default_rng(6)
+    )
     assert (off.q05, off.q50, off.q95, off.twin_q50) == (on.q05, on.q50, on.q95, on.twin_q50)

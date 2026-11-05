@@ -28,6 +28,7 @@ from src.arena.research import (
     select,
     truncate_panel,
 )
+from src.arena.prize_line import PrizeLineConfig
 from src.arena.segment import SegmentConfig
 from src.arena.simulate import SimConfig, simulate
 from src.core.config import ConfigError, load_config
@@ -554,7 +555,15 @@ def test_regime_views_use_regime_floor_not_eval_floor(tmp_path: Path) -> None:
     cfg = _cfg(holdout_start=panel.sessions[100], regime_min_sessions=30, regime_window=5)
     strict_eval = replace(EVAL, min_sessions=100)
     evidence = gather_evidence(
-        Toy("s", "F"), panel, SIM, strict_eval, cfg, track="t", capital_krw=CAPITAL, registry=tmp_path / "r.jsonl", recorded_at=NOW
+        Toy("s", "F"),
+        panel,
+        SIM,
+        strict_eval,
+        cfg,
+        track="t",
+        capital_krw=CAPITAL,
+        registry=tmp_path / "r.jsonl",
+        recorded_at=NOW,
     )
     assert "extreme" in evidence.regimes
     assert evidence.regimes["extreme"].edge.n_sessions < strict_eval.min_sessions
@@ -703,3 +712,26 @@ def test_daily_registry_lines_ignore_segment_config(tmp_path: Path) -> None:
         segment_cfg=SEG_COST,
     )
     assert _registry_lines(with_segment) == _registry_lines(plain)
+
+
+def test_gather_evidence_vol_windows_optional(tmp_path: Path) -> None:
+    panel = _panel({"AAA": _random(400, 5)})
+    cfg = _cfg()
+    plain = _gather(Toy("s1", "F1"), panel, cfg, tmp_path / "plain.jsonl")
+    assert plain.vol_windows == ()
+    prize = PrizeLineConfig(reference="AAA", lookback=20, ks=(0.9, 1.3), twin_draws=5, seed=3)
+    evidence = gather_evidence(
+        Toy("s1", "F1"),
+        panel,
+        SIM,
+        EVAL,
+        cfg,
+        track="arena_t",
+        capital_krw=CAPITAL,
+        registry=tmp_path / "prize.jsonl",
+        recorded_at=NOW,
+        prize_cfg=prize,
+    )
+    periods = tuple(view.period for view in evidence.vol_windows)
+    assert periods
+    assert periods == tuple(p for p in ("discovery", "holdout") if p in periods)

@@ -17,6 +17,7 @@ from src.arena.evaluation import EvalConfig, evaluate
 from src.arena.panel import PanelConfig, build_panel
 from src.arena.proxy import ProxyCalibration, ProxyConfig, ProxyProduct
 from src.arena.research import Evidence, ResearchConfig, Selection, load_research_config
+from src.arena.prize_line import VolWindowStats
 from src.arena.runner import ResearchReport, StrategyRow, main, run_research, write_report
 from src.arena.segment import load_segment_config
 from src.arena.simulate import load_sim_config
@@ -647,3 +648,27 @@ def test_markdown_lock_note_follows_lock_in(tmp_path: Path) -> None:
     plain = _run(tmp_path / "plain")
     _, plain_md = write_report(plain, tmp_path / "plain_out")
     assert note not in plain_md.read_text(encoding="utf-8")
+
+
+def test_markdown_vol_window_section(tmp_path: Path) -> None:
+    report = _run(tmp_path / "base")
+    stats = VolWindowStats(
+        period="holdout",
+        n_windows=12,
+        n_effective=1,
+        ks=(0.9,),
+        median_line=(1.05,),
+        p_lock=(0.5,),
+        p_hold=(0.4,),
+        p_twin_lock=(0.2,),
+    )
+    _, plain_md = write_report(report, tmp_path / "plain")
+    assert "## Vol-scaled prize line" not in plain_md.read_text(encoding="utf-8")
+    rows = tuple(replace(row, evidence=replace(row.evidence, vol_windows=(stats,))) for row in report.rows)
+    json_path, md_path = write_report(replace(report, rows=rows), tmp_path / "vol")
+    text = md_path.read_text(encoding="utf-8")
+    assert "## Vol-scaled prize line (real windows, descriptive)" in text
+    assert "| id | period | windows (effective) | k | median W | P(lock) | P(hold) | twin P(lock) |" in text
+    assert "W = exp(k * sigma_pre * sqrt(H))" in text
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["rows"][0]["evidence"]["vol_windows"][0]["period"] == "holdout"

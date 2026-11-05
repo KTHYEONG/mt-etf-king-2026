@@ -8,6 +8,9 @@ evaluation:
   min_sessions: 252
   lock_in: true                 # default policy: flatten once own multiple closes >= W (Part 5g)
   lock_exit_cost_bps: 3.0       # one side, same as simulate cost
+  lock_trigger_buffer: 0.01     # margin over W on the 15:19 check
+  lock_noise_sd: 0.0093         # Hynix 15:19->close sd at 2x, minute bars n=214
+  lock_noise_df: 4.0
 panel:
   lock_timeout_s: 900.0          # same wait as the pipeline lock (configs/base.yaml:21)
   nav_divergence_max: 0.10       # |r_cc - r_nav| above this flags a print far from NAV
@@ -89,3 +92,9 @@ proxy:                                   # research-only synthetic pre-listing h
 segment:                                 # open + close executions per session (intraday book / overnight book)
   cost_bps_per_side: 3.0                 # same execution model as simulate: patient limit orders at 09:05-09:15 / 15:10-15:20
   stress_cost_bps: 9.0                   # 3x base (crypto-pilot STRESS_COST_MULTIPLIER practice)
+prize_line_vol:                          # descriptive vol-scaled prize line on real windows (Part 5h)
+  reference: "0193T0"                   # Hynix single-stock 2x: the most volatile sponsor vehicle
+  lookback: 60                          # sessions strictly before each window start
+  ks: [0.9, 1.3]                        # implied k: 2026 ~0.89, 2025 ~1.34
+  twin_draws: 20
+  seed: 20261105

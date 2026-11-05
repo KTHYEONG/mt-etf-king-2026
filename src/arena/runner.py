@@ -18,6 +18,7 @@ import polars as pl
 from src.arena.contest import EditionSpec, load_edition
 from src.arena.evaluation import EvalConfig, EvaluationReport, load_eval_config, report_to_dict
 from src.arena.panel import Panel, PanelConfig, PanelSourceError, build_panel, load_etf_silver, load_panel_config
+from src.arena.prize_line import PrizeLineConfig, VolWindowStats, load_prize_line_config
 from src.arena.proxy import ProxyCalibration, imply_open, load_proxy_config, load_stock_silver, splice_proxy
 from src.arena.registry import count_trials
 from src.arena.research import (
@@ -64,10 +65,12 @@ _NOTE_SEGMENT = (
     "(base/stress per side); proxied intraday legs are underlying-implied (09:10-style fills)."
 )
 _NOTE_LOCK = (
-    "P(M>=W) columns apply the lock-in policy: once the net multiple closes at or above W, the position is held "
-    "one more session (d->d+1 execution) and then flattened at lock_exit_cost_bps; hold-to-end probabilities "
-    "are in report.json (p_strategy_hold/p_twin_hold)."
+    "P(M>=W) columns apply the lock-in policy: the decision uses a modelled pre-auction (15:19) value, "
+    "close/(1+eta) with fat-tailed noise of sd lock_noise_sd; if it is at or above W*(1+lock_trigger_buffer), "
+    "the position is flattened in that session's closing auction at lock_exit_cost_bps (it may end slightly "
+    "below W); hold-to-end probabilities are in report.json."
 )
+_NOTE_VOL = "W = exp(k * sigma_pre * sqrt(H)), sigma_pre = causal sd of the reference 2x vehicle; descriptive, not registered, not gated."
 _NOTE_PROXY = (
     "Pre-listing rows of proxied ETFs are synthetic: daily-reset multiple x KRX underlying return minus drag, "
     "with capacity = underlying traded value / |multiple|. They are evidence about the vehicle, "
@@ -186,6 +189,7 @@ def run_research(
     trial_tags: Mapping[str, str] | None = None,
     proxy: tuple[ProxyCalibration, ...] = (),
     segment_cfg: SegmentConfig | None = None,
+    prize_cfg: PrizeLineConfig | None = None,
 ) -> ResearchReport:
     """Evaluate every registered candidate and baseline and gate the candidates when the prize line is set."""
     if track not in edition.tracks:
@@ -193,6 +197,8 @@ def run_research(
     candidates = candidate_grid(strategies_cfg)
     references = baselines(strategies_cfg)
     tickers = strategy_tickers((*candidates, *references)) | {research_cfg.regime_reference}
+    if prize_cfg is not None:
+        tickers = tickers | {prize_cfg.reference}
     _check_sponsors(rows, tickers, issuers, edition)
     if rows.is_empty():
         raise ValueError("rows must not be empty")
@@ -223,6 +229,7 @@ def run_research(
             recorded_at=recorded_at,
             trial_tags=trial_tags,
             segment_cfg=segment_cfg,
+            prize_cfg=prize_cfg,
         )
         multiple = _contest_multiple(strategy, panel, sim_cfg, edition, segment_cfg)
         evidence_rows.append((strategy, baseline, evidence, multiple))
@@ -289,6 +296,7 @@ def _evidence_dict(evidence: Evidence) -> dict[str, Any]:
         "holdout_stress": _optional(evidence.holdout_stress),
         "regimes": {regime: report_to_dict(report) for regime, report in evidence.regimes.items()},
         "missing": list(evidence.missing),
+        "vol_windows": [asdict(view) for view in evidence.vol_windows],
     }
 
 
@@ -435,6 +443,39 @@ def _proxy_section(calibrations: tuple[ProxyCalibration, ...]) -> list[str]:
     ]
 
 
+def _vol_rows(strategy_id: str, stats: VolWindowStats) -> list[str]:
+    return [
+        "| "
+        + " | ".join(
+            [
+                strategy_id,
+                stats.period,
+                f"{stats.n_windows} ({stats.n_effective})",
+                f"{k:g}",
+                f"{median:.4f}",
+                f"{p_lock:.3f}",
+                f"{p_hold:.3f}",
+                f"{p_twin:.3f}",
+            ]
+        )
+        + " |"
+        for k, median, p_lock, p_hold, p_twin in zip(
+            stats.ks, stats.median_line, stats.p_lock, stats.p_hold, stats.p_twin_lock, strict=True
+        )
+    ]
+
+
+def _vol_section(rows: Sequence[StrategyRow]) -> list[str]:
+    return [
+        "## Vol-scaled prize line (real windows, descriptive)",
+        "",
+        "| id | period | windows (effective) | k | median W | P(lock) | P(hold) | twin P(lock) |",
+        "|---|---|---|---|---|---|---|---|",
+        *(line for row in rows for stats in row.evidence.vol_windows for line in _vol_rows(row.strategy_id, stats)),
+        "",
+    ]
+
+
 def _markdown(report: ResearchReport, registry_path: Path) -> str:
     band = "undecided (overview §8 O1)" if report.band is None else f"[{report.band[0]}, {report.band[1]}]"
     trials = [
@@ -443,6 +484,7 @@ def _markdown(report: ResearchReport, registry_path: Path) -> str:
         if not row.baseline and row.evidence.holdout_dn is not None
     ]
     proxied = report.data_variant == "proxy"
+    has_vol = any(row.evidence.vol_windows for row in report.rows)
     has_segment = any(row.family == "segment_fade" for row in report.rows)
     locked = any(
         view.exceedance.lock_in
@@ -461,6 +503,7 @@ def _markdown(report: ResearchReport, registry_path: Path) -> str:
         _NOTE_KOSDAQ,
         _NOTE_HAIRCUT,
         *([_NOTE_LOCK] if locked else []),
+        *([_NOTE_VOL] if has_vol else []),
         *([_NOTE_SEGMENT] if has_segment else []),
         *([_NOTE_PROXY] if proxied else []),
     ]
@@ -481,6 +524,8 @@ def _markdown(report: ResearchReport, registry_path: Path) -> str:
     ]
     lines.extend(_row_line(row) for row in report.rows)
     lines.extend(["", _selection_text(report), ""])
+    if has_vol:
+        lines.extend(_vol_section(report.rows))
     if proxied:
         lines.extend(_proxy_section(report.proxy))
     lines.extend(["## Notes", *(f"- {note}" for note in notes), ""])
@@ -524,6 +569,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sim_cfg = load_sim_config()
         eval_cfg = load_eval_config()
         panel_cfg = load_panel_config()
+        prize_cfg = load_prize_line_config()
         paths = DataPaths(args.data_root)
         rows = load_etf_silver(paths, panel_cfg)
         tags: Mapping[str, str] | None = None
@@ -551,6 +597,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             trial_tags=tags,
             proxy=proxy,
             segment_cfg=segment_cfg,
+            prize_cfg=prize_cfg,
         )
         _, md_path = write_report(report, paths.results(f"arena/{run_id}"))
     except (ConfigError, PanelSourceError, ValueError) as exc:

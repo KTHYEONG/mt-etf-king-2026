@@ -21,6 +21,7 @@ from src.arena.evaluation import (
     InsufficientDataError,
 )
 from src.arena.panel import Panel
+from src.arena.prize_line import PrizeLineConfig, VolWindowStats, reference_sigma, window_stats
 from src.arena.registry import evaluate_and_register
 from src.arena.segment import SegmentConfig, simulate_segments
 from src.arena.simulate import ReturnMode, SimConfig, SimResult, simulate
@@ -89,6 +90,7 @@ class Evidence:
     holdout_stress: EvaluationReport | None
     regimes: Mapping[Regime, EvaluationReport]
     missing: tuple[str, ...]
+    vol_windows: tuple[VolWindowStats, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -300,6 +302,7 @@ def gather_evidence(
     recorded_at: datetime,
     trial_tags: Mapping[str, str] | None = None,
     segment_cfg: SegmentConfig | None = None,
+    prize_cfg: PrizeLineConfig | None = None,
 ) -> Evidence:
     """Run the causality guard, simulate, and register every evidence view; views with too little data are None."""
     tags = dict(trial_tags or {})
@@ -336,7 +339,9 @@ def gather_evidence(
     drift_full = _simulate_view(
         panel, targets, sim_cfg, base_cost, segment=segment, capital_krw=capital_krw, mode="drift_neutral"
     )
-    stress = _simulate_view(panel, targets, sim_cfg, stress_cost, segment=segment, capital_krw=capital_krw, mode="actual")
+    stress = _simulate_view(
+        panel, targets, sim_cfg, stress_cost, segment=segment, capital_krw=capital_krw, mode="actual"
+    )
     missing: list[str] = []
 
     def run(
@@ -347,7 +352,14 @@ def gather_evidence(
         view_cfg: EvalConfig = eval_cfg,
     ) -> EvaluationReport | None:
         sessions, net, costs = picked
-        params = {**strategy.params, **tags, "strategy": strategy.family, "view": view, "cost_bps": cost_bps, "mode": mode}
+        params = {
+            **strategy.params,
+            **tags,
+            "strategy": strategy.family,
+            "view": view,
+            "cost_bps": cost_bps,
+            "mode": mode,
+        }
         try:
             return evaluate_and_register(
                 registry,
@@ -395,6 +407,20 @@ def gather_evidence(
         if report is not None:
             regimes[regime] = report
 
+    vol_windows: list[VolWindowStats] = []
+    if prize_cfg is not None:
+        sigma_of = dict(zip(panel.sessions, reference_sigma(panel, prize_cfg).tolist(), strict=True))
+        sigma = np.array([sigma_of.get(day, np.nan) for day in stress.sessions], dtype=np.float64)
+        for period, lo, hi in (
+            ("discovery", cfg.discovery_start, cfg.holdout_start),
+            ("holdout", cfg.holdout_start, None),
+        ):
+            mask = _window(stress.sessions, lo, hi)
+            _, net, costs = _select(stress, mask)
+            stats = window_stats(period, net, costs, sigma[mask], eval_cfg, prize_cfg)
+            if stats is not None:
+                vol_windows.append(stats)
+
     return Evidence(
         strategy_id=strategy.strategy_id,
         family=strategy.family,
@@ -404,6 +430,7 @@ def gather_evidence(
         holdout_stress=holdout_stress,
         regimes=regimes,
         missing=tuple(missing),
+        vol_windows=tuple(vol_windows),
     )
 
 
