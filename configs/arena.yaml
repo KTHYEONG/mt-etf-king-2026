@@ -64,3 +64,16 @@ strategies:
     hold: ["122630", "0193T0"]
     coin_pair: ["122630", "252670"]
     coin_seed: 20261105
+proxy:                                   # research-only synthetic pre-listing history of single-stock leveraged ETFs
+  tag: single_stock_proxy_v1             # recorded in every proxy-run trial's params (Part 5d)
+  execution: close                       # proxy open legs track at 2.4-3.0% daily TE, so proxy runs fill at the close
+  drag_bps_per_session: 5.0              # fee + financing + rebalance drag; overlap mean residual -3.7..-5.9 bp (long 2x)
+  max_abs_session_return: 0.30           # KRX daily price limit; a larger underlying move means a bad base price
+  min_overlap_sessions: 60
+  min_close_corr: 0.99
+  max_close_te_bps: 150.0
+  products:                              # ETF ticker: KOSPI underlying and daily-reset multiple
+    "0193T0": {underlying: "000660", multiple: 2.0}
+    "0193W0": {underlying: "005930", multiple: 2.0}
+    "0197X0": {underlying: "000660", multiple: -2.0}
+    "0193L0": {underlying: "005930", multiple: -2.0}

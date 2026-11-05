@@ -156,6 +156,7 @@ STOCK_DAILY_SCHEMA: Final[DatasetSchema] = DatasetSchema(
         ColumnSpec(source_field="MKT_TP_NM", column="market", dtype="str"),
         ColumnSpec(source_field="SECT_TP_NM", column="sector_type", dtype="str"),
         ColumnSpec(source_field="TDD_CLSPRC", column="close", dtype="float"),
+        ColumnSpec(source_field="CMPPREVDD_PRC", column="change_abs", dtype="float"),
         ColumnSpec(source_field="TDD_OPNPRC", column="open", dtype="float"),
         ColumnSpec(source_field="TDD_HGPRC", column="high", dtype="float"),
         ColumnSpec(source_field="TDD_LWPRC", column="low", dtype="float"),

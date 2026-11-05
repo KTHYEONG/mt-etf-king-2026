@@ -4,7 +4,13 @@ from datetime import date
 
 import pytest
 
-from src.data.schema import ETF_DAILY_SCHEMA, decode_bas_dd, decode_optional_float, decode_optional_int
+from src.data.schema import (
+    ETF_DAILY_SCHEMA,
+    STOCK_DAILY_SCHEMA,
+    decode_bas_dd,
+    decode_optional_float,
+    decode_optional_int,
+)
 
 
 def test_scenario_03_01_decode_optional() -> None:
@@ -53,3 +59,28 @@ def test_scenario_03_02_etf_schema_decode() -> None:
     row2 = dict(row)
     row2["ISU_CD"] = "0131A0"
     assert ETF_DAILY_SCHEMA.decode_rows([row2])[0]["ticker"] == "0131A0"
+
+
+def test_stock_schema_decodes_change_abs() -> None:
+    row = {"BAS_DD": "20180504", "ISU_CD": "005930", "TDD_CLSPRC": "2650000", "CMPPREVDD_PRC": "-74000"}
+    decoded = STOCK_DAILY_SCHEMA.decode_rows([row])
+    assert decoded[0]["change_abs"] == -74000.0
+    columns = [spec.column for spec in STOCK_DAILY_SCHEMA.columns]
+    assert columns.index("change_abs") == columns.index("close") + 1
+    assert [spec.column for spec in ETF_DAILY_SCHEMA.columns] == [
+        "date",
+        "ticker",
+        "name",
+        "close",
+        "open",
+        "high",
+        "low",
+        "volume",
+        "trading_value",
+        "nav",
+        "market_cap",
+        "net_assets",
+        "shares_outstanding",
+        "underlying_index_name",
+        "underlying_index_close",
+    ]
