@@ -119,7 +119,7 @@ def _load_with(monkeypatch: pytest.MonkeyPatch, mutate: Callable[[dict[str, Any]
 
 
 def test_sim_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert load_sim_config() == SimConfig("open", 15.0, 0.05, 20, LEVELS, 1e-9)
+    assert load_sim_config() == SimConfig("open", 3.0, 0.05, 20, LEVELS, 1e-9)
 
     def _set(**changes: Any) -> Callable[[dict[str, Any]], None]:
         return lambda section: section.update(changes)

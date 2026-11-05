@@ -11,7 +11,7 @@ panel:
   nav_divergence_max: 0.10       # |r_cc - r_nav| above this flags a print far from NAV
 simulate:
   execution: open                 # open | close: fill price session of d+1
-  cost_bps_per_side: 15.0         # commission + slippage per side; conservative while mock fees are unknown
+  cost_bps_per_side: 3.0          # ~1.5 bp commission + ~1.5 bp slippage; patient limit orders (5-10 min) avoid the spread
   participation_max: 0.05         # max |trade| as a share of ADV traded value
   adv_window: 20                  # sessions of trading_value used for ADV (ending at d)
   weight_levels: [0.0, 0.25, 0.5, 0.75, 1.0]
@@ -23,7 +23,7 @@ research:
   regime_window: 20
   regime_edges: [0.15, 0.25, 0.40]   # annualized vol: low < 0.15 <= mid < 0.25 <= high < 0.40 <= extreme
   regime_min_sessions: 120
-  stress_cost_bps: 45.0              # 3x the base cost (crypto-pilot practice)
+  stress_cost_bps: 9.0               # 3x the base cost (crypto-pilot practice)
   gate_alpha: 0.05
   gate_min_plateau_share: 0.5        # share of the same family's grid with positive drift-neutral edge
   causality_cuts: 3
@@ -84,5 +84,5 @@ proxy:                                   # research-only synthetic pre-listing h
     "0197X0": {underlying: "000660", multiple: -2.0}
     "0193L0": {underlying: "005930", multiple: -2.0}
 segment:                                 # open + close executions per session (intraday book / overnight book)
-  cost_bps_per_side: 6.5                 # 1.5 bp commission + 1 tick (5 KRW at ~10,000 KRW single-stock 2x); contest fees unpublished
-  stress_cost_bps: 19.5                  # 3x base (crypto-pilot STRESS_COST_MULTIPLIER practice)
+  cost_bps_per_side: 3.0                 # same execution model as simulate: patient limit orders at 09:05-09:15 / 15:10-15:20
+  stress_cost_bps: 9.0                   # 3x base (crypto-pilot STRESS_COST_MULTIPLIER practice)

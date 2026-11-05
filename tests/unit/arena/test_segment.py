@@ -130,7 +130,7 @@ def _load_with(monkeypatch: pytest.MonkeyPatch, mutate: Callable[[dict[str, Any]
 
 
 def test_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert load_segment_config() == SegmentConfig(cost_bps_per_side=6.5, stress_cost_bps=19.5)
+    assert load_segment_config() == SegmentConfig(cost_bps_per_side=3.0, stress_cost_bps=9.0)
 
     def _set(**changes: Any) -> Callable[[dict[str, Any]], None]:
         return lambda section: section.update(changes)

@@ -33,7 +33,7 @@ from src.arena.simulate import SimConfig, simulate
 from src.core.config import ConfigError, load_config
 
 PANEL_CFG = PanelConfig(lock_timeout_s=900.0, nav_divergence_max=0.10)
-SIM = SimConfig("open", 15.0, 1.0, 2, (0.0, 0.25, 0.5, 0.75, 1.0), 1e-9)
+SIM = SimConfig("open", 3.0, 1.0, 2, (0.0, 0.25, 0.5, 0.75, 1.0), 1e-9)
 EVAL = EvalConfig(10, 10, 200, 7, 0.95, (1.1, 1.3, 1.5, 2.0, 2.3, 3.0), 40)
 CAPITAL = 1_000_000
 NOW = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
@@ -211,7 +211,7 @@ def test_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:
         regime_window=20,
         regime_edges=(0.15, 0.25, 0.40),
         regime_min_sessions=120,
-        stress_cost_bps=45.0,
+        stress_cost_bps=9.0,
         gate_alpha=0.05,
         gate_min_plateau_share=0.5,
         causality_cuts=3,
