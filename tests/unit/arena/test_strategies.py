@@ -152,27 +152,36 @@ def test_loaded_config_documents_the_shipped_values() -> None:
     assert (BASE.vol_window, BASE.er_window, BASE.band, BASE.er_min) == (60, 20, 0.10, 0.30)
     assert BASE.sleeves["kospi200"] == ("069500", "122630")
     assert BASE.sleeves["skhynix"] == ("0193T0", "0193T0")
-    assert dict(BASE.inverse) == {"kospi200": "252670", "kosdaq150": "251340"}
+    assert dict(BASE.inverse) == {
+        "kospi200": "252670",
+        "kosdaq150": "251340",
+        "skhynix": "0197X0",
+        "samsung": "0193L0",
+    }
     assert BASE.min_listed_sessions == 20
-    assert BASE.switch_sleeves == ("kospi200", "kosdaq150")
+    assert BASE.switch_sleeves == ("kospi200", "kosdaq150", "skhynix", "samsung")
     assert BASE.chop_filter == (False, True)
     assert BASE.rotation_hold == (5, 10)
     assert BASE.flow_window == (5, 20)
     assert (BASE.z_window, BASE.z_threshold) == (60, 1.0)
     assert BASE.committee is True
     assert BASE.down_streak == 3
-    assert BASE.baseline_hold == ("122630", "0193T0")
+    assert BASE.baseline_hold == ("122630", "0193T0", "0193W0")
     assert BASE.coin_pair == ("122630", "252670")
     assert BASE.coin_seed == 20261105
 
 
-def test_candidate_grid_has_ten_unique_ids_in_documented_order() -> None:
+def test_candidate_grid_has_fourteen_unique_ids_in_documented_order() -> None:
     ids = [strategy.strategy_id for strategy in candidate_grid(BASE)]
     assert ids == [
         "trend_switch:kospi200:plain",
         "trend_switch:kospi200:chop",
         "trend_switch:kosdaq150:plain",
         "trend_switch:kosdaq150:chop",
+        "trend_switch:skhynix:plain",
+        "trend_switch:skhynix:chop",
+        "trend_switch:samsung:plain",
+        "trend_switch:samsung:chop",
         "rotation:hold5",
         "rotation:hold10",
         "flow_contrarian:w5",
@@ -180,9 +189,14 @@ def test_candidate_grid_has_ten_unique_ids_in_documented_order() -> None:
         "committee:trend+flow",
         "brake:kospi200:down3",
     ]
-    assert len(set(ids)) == 10
-    assert len({config_digest(s.params) for s in candidate_grid(BASE)}) == 10
-    assert [s.strategy_id for s in baselines(BASE)] == ["hold:122630", "hold:0193T0", "coin:122630-252670:20261105"]
+    assert len(set(ids)) == 14
+    assert len({config_digest(s.params) for s in candidate_grid(BASE)}) == 14
+    assert [s.strategy_id for s in baselines(BASE)] == [
+        "hold:122630",
+        "hold:0193T0",
+        "hold:0193W0",
+        "coin:122630-252670:20261105",
+    ]
     assert "committee:trend+flow" not in [s.strategy_id for s in candidate_grid(replace(BASE, committee=False))]
 
 

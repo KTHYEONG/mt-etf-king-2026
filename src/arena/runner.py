@@ -6,8 +6,8 @@ import argparse
 import json
 import logging
 import sys
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass, replace
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -18,6 +18,7 @@ import polars as pl
 from src.arena.contest import EditionSpec, load_edition
 from src.arena.evaluation import EvalConfig, EvaluationReport, load_eval_config, report_to_dict
 from src.arena.panel import Panel, PanelConfig, PanelSourceError, build_panel, load_etf_silver, load_panel_config
+from src.arena.proxy import ProxyCalibration, load_proxy_config, load_stock_silver, splice_proxy
 from src.arena.registry import count_trials
 from src.arena.research import (
     Evidence,
@@ -57,6 +58,11 @@ _NOTE_HAIRCUT = (
     "haircut re-applied with the final family size K at report time (registry lines keep sequential counts)."
 )
 _NOTE_KOSDAQ = "The KOSDAQ150 inverse leg (251340) is 1x, so the KOSDAQ pair is asymmetric."
+_NOTE_PROXY = (
+    "Pre-listing rows of proxied ETFs are synthetic: daily-reset multiple x KRX underlying return minus drag, "
+    "with capacity = underlying traded value / |multiple|. They are evidence about the vehicle, "
+    "not about the listed product's history."
+)
 
 
 @dataclass(frozen=True)
@@ -81,6 +87,9 @@ class ResearchReport:
     status: Status
     rows: tuple[StrategyRow, ...]
     selection: Selection | None
+    data_variant: Literal["listed", "proxy"] = "listed"
+    proxy: tuple[ProxyCalibration, ...] = ()
+    trial_tags: Mapping[str, str] = field(default_factory=dict)
 
 
 def _check_sponsors(rows: pl.DataFrame, tickers: frozenset[str], issuers: IssuerTable, edition: EditionSpec) -> None:
@@ -122,7 +131,10 @@ def _restate_evidence(evidence: Evidence, family: str, registry: Path) -> Eviden
 
 
 def _contest_multiple(strategy: Strategy, panel: Panel, sim_cfg: SimConfig, edition: EditionSpec) -> float | None:
-    result = simulate(panel, strategy.targets(panel), sim_cfg, capital_krw=edition.initial_capital_krw)
+    targets = strategy.targets(panel)
+    if targets.is_empty():
+        return None
+    result = simulate(panel, targets, sim_cfg, capital_krw=edition.initial_capital_krw)
     in_window = np.array([edition.start <= day <= edition.end for day in result.sessions], dtype=bool)
     picked = result.net_returns[in_window]
     if picked.size == 0:
@@ -144,6 +156,8 @@ def run_research(
     registry: Path,
     recorded_at: datetime,
     run_id: str,
+    trial_tags: Mapping[str, str] | None = None,
+    proxy: tuple[ProxyCalibration, ...] = (),
 ) -> ResearchReport:
     """Evaluate every registered candidate and baseline and gate the candidates when the prize line is set."""
     if track not in edition.tracks:
@@ -179,6 +193,7 @@ def run_research(
             capital_krw=edition.initial_capital_krw,
             registry=registry,
             recorded_at=recorded_at,
+            trial_tags=trial_tags,
         )
         multiple = _contest_multiple(strategy, panel, sim_cfg, edition)
         evidence_rows.append((strategy, baseline, evidence, multiple))
@@ -225,6 +240,9 @@ def run_research(
         status=status,
         rows=report_rows,
         selection=selection,
+        data_variant="proxy" if proxy else "listed",
+        proxy=proxy,
+        trial_tags=dict(trial_tags or {}),
     )
 
 
@@ -256,6 +274,18 @@ def _verdict_dict(verdict: GateVerdict | None) -> dict[str, Any] | None:
     }
 
 
+def _optional_date(day: date | None) -> str | None:
+    return None if day is None else day.isoformat()
+
+
+def _calibration_dict(calibration: ProxyCalibration) -> dict[str, Any]:
+    payload = asdict(calibration)
+    payload["listed_first"] = calibration.listed_first.isoformat()
+    payload["proxy_first"] = _optional_date(calibration.proxy_first)
+    payload["proxy_last"] = _optional_date(calibration.proxy_last)
+    return payload
+
+
 def _report_dict(report: ResearchReport) -> dict[str, Any]:
     return {
         "run_id": report.run_id,
@@ -266,6 +296,9 @@ def _report_dict(report: ResearchReport) -> dict[str, Any]:
         "data_last": report.data_last.isoformat(),
         "band": None if report.band is None else list(report.band),
         "status": report.status,
+        "data_variant": report.data_variant,
+        "trial_tags": dict(report.trial_tags),
+        "proxy": [_calibration_dict(calibration) for calibration in report.proxy],
         "rows": [
             {
                 "strategy_id": row.strategy_id,
@@ -335,6 +368,44 @@ def _selection_text(report: ResearchReport) -> str:
     return "Selection: none (no candidate has a defined lift at the band)"
 
 
+def _variant_text(report: ResearchReport) -> str:
+    if report.data_variant == "listed":
+        return "listed"
+    tag = report.trial_tags.get("panel", "n/a")
+    execution = report.trial_tags.get("execution", "n/a")
+    return f"proxy, tag {tag}, execution {execution}"
+
+
+def _proxy_row(calibration: ProxyCalibration) -> str:
+    first, last = _optional_date(calibration.proxy_first), _optional_date(calibration.proxy_last)
+    cells = [
+        calibration.etf,
+        calibration.underlying,
+        f"{calibration.multiple:g}",
+        f"{first or 'n/a'} to {last or 'n/a'}",
+        str(calibration.proxy_sessions),
+        calibration.listed_first.isoformat(),
+        str(calibration.overlap_sessions),
+        f"{calibration.close_corr:.6f}",
+        f"{calibration.close_te_bps:.2f}",
+        f"{calibration.close_mean_bps:.2f}",
+        f"{calibration.open_te_bps:.2f}",
+    ]
+    return "| " + " | ".join(cells) + " |"
+
+
+def _proxy_section(calibrations: tuple[ProxyCalibration, ...]) -> list[str]:
+    return [
+        "## Proxy",
+        "",
+        "| etf | underlying | multiple | proxy span | proxy sessions | listed since | overlap | "
+        "close corr | close TE bp | close mean bp | open TE bp |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
+        *(_proxy_row(calibration) for calibration in calibrations),
+        "",
+    ]
+
+
 def _markdown(report: ResearchReport, registry_path: Path) -> str:
     band = "undecided (overview §8 O1)" if report.band is None else f"[{report.band[0]}, {report.band[1]}]"
     trials = [
@@ -342,12 +413,15 @@ def _markdown(report: ResearchReport, registry_path: Path) -> str:
         for row in report.rows
         if not row.baseline and row.evidence.holdout_dn is not None
     ]
+    proxied = report.data_variant == "proxy"
+    notes = [_NOTE_CONTEST, _NOTE_KOSDAQ, _NOTE_HAIRCUT, *([_NOTE_PROXY] if proxied else [])]
     lines = [
         f"# Arena research {report.run_id}",
         "",
         f"- Status: {report.status}",
         f"- Band: {band}",
         f"- Data: {report.data_first.isoformat()} to {report.data_last.isoformat()}",
+        f"- Data variant: {_variant_text(report)}",
         f"- Registry: {registry_path}",
         f"- Candidate holdout n_trials: {max(trials) if trials else 'n/a'}",
         "",
@@ -357,18 +431,10 @@ def _markdown(report: ResearchReport, registry_path: Path) -> str:
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     lines.extend(_row_line(row) for row in report.rows)
-    lines.extend(
-        [
-            "",
-            _selection_text(report),
-            "",
-            "## Notes",
-            f"- {_NOTE_CONTEST}",
-            f"- {_NOTE_KOSDAQ}",
-            f"- {_NOTE_HAIRCUT}",
-            "",
-        ]
-    )
+    lines.extend(["", _selection_text(report), ""])
+    if proxied:
+        lines.extend(_proxy_section(report.proxy))
+    lines.extend(["## Notes", *(f"- {note}" for note in notes), ""])
     return "\n".join(lines)
 
 
@@ -391,6 +457,7 @@ def _parser() -> argparse.ArgumentParser:
     research.add_argument("--edition", type=int, default=2026)
     research.add_argument("--track", default="autonomous")
     research.add_argument("--run-id", default=None)
+    research.add_argument("--proxy", action="store_true")
     return parser
 
 
@@ -409,6 +476,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         panel_cfg = load_panel_config()
         paths = DataPaths(args.data_root)
         rows = load_etf_silver(paths, panel_cfg)
+        tags: Mapping[str, str] | None = None
+        proxy: tuple[ProxyCalibration, ...] = ()
+        if args.proxy:
+            proxy_cfg = load_proxy_config()
+            stock = load_stock_silver(paths, panel_cfg, sorted({product.underlying for product in proxy_cfg.products}))
+            rows, proxy = splice_proxy(rows, stock, proxy_cfg)
+            sim_cfg = replace(sim_cfg, execution=proxy_cfg.execution)
+            tags = {"panel": proxy_cfg.tag, "execution": proxy_cfg.execution}
         report = run_research(
             rows,
             edition=edition,
@@ -422,6 +497,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             registry=paths.results("arena") / _REGISTRY_NAME,
             recorded_at=recorded_at,
             run_id=run_id,
+            trial_tags=tags,
+            proxy=proxy,
         )
         _, md_path = write_report(report, paths.results(f"arena/{run_id}"))
     except (ConfigError, PanelSourceError, ValueError) as exc:

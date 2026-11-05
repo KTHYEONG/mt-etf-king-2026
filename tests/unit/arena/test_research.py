@@ -12,6 +12,7 @@ import pytest
 from src.arena import research as rs
 from src.arena.evaluation import EvalConfig, EvaluationReport, YearStat, evaluate
 from src.arena.panel import Panel, PanelConfig, build_panel
+from src.arena.registry import count_trials
 from src.arena.research import (
     REGIMES,
     CausalityError,
@@ -138,6 +139,7 @@ def _gather(
     registry: Path,
     *,
     track: str = "arena_t",
+    trial_tags: Mapping[str, str] | None = None,
 ) -> Evidence:
     return gather_evidence(
         strategy,
@@ -149,6 +151,7 @@ def _gather(
         capital_krw=CAPITAL,
         registry=registry,
         recorded_at=NOW,
+        trial_tags=trial_tags,
     )
 
 
@@ -554,3 +557,66 @@ def test_regime_views_use_regime_floor_not_eval_floor(tmp_path: Path) -> None:
     )
     assert "extreme" in evidence.regimes
     assert evidence.regimes["extreme"].edge.n_sessions < strict_eval.min_sessions
+
+
+def test_empty_tags_keep_digests(tmp_path: Path) -> None:
+    panel = _panel({"AAA": _random(240, 19), REF: _random(240, 20)})
+    cfg = _cfg(discovery_start=panel.sessions[0], holdout_start=panel.sessions[120], regime_min_sessions=5)
+    strategy = Toy("s1", "F1")
+    plain = tmp_path / "plain.jsonl"
+    none_tags = tmp_path / "none.jsonl"
+    empty_tags = tmp_path / "empty.jsonl"
+    _gather(strategy, panel, cfg, plain)
+    _gather(strategy, panel, cfg, none_tags, trial_tags=None)
+    _gather(strategy, panel, cfg, empty_tags, trial_tags={})
+    expected = _registry_lines(plain)
+    assert _registry_lines(none_tags) == expected
+    assert _registry_lines(empty_tags) == expected
+
+
+def test_tags_create_new_trials(tmp_path: Path) -> None:
+    panel = _panel({"AAA": _random(240, 21), REF: _random(240, 22)})
+    cfg = _cfg(discovery_start=panel.sessions[0], holdout_start=panel.sessions[120])
+    registry = tmp_path / "registry.jsonl"
+    _gather(Toy("s1", "F1"), panel, cfg, registry)
+    _gather(Toy("s1", "F1"), panel, cfg, registry, trial_tags={"panel": "x"})
+    assert count_trials(registry, "arena_t/holdout_dn") == 2
+
+
+@pytest.mark.parametrize("tags", [{"view": "x"}, {"strategy": "x"}, {"mode": "x"}, {"cost_bps": "1"}, {"kind": "x"}])
+def test_colliding_tag_rejected(tmp_path: Path, tags: Mapping[str, str]) -> None:
+    panel = _panel({"AAA": _random(240, 23), REF: _random(240, 24)})
+    cfg = _cfg(discovery_start=panel.sessions[0], holdout_start=panel.sessions[120])
+    registry = tmp_path / "registry.jsonl"
+    with pytest.raises(ValueError, match="collide"):
+        _gather(Toy("s1", "F1"), panel, cfg, registry, trial_tags=tags)
+    assert not registry.exists()
+
+
+class _Silent:
+    strategy_id = "silent"
+    family = "F_silent"
+    params: Mapping[str, Any] = {"kind": "silent"}
+
+    def targets(self, panel: Panel) -> pl.DataFrame:
+        return pl.DataFrame(schema={"decision_date": pl.Date, "ticker": pl.String, "weight": pl.Float64})
+
+
+def test_strategy_without_decisions_has_no_evidence(tmp_path: Path) -> None:
+    panel = _panel({"AAA": _random(300, 21), REF: _random(300, 22)})
+    registry = tmp_path / "registry.jsonl"
+    evidence = gather_evidence(
+        _Silent(),
+        panel,
+        SIM,
+        EVAL,
+        _cfg(discovery_start=panel.sessions[0], holdout_start=panel.sessions[150]),
+        track="arena_t",
+        capital_krw=CAPITAL,
+        registry=registry,
+        recorded_at=NOW,
+    )
+    assert (evidence.discovery_dn, evidence.holdout_dn, evidence.full_dn, evidence.holdout_stress) == (None,) * 4
+    assert evidence.regimes == {}
+    assert evidence.missing and evidence.missing[0].startswith("all views:")
+    assert not registry.exists()

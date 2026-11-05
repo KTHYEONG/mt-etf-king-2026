@@ -47,6 +47,7 @@ _RESEARCH_KEYS: Final = (
 )
 _REF_COLUMN: Final = "r_ref"
 _MIN_YEARS: Final = 2
+_TRIAL_KEYS: Final = frozenset({"strategy", "view", "cost_bps", "mode"})
 
 
 @dataclass(frozen=True)
@@ -264,9 +265,25 @@ def gather_evidence(
     capital_krw: int,
     registry: Path,
     recorded_at: datetime,
+    trial_tags: Mapping[str, str] | None = None,
 ) -> Evidence:
     """Run the causality guard, simulate, and register every evidence view; views with too little data are None."""
+    tags = dict(trial_tags or {})
+    clash = sorted(set(tags) & (_TRIAL_KEYS | set(strategy.params)))
+    if clash:
+        raise ValueError(f"trial tags collide with trial params: {clash}")
     targets = check_causality(strategy, panel, cfg)
+    if targets.is_empty():
+        return Evidence(
+            strategy_id=strategy.strategy_id,
+            family=strategy.family,
+            discovery_dn=None,
+            holdout_dn=None,
+            full_dn=None,
+            holdout_stress=None,
+            regimes={},
+            missing=("all views: the strategy emits no decision on this panel",),
+        )
     stress_cfg = replace(sim_cfg, cost_bps_per_side=cfg.stress_cost_bps)
     drift = simulate(
         panel, targets, sim_cfg, capital_krw=capital_krw, mode="drift_neutral", drift_segments=(cfg.holdout_start,)
@@ -283,7 +300,7 @@ def gather_evidence(
         view_cfg: EvalConfig = eval_cfg,
     ) -> EvaluationReport | None:
         sessions, net, costs = picked
-        params = {**strategy.params, "strategy": strategy.family, "view": view, "cost_bps": cost_bps, "mode": mode}
+        params = {**strategy.params, **tags, "strategy": strategy.family, "view": view, "cost_bps": cost_bps, "mode": mode}
         try:
             return evaluate_and_register(
                 registry,

@@ -1,6 +1,7 @@
 import json
 import logging
 import runpy
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -14,6 +15,7 @@ from src.arena import runner
 from src.arena.contest import EditionSpec, load_edition
 from src.arena.evaluation import EvalConfig, evaluate
 from src.arena.panel import PanelConfig
+from src.arena.proxy import ProxyCalibration, ProxyConfig, ProxyProduct
 from src.arena.research import Evidence, ResearchConfig, Selection, load_research_config
 from src.arena.runner import ResearchReport, StrategyRow, main, run_research, write_report
 from src.arena.simulate import load_sim_config
@@ -122,6 +124,8 @@ def _run(
     edition: EditionSpec = EDITION,
     eval_cfg: EvalConfig = EVAL,
     run_id: str = "run",
+    trial_tags: Mapping[str, str] | None = None,
+    proxy: tuple[ProxyCalibration, ...] = (),
 ) -> ResearchReport:
     return run_research(
         _silver() if rows is None else rows,
@@ -136,6 +140,8 @@ def _run(
         registry=tmp_path / "registry.jsonl",
         recorded_at=NOW,
         run_id=run_id,
+        trial_tags=trial_tags,
+        proxy=proxy,
     )
 
 
@@ -324,6 +330,174 @@ def _write_silver(root: Path, frame: pl.DataFrame) -> None:
     frame.write_parquet(root / "normalized" / "etf_daily.parquet")
 
 
+CALIBRATION = ProxyCalibration(
+    etf="0193T0",
+    underlying="000660",
+    multiple=2.0,
+    listed_first=date(2024, 3, 1),
+    proxy_first=date(2024, 1, 2),
+    proxy_last=date(2024, 2, 29),
+    proxy_sessions=40,
+    overlap_sessions=100,
+    close_corr=0.998,
+    close_te_bps=12.5,
+    close_mean_bps=-4.2,
+    open_corr=0.91,
+    open_te_bps=30.1,
+    open_mean_bps=-1.7,
+)
+PROXY_LISTING = 200
+PROXY_RUN_CFG = ProxyConfig(
+    tag="t",
+    execution="close",
+    drag_bps_per_session=5.0,
+    max_abs_session_return=0.30,
+    min_overlap_sessions=20,
+    min_close_corr=0.99,
+    max_close_te_bps=150.0,
+    products=(ProxyProduct(etf="0193T0", underlying="000660", multiple=2.0),),
+)
+
+
+def _stock_silver(n: int = 300) -> pl.DataFrame:
+    rng = np.random.default_rng(20261106)
+    days = _bdays(n)
+    closes = 100.0 * np.cumprod(1.0 + rng.normal(0.0, 0.01, n))
+    prev = np.concatenate([closes[:1], closes[:-1]])
+    return pl.DataFrame(
+        {
+            "date": days,
+            "ticker": ["000660"] * n,
+            "open": closes,
+            "high": closes * 1.01,
+            "low": closes * 0.99,
+            "close": closes,
+            "change_abs": closes - prev,
+            "volume": np.full(n, 1000, dtype=np.int64),
+            "trading_value": np.rint(closes * 1000).astype(np.int64),
+        },
+        schema={
+            "date": pl.Date,
+            "ticker": pl.String,
+            "open": pl.Float64,
+            "high": pl.Float64,
+            "low": pl.Float64,
+            "close": pl.Float64,
+            "change_abs": pl.Float64,
+            "volume": pl.Int64,
+            "trading_value": pl.Int64,
+        },
+    )
+
+
+def _proxied_etf(stock: pl.DataFrame) -> pl.DataFrame:
+    closes = stock["close"].to_numpy()
+    days = stock["date"].to_list()
+    n = len(days)
+    etf_close = np.full(n, 1000.0)
+    for t in range(PROXY_LISTING + 1, n):
+        etf_close[t] = etf_close[t - 1] * (1.0 + 2.0 * (closes[t] / closes[t - 1] - 1.0) - 0.0005)
+    listed = slice(PROXY_LISTING, n)
+    count = n - PROXY_LISTING
+    return pl.DataFrame(
+        {
+            "date": days[listed],
+            "ticker": ["0193T0"] * count,
+            "name": ["PLUS 2X"] * count,
+            "open": etf_close[listed],
+            "high": etf_close[listed] * 1.01,
+            "low": etf_close[listed] * 0.99,
+            "close": etf_close[listed],
+            "volume": np.full(count, 1000, dtype=np.int64),
+            "trading_value": np.rint(etf_close[listed] * 1000).astype(np.int64),
+            "nav": etf_close[listed],
+            "shares_outstanding": np.full(count, 1000, dtype=np.int64),
+            "underlying_index_name": ["IDX"] * count,
+        },
+        schema=SCHEMA,
+    )
+
+
+def test_proxy_run_reports_variant_and_calibration(tmp_path: Path) -> None:
+    late = replace(CALIBRATION, etf="0193L0", proxy_first=None, proxy_last=None, proxy_sessions=0)
+    report = _run(tmp_path, trial_tags={"panel": "t", "execution": "close"}, proxy=(CALIBRATION, late))
+    assert report.data_variant == "proxy"
+    assert dict(report.trial_tags) == {"panel": "t", "execution": "close"}
+    json_path, md_path = write_report(report, tmp_path / "out")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["data_variant"] == "proxy"
+    assert payload["trial_tags"] == {"panel": "t", "execution": "close"}
+    assert payload["proxy"][0]["etf"] == "0193T0"
+    assert payload["proxy"][0]["listed_first"] == "2024-03-01"
+    assert payload["proxy"][0]["proxy_first"] == "2024-01-02"
+    assert payload["proxy"][1]["proxy_first"] is None
+    text = md_path.read_text(encoding="utf-8")
+    assert "## Proxy" in text
+    assert "- Data variant: proxy, tag t, execution close" in text
+    assert "| 0193T0 | 000660 | 2 | 2024-01-02 to 2024-02-29 | 40 | 2024-03-01 | 100 | 0.998000 | 12.50 | -4.20 | 30.10 |" in text
+    assert "| 0193L0 | 000660 | 2 | n/a to n/a | 0 |" in text
+    assert text.index("## Proxy") < text.index("## Notes")
+    assert "Pre-listing rows of proxied ETFs are synthetic" in text
+
+
+def test_listed_run_has_no_proxy_section(tmp_path: Path) -> None:
+    report = _run(tmp_path)
+    assert report.data_variant == "listed"
+    assert report.proxy == ()
+    assert dict(report.trial_tags) == {}
+    json_path, md_path = write_report(report, tmp_path / "out")
+    assert json.loads(json_path.read_text(encoding="utf-8"))["proxy"] == []
+    text = md_path.read_text(encoding="utf-8")
+    assert "- Data variant: listed" in text
+    assert "## Proxy" not in text
+
+
+def test_proxy_trials_restate_with_combined_k(tmp_path: Path) -> None:
+    _run(tmp_path)
+    second = _run(tmp_path, trial_tags={"panel": "t"}, proxy=(CALIBRATION,))
+    candidates = [row for row in second.rows if not row.baseline]
+    assert candidates
+    for row in candidates:
+        assert row.evidence.holdout_dn is not None
+        assert row.evidence.holdout_dn.edge.n_trials == 2 * len(CANDIDATE_IDS)
+
+
+def test_main_proxy_end_to_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stock = _stock_silver()
+    _write_silver(tmp_path, pl.concat([_silver(), _proxied_etf(stock)]))
+    stock.write_parquet(tmp_path / "normalized" / "stock_daily.parquet")
+    monkeypatch.setattr(runner, "load_strategies_config", lambda: CFG)
+    monkeypatch.setattr(runner, "load_research_config", lambda: RESEARCH)
+    monkeypatch.setattr(runner, "load_eval_config", lambda: EVAL)
+    monkeypatch.setattr(runner, "load_proxy_config", lambda: PROXY_RUN_CFG)
+
+    assert main(["research", "--data-root", str(tmp_path), "--run-id", "p", "--proxy"]) == 0
+    report_dir = tmp_path / "results" / "arena" / "p"
+    payload = json.loads((report_dir / "report.json").read_text(encoding="utf-8"))
+    assert payload["data_variant"] == "proxy"
+    assert payload["proxy"][0]["etf"] == "0193T0"
+    assert capsys.readouterr().out.strip() == str(report_dir / "report.md")
+    lines = [json.loads(line) for line in (tmp_path / "results" / "arena" / "registry.jsonl").read_text().splitlines()]
+    assert lines
+    for line in lines:
+        assert line["params"]["panel"] == "t"
+        assert line["params"]["execution"] == "close"
+
+
+def test_main_proxy_without_stock_silver_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _write_silver(tmp_path, _silver())
+    monkeypatch.setattr(runner, "load_strategies_config", lambda: CFG)
+    monkeypatch.setattr(runner, "load_research_config", lambda: RESEARCH)
+    monkeypatch.setattr(runner, "load_eval_config", lambda: EVAL)
+    with caplog.at_level(logging.ERROR, logger="src.arena.runner"):
+        assert main(["research", "--data-root", str(tmp_path), "--run-id", "x", "--proxy"]) == 1
+    assert "[SYS] research status=fail error=" in caplog.text
+
+
 def test_main_runs_end_to_end_and_writes_under_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -365,3 +539,27 @@ def test_module_entry_point_exits_with_main_status(tmp_path: Path, monkeypatch: 
     with pytest.raises(SystemExit) as exit_info:
         runpy.run_module("src.arena.__main__", run_name="__main__")
     assert exit_info.value.code == 1
+
+
+def test_strategy_without_decisions_is_reported_not_fatal(tmp_path: Path) -> None:
+    report = run_research(
+        _silver(),
+        edition=replace(EDITION, start=date(2024, 1, 2), end=date(2024, 12, 31)),
+        issuers=ISSUERS,
+        track="autonomous",
+        strategies_cfg=replace(CFG, horizons=(400,)),
+        research_cfg=RESEARCH,
+        sim_cfg=SIM,
+        eval_cfg=EVAL,
+        panel_cfg=PANEL_CFG,
+        registry=tmp_path / "registry.jsonl",
+        recorded_at=NOW,
+        run_id="silent",
+    )
+    silent = [row for row in report.rows if row.family == "trend_switch"]
+    assert silent
+    for row in silent:
+        assert row.contest_window_multiple is None
+        assert row.evidence.holdout_dn is None and row.evidence.full_dn is None
+        assert row.evidence.missing[0].startswith("all views:")
+    assert any(row.evidence.full_dn is not None for row in report.rows if row.baseline)

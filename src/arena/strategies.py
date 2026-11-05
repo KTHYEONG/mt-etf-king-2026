@@ -467,7 +467,7 @@ def _positive(value: Any, where: str) -> float:
 
 
 def candidate_grid(cfg: StrategiesConfig) -> tuple[Strategy, ...]:
-    """Return the pre-registered candidates in fixed family order; the shipped config yields 10."""
+    """Return the pre-registered candidates in fixed family order; the count follows the config grid."""
     grid: list[Strategy] = [TrendSwitch(sleeve, chop, cfg) for sleeve in cfg.switch_sleeves for chop in cfg.chop_filter]
     grid.extend(Rotation(hold, cfg) for hold in cfg.rotation_hold)
     grid.extend(FlowContrarian(window, cfg) for window in cfg.flow_window)

@@ -45,10 +45,11 @@ strategies:
     sox: ["381180", "423920"]
     skhynix: ["0193T0", "0193T0"]
     samsung: ["0193W0", "0193W0"]
-  inverse: {kospi200: "252670", kosdaq150: "251340"}
+  # single-stock inverse legs are futures-based; proxy close TE 1.1-1.4% daily (Part 5c)
+  inverse: {kospi200: "252670", kosdaq150: "251340", skhynix: "0197X0", samsung: "0193L0"}
   min_listed_sessions: 20                  # a long leg must have this many listed sessions before it can be picked
   trend_switch:                            # family 1: long / cash / inverse on one sleeve
-    sleeves: [kospi200, kosdaq150]
+    sleeves: [kospi200, kosdaq150, skhynix, samsung]
     chop_filter: [false, true]
   rotation:                                # family 2: strongest sleeve's long 2x, else KOSPI200 inverse, else cash
     hold: [5, 10]
@@ -61,7 +62,7 @@ strategies:
   brake:                                   # family 5: trend_switch(kospi200, no filter) + cash after N straight down sessions of the signal
     down_streak: 3
   baselines:                               # reference only; track "<track>-baseline", never selected
-    hold: ["122630", "0193T0"]
+    hold: ["122630", "0193T0", "0193W0"]
     coin_pair: ["122630", "252670"]
     coin_seed: 20261105
 proxy:                                   # research-only synthetic pre-listing history of single-stock leveraged ETFs
