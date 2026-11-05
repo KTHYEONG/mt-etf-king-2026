@@ -14,6 +14,7 @@ import polars as pl
 from numpy import typing as npt
 from numpy.lib.stride_tricks import sliding_window_view
 
+from src.arena.contest import EditionSpec
 from src.arena.evaluation import (
     DegenerateSeriesError,
     EvalConfig,
@@ -495,3 +496,33 @@ def select(verdicts: Sequence[GateVerdict]) -> Selection | None:
     best, lift = min(pool, key=lambda pair: (-pair[1], pair[0].strategy_id))
     label: Label = "VALIDATED" if passed else "UNVALIDATED"
     return Selection(strategy_id=best.strategy_id, label=label, lift_at_band_lo=lift)
+
+
+def contest_window_multiple(
+    strategy: Strategy,
+    panel: Panel,
+    sim_cfg: SimConfig,
+    edition: EditionSpec,
+    segment_cfg: SegmentConfig | None,
+) -> float | None:
+    """Return the compounded net multiple of `strategy` over the edition window, or None when it has no window sessions."""
+    targets = strategy.targets(panel)
+    if targets.is_empty():
+        return None
+    if getattr(strategy, "execution_model", "daily") == "segment":
+        if segment_cfg is None:
+            raise ValueError(f"strategy {strategy.strategy_id} needs a segment config")
+        result = simulate_segments(
+            panel,
+            targets,
+            sim_cfg,
+            segment_cfg.cost_bps_per_side,
+            capital_krw=edition.initial_capital_krw,
+        )
+    else:
+        result = simulate(panel, targets, sim_cfg, capital_krw=edition.initial_capital_krw)
+    in_window = np.array([edition.start <= day <= edition.end for day in result.sessions], dtype=bool)
+    picked = result.net_returns[in_window]
+    if picked.size == 0:
+        return None
+    return float(np.prod(1.0 + picked))

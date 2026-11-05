@@ -98,3 +98,11 @@ prize_line_vol:                          # descriptive vol-scaled prize line on 
   ks: [0.9, 1.3]                        # implied k: 2026 ~0.89, 2025 ~1.34
   twin_draws: 20
   seed: 20261105
+card:                                    # single morning card (src/arena/card.py); one-line strategy switch
+  strategy_id: "segment_fade:skhynix:vote3:long"
+  edition: 2026
+  lock_k: 1.0                            # W = exp(k * sigma_pre * sqrt(H)) (prize_line_vol reference)
+  w_fixed: null                          # number overrides lock_k
+  open_window: "09:05~09:15"
+  close_window: "15:10~15:19"
+  output_dir: "card"                     # under <data-root>/results/

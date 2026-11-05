@@ -16,7 +16,13 @@ from src.arena.contest import EditionSpec, load_edition
 from src.arena.evaluation import EvalConfig, evaluate
 from src.arena.panel import PanelConfig, build_panel
 from src.arena.proxy import ProxyCalibration, ProxyConfig, ProxyProduct
-from src.arena.research import Evidence, ResearchConfig, Selection, load_research_config
+from src.arena.research import (
+    Evidence,
+    ResearchConfig,
+    Selection,
+    contest_window_multiple,
+    load_research_config,
+)
 from src.arena.prize_line import VolWindowStats
 from src.arena.runner import ResearchReport, StrategyRow, main, run_research, write_report
 from src.arena.segment import load_segment_config
@@ -198,6 +204,33 @@ def test_contest_window_multiple_is_reported_only_when_the_window_has_sessions(t
     assert all(row.contest_window_multiple is not None for row in inside.rows)
     outside = _run(tmp_path / "outside")
     assert all(row.contest_window_multiple is None for row in outside.rows)
+
+
+_PRE_EXTRACTION_MULTIPLES: Mapping[str, float | None] = {
+    "trend_switch:kospi200:plain": 1.0002570801521167,
+    "trend_switch:kospi200:chop": 1.0047175074376762,
+    "rotation:hold5": 1.0039806786848318,
+    "flow_contrarian:w5": 1.0024056865258713,
+    "committee:trend+flow": 1.0067088498317354,
+    "brake:kospi200:down3": 1.0002570801521167,
+    "segment_fade:skhynix:own:cash": 1.0024261081433896,
+    "segment_fade:skhynix:own:long": 0.999878065260479,
+    "segment_fade:skhynix:vote3:cash": 0.9995053563613687,
+    "segment_fade:skhynix:vote3:long": 0.9905825424258078,
+    "hold:122630": 1.0,
+    "coin:122630-252670:1": 0.9934427797156946,
+}
+
+
+def test_contest_window_multiple_matches_pre_extraction_values(tmp_path: Path) -> None:
+    covered = replace(EDITION, start=date(2024, 1, 2), end=date(2024, 12, 31))
+    report = _run(tmp_path, edition=covered)
+    values = {row.strategy_id: row.contest_window_multiple for row in report.rows}
+    assert values.keys() == _PRE_EXTRACTION_MULTIPLES.keys()
+    for strategy_id, expected in _PRE_EXTRACTION_MULTIPLES.items():
+        actual = values[strategy_id]
+        assert actual is not None and expected is not None
+        assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
 
 
 def test_candidates_and_baselines_register_in_separate_families(tmp_path: Path) -> None:
@@ -637,7 +670,7 @@ def test_segment_contest_multiple_requires_segment_config() -> None:
         PANEL_CFG,
     )
     with pytest.raises(ValueError, match="needs a segment config"):
-        runner._contest_multiple(strategy, panel, SIM, EDITION, None)
+        contest_window_multiple(strategy, panel, SIM, EDITION, None)
 
 
 def test_markdown_lock_note_follows_lock_in(tmp_path: Path) -> None:
@@ -672,3 +705,16 @@ def test_markdown_vol_window_section(tmp_path: Path) -> None:
     assert "W = exp(k * sigma_pre * sqrt(H))" in text
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     assert payload["rows"][0]["evidence"]["vol_windows"][0]["period"] == "holdout"
+
+
+def test_card_subcommand_writes_single_md(tmp_path: Path) -> None:
+    _write_silver(tmp_path, _silver())
+    assert main(["card", "--data-root", str(tmp_path), "--date", "2024-06-04"]) == 0
+    card_dir = tmp_path / "results" / "card"
+    assert sorted(path.name for path in card_dir.iterdir()) == ["history.jsonl", "today.md"]
+
+
+def test_card_subcommand_bad_date_returns_one(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    _write_silver(tmp_path, _silver())
+    assert main(["card", "--data-root", str(tmp_path), "--date", "2024-13-40"]) == 1
+    assert "[SYS] card status=fail" in caplog.text

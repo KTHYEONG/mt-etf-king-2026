@@ -12,12 +12,12 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-import numpy as np
 import polars as pl
 
+from src.arena.card import build_card, load_card_config, write_card
 from src.arena.contest import EditionSpec, load_edition
 from src.arena.evaluation import EvalConfig, EvaluationReport, load_eval_config, report_to_dict
-from src.arena.panel import Panel, PanelConfig, PanelSourceError, build_panel, load_etf_silver, load_panel_config
+from src.arena.panel import PanelConfig, PanelSourceError, build_panel, load_etf_silver, load_panel_config
 from src.arena.prize_line import PrizeLineConfig, VolWindowStats, load_prize_line_config
 from src.arena.proxy import ProxyCalibration, imply_open, load_proxy_config, load_stock_silver, splice_proxy
 from src.arena.registry import count_trials
@@ -27,14 +27,15 @@ from src.arena.research import (
     ResearchConfig,
     Selection,
     Strategy,
+    contest_window_multiple,
     gate,
     gather_evidence,
     leave_one_year_out,
     load_research_config,
     select,
 )
-from src.arena.segment import SegmentConfig, load_segment_config, simulate_segments
-from src.arena.simulate import SimConfig, load_sim_config, simulate
+from src.arena.segment import SegmentConfig, load_segment_config
+from src.arena.simulate import SimConfig, load_sim_config
 from src.arena.strategies import (
     StrategiesConfig,
     baselines,
@@ -44,6 +45,7 @@ from src.arena.strategies import (
 )
 from src.arena.universe import IssuerTable, load_issuer_table, resolve_issuer
 from src.core.atomic_io import atomic_write_text
+from src.core.calendar import get_calendar, kst_today
 from src.core.config import ConfigError
 from src.core.paths import DataPaths
 
@@ -143,35 +145,6 @@ def _restate_evidence(evidence: Evidence, family: str, registry: Path) -> Eviden
     )
 
 
-def _contest_multiple(
-    strategy: Strategy,
-    panel: Panel,
-    sim_cfg: SimConfig,
-    edition: EditionSpec,
-    segment_cfg: SegmentConfig | None,
-) -> float | None:
-    targets = strategy.targets(panel)
-    if targets.is_empty():
-        return None
-    if getattr(strategy, "execution_model", "daily") == "segment":
-        if segment_cfg is None:
-            raise ValueError(f"strategy {strategy.strategy_id} needs a segment config")
-        result = simulate_segments(
-            panel,
-            targets,
-            sim_cfg,
-            segment_cfg.cost_bps_per_side,
-            capital_krw=edition.initial_capital_krw,
-        )
-    else:
-        result = simulate(panel, targets, sim_cfg, capital_krw=edition.initial_capital_krw)
-    in_window = np.array([edition.start <= day <= edition.end for day in result.sessions], dtype=bool)
-    picked = result.net_returns[in_window]
-    if picked.size == 0:
-        return None
-    return float(np.prod(1.0 + picked))
-
-
 def run_research(
     rows: pl.DataFrame,
     *,
@@ -231,7 +204,7 @@ def run_research(
             segment_cfg=segment_cfg,
             prize_cfg=prize_cfg,
         )
-        multiple = _contest_multiple(strategy, panel, sim_cfg, edition, segment_cfg)
+        multiple = contest_window_multiple(strategy, panel, sim_cfg, edition, segment_cfg)
         evidence_rows.append((strategy, baseline, evidence, multiple))
 
     evidence_rows = [
@@ -552,12 +525,20 @@ def _parser() -> argparse.ArgumentParser:
     research.add_argument("--track", default="autonomous")
     research.add_argument("--run-id", default=None)
     research.add_argument("--proxy", action="store_true")
+    card = commands.add_parser("card", help="write today's trading card for the configured arena strategy")
+    card.add_argument("--data-root", type=Path, required=True)
+    card.add_argument("--equity-krw", type=int, default=None)
+    card.add_argument("--locked", action="store_true")
+    card.add_argument("--force", action="store_true")
+    card.add_argument("--date", default=None)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the `research` subcommand; returns 0 with the report path on stdout, or 1 after logging the failure."""
+    """Run the `research` or `card` subcommand; returns 0 with the written path on stdout, or 1 after logging the failure."""
     args = _parser().parse_args(argv)
+    if args.command == "card":
+        return _run_card(args)
     recorded_at = datetime.now(UTC)
     run_id: str = args.run_id or recorded_at.strftime(_RUN_ID_FORMAT)
     try:
@@ -604,4 +585,40 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.error("[SYS] research status=fail error=%s", exc)
         return 1
     sys.stdout.write(f"{md_path}\n")
+    return 0
+
+
+def _run_card(args: argparse.Namespace) -> int:
+    try:
+        run_date = date.fromisoformat(args.date) if args.date else kst_today()
+        card_cfg = load_card_config()
+        edition = load_edition(card_cfg.edition)
+        strategies_cfg = load_strategies_config()
+        sim_cfg = load_sim_config()
+        segment_cfg = load_segment_config()
+        eval_cfg = load_eval_config()
+        prize_cfg = load_prize_line_config()
+        panel_cfg = load_panel_config()
+        paths = DataPaths(args.data_root)
+        rows = load_etf_silver(paths, panel_cfg)
+        card = build_card(
+            rows,
+            run_date=run_date,
+            cfg=card_cfg,
+            strategies_cfg=strategies_cfg,
+            sim_cfg=sim_cfg,
+            segment_cfg=segment_cfg,
+            eval_cfg=eval_cfg,
+            prize_cfg=prize_cfg,
+            panel_cfg=panel_cfg,
+            edition=edition,
+            calendar=get_calendar(),
+            equity_krw=args.equity_krw,
+            locked=args.locked,
+        )
+        card_path = write_card(card, paths.results(card_cfg.output_dir), force=args.force)
+    except (ConfigError, PanelSourceError, ValueError) as exc:
+        logger.error("[SYS] card status=fail error=%s", exc)
+        return 1
+    sys.stdout.write(f"{card_path}\n")
     return 0
