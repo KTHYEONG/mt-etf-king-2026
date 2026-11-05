@@ -248,7 +248,7 @@ def test_empty_rows_and_unknown_track_are_rejected(tmp_path: Path) -> None:
             issuers=ISSUERS,
             track="nosuchtrack",
             strategies_cfg=CFG,
-        segment_cfg=SEGMENT,
+            segment_cfg=SEGMENT,
             research_cfg=RESEARCH,
             sim_cfg=SIM,
             eval_cfg=EVAL,
@@ -447,7 +447,10 @@ def test_proxy_run_reports_variant_and_calibration(tmp_path: Path) -> None:
     text = md_path.read_text(encoding="utf-8")
     assert "## Proxy" in text
     assert "- Data variant: proxy, tag t, execution close" in text
-    assert "| 0193T0 | 000660 | 2 | 2024-01-02 to 2024-02-29 | 40 | 2024-03-01 | 100 | 0.998000 | 12.50 | -4.20 | 30.10 |" in text
+    assert (
+        "| 0193T0 | 000660 | 2 | 2024-01-02 to 2024-02-29 | 40 | 2024-03-01 | 100 | 0.998000 | 12.50 | -4.20 | 30.10 |"
+        in text
+    )
     assert "| 0193L0 | 000660 | 2 | n/a to n/a | 0 |" in text
     assert text.index("## Proxy") < text.index("## Notes")
     assert "Pre-listing rows of proxied ETFs are synthetic" in text
@@ -634,3 +637,13 @@ def test_segment_contest_multiple_requires_segment_config() -> None:
     )
     with pytest.raises(ValueError, match="needs a segment config"):
         runner._contest_multiple(strategy, panel, SIM, EDITION, None)
+
+
+def test_markdown_lock_note_follows_lock_in(tmp_path: Path) -> None:
+    note = "P(M>=W) columns apply the lock-in policy"
+    locked = _run(tmp_path / "locked", eval_cfg=replace(EVAL, lock_in=True, lock_exit_cost_bps=3.0))
+    _, locked_md = write_report(locked, tmp_path / "locked_out")
+    assert note in locked_md.read_text(encoding="utf-8")
+    plain = _run(tmp_path / "plain")
+    _, plain_md = write_report(plain, tmp_path / "plain_out")
+    assert note not in plain_md.read_text(encoding="utf-8")

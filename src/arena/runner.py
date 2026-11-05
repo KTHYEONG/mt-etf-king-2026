@@ -63,6 +63,11 @@ _NOTE_SEGMENT = (
     "segment_fade trades at the open and at the close of each session; costs come from the `segment` config "
     "(base/stress per side); proxied intraday legs are underlying-implied (09:10-style fills)."
 )
+_NOTE_LOCK = (
+    "P(M>=W) columns apply the lock-in policy: once the net multiple closes at or above W, the position is held "
+    "one more session (d->d+1 execution) and then flattened at lock_exit_cost_bps; hold-to-end probabilities "
+    "are in report.json (p_strategy_hold/p_twin_hold)."
+)
 _NOTE_PROXY = (
     "Pre-listing rows of proxied ETFs are synthetic: daily-reset multiple x KRX underlying return minus drag, "
     "with capacity = underlying traded value / |multiple|. They are evidence about the vehicle, "
@@ -439,10 +444,23 @@ def _markdown(report: ResearchReport, registry_path: Path) -> str:
     ]
     proxied = report.data_variant == "proxy"
     has_segment = any(row.family == "segment_fade" for row in report.rows)
+    locked = any(
+        view.exceedance.lock_in
+        for row in report.rows
+        for view in (
+            row.evidence.discovery_dn,
+            row.evidence.holdout_dn,
+            row.evidence.full_dn,
+            row.evidence.holdout_stress,
+            *row.evidence.regimes.values(),
+        )
+        if view is not None
+    )
     notes = [
         _NOTE_CONTEST,
         _NOTE_KOSDAQ,
         _NOTE_HAIRCUT,
+        *([_NOTE_LOCK] if locked else []),
         *([_NOTE_SEGMENT] if has_segment else []),
         *([_NOTE_PROXY] if proxied else []),
     ]

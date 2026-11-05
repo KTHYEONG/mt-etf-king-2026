@@ -22,6 +22,8 @@ _EVAL_KEYS: Final = (
     "ci_level",
     "exceedance_grid",
     "min_sessions",
+    "lock_in",
+    "lock_exit_cost_bps",
 )
 _SEED_STREAMS: Final = 3
 _EDGE_STREAM: Final = 0
@@ -31,6 +33,7 @@ _MAX_LOSS: Final = -1.0
 _Q_LOW: Final = 0.05
 _Q_MEDIAN: Final = 0.5
 _Q_HIGH: Final = 0.95
+_BPS_PER_UNIT: Final = 10_000.0
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,8 @@ class EvalConfig:
     ci_level: float
     exceedance_grid: tuple[float, ...]
     min_sessions: int
+    lock_in: bool = False
+    lock_exit_cost_bps: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -69,6 +74,9 @@ class Exceedance:
     q50: float
     q95: float
     twin_q50: float
+    lock_in: bool
+    p_strategy_hold: tuple[float, ...]
+    p_twin_hold: tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -115,6 +123,12 @@ def _as_float(value: Any, key: str) -> float:
     return float(value)
 
 
+def _as_bool(value: Any) -> bool:
+    if type(value) is not bool:
+        raise ConfigError("evaluation.lock_in must be a boolean")
+    return value
+
+
 def _as_grid(value: Any) -> tuple[float, ...]:
     if not isinstance(value, list) or not value:
         raise ConfigError("evaluation.exceedance_grid must be a non-empty list")
@@ -136,6 +150,8 @@ def load_eval_config(name: str = "arena") -> EvalConfig:
         ci_level=_as_float(section["ci_level"], "ci_level"),
         exceedance_grid=_as_grid(section["exceedance_grid"]),
         min_sessions=_as_int(section["min_sessions"], "min_sessions"),
+        lock_in=_as_bool(section["lock_in"]),
+        lock_exit_cost_bps=_as_float(section["lock_exit_cost_bps"], "lock_exit_cost_bps"),
     )
     _require(cfg.horizon_sessions >= 1, "evaluation.horizon_sessions must be >= 1")
     _require(cfg.bootstrap_mean_block >= 1, "evaluation.bootstrap_mean_block must be >= 1")
@@ -147,6 +163,10 @@ def load_eval_config(name: str = "arena") -> EvalConfig:
         "evaluation.exceedance_grid must be strictly increasing",
     )
     _require(cfg.min_sessions >= cfg.horizon_sessions, "evaluation.min_sessions must be >= horizon_sessions")
+    _require(
+        0.0 <= cfg.lock_exit_cost_bps < _BPS_PER_UNIT,
+        "evaluation.lock_exit_cost_bps must be in [0, 10000)",
+    )
     return cfg
 
 
@@ -192,6 +212,29 @@ def edge_stats(gross: npt.NDArray[np.float64], idx: npt.NDArray[np.int64], cfg: 
     )
 
 
+def lock_in_multiples(paths: npt.NDArray[np.float64], threshold: float, exit_cost: float) -> npt.NDArray[np.float64]:
+    """Return each path's terminal multiple under lock-in at `threshold`; the flatten executes one session after the crossing."""
+    if paths.ndim != 2 or paths.shape[1] < 1:
+        raise ValueError("paths must be 2-D with at least one session")
+    if not threshold > 0.0:
+        raise ValueError("threshold must be > 0")
+    if not 0.0 <= exit_cost < 1.0:
+        raise ValueError("exit_cost must be in [0, 1)")
+    horizon = paths.shape[1]
+    crossed = paths >= threshold
+    hit = crossed.any(axis=1)
+    exit_idx = crossed.argmax(axis=1) + 1
+    use_exit = hit & (exit_idx < horizon - 1)
+    rows = np.arange(paths.shape[0])
+    out = paths[:, -1].copy()
+    out[use_exit] = paths[rows[use_exit], exit_idx[use_exit]] * (1.0 - exit_cost)
+    return out
+
+
+def _hit_rates(terminal: npt.NDArray[np.float64], thresholds: npt.NDArray[np.float64]) -> tuple[float, ...]:
+    return tuple(float(p) for p in (terminal[:, None] >= thresholds[None, :]).mean(axis=0))
+
+
 def exceedance(
     net: npt.NDArray[np.float64],
     costs: npt.NDArray[np.float64],
@@ -199,26 +242,37 @@ def exceedance(
     signs: npt.NDArray[np.int8],
     cfg: EvalConfig,
 ) -> Exceedance:
-    """Compare strategy and zero-edge twin terminal multiples over the threshold grid on bootstrapped horizons."""
+    """Compare strategy and zero-edge twin multiples over the grid; `p_*` follow lock-in when enabled, quantiles stay hold-to-end."""
     r = np.maximum(net[idx], _MAX_LOSS)
     r0 = np.maximum(signs * np.abs(net + costs)[idx] - costs[idx], _MAX_LOSS)
     m = np.prod(1.0 + r, axis=1)
     m0 = np.prod(1.0 + r0, axis=1)
     thresholds = np.asarray(cfg.exceedance_grid, dtype=np.float64)
-    p_strategy = (m[:, None] >= thresholds[None, :]).mean(axis=0)
-    p_twin = (m0[:, None] >= thresholds[None, :]).mean(axis=0)
+    p_strategy_hold = _hit_rates(m, thresholds)
+    p_twin_hold = _hit_rates(m0, thresholds)
+    if cfg.lock_in:
+        exit_cost = cfg.lock_exit_cost_bps / _BPS_PER_UNIT
+        cp = np.cumprod(1.0 + r, axis=1, dtype=np.float64)
+        cp0 = np.cumprod(1.0 + r0, axis=1, dtype=np.float64)
+        p_strategy = tuple(float(np.mean(lock_in_multiples(cp, float(w), exit_cost) >= w)) for w in cfg.exceedance_grid)
+        p_twin = tuple(float(np.mean(lock_in_multiples(cp0, float(w), exit_cost) >= w)) for w in cfg.exceedance_grid)
+    else:
+        p_strategy, p_twin = p_strategy_hold, p_twin_hold
     q_low, q_median, q_high = np.quantile(m, [_Q_LOW, _Q_MEDIAN, _Q_HIGH])
     return Exceedance(
         horizon_sessions=cfg.horizon_sessions,
         n_effective=len(net) // cfg.horizon_sessions,
         thresholds=cfg.exceedance_grid,
-        p_strategy=tuple(float(p) for p in p_strategy),
-        p_twin=tuple(float(p) for p in p_twin),
-        lift=tuple(float(s - t) for s, t in zip(p_strategy, p_twin, strict=True)),
+        p_strategy=p_strategy,
+        p_twin=p_twin,
+        lift=tuple(s - t for s, t in zip(p_strategy, p_twin, strict=True)),
         q05=float(q_low),
         q50=float(q_median),
         q95=float(q_high),
         twin_q50=float(np.median(m0)),
+        lock_in=cfg.lock_in,
+        p_strategy_hold=p_strategy_hold,
+        p_twin_hold=p_twin_hold,
     )
 
 

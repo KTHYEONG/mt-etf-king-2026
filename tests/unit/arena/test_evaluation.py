@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import date, timedelta
 from typing import Any
 
@@ -16,6 +17,7 @@ from src.arena.evaluation import (
     edge_stats,
     evaluate,
     exceedance,
+    lock_in_multiples,
     load_eval_config,
     report_to_dict,
     stationary_bootstrap_indices,
@@ -60,7 +62,9 @@ def _load_with(monkeypatch: pytest.MonkeyPatch, mutate: Callable[[dict[str, Any]
 
 
 def test_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert load_eval_config() == EvalConfig(36, 10, 5000, 20261104, 0.95, (1.1, 1.3, 1.5, 2.0, 2.3, 3.0), 252)
+    assert load_eval_config() == EvalConfig(
+        36, 10, 5000, 20261104, 0.95, (1.1, 1.3, 1.5, 2.0, 2.3, 3.0), 252, True, 3.0
+    )
 
     def _set(**changes: Any) -> Callable[[dict[str, Any]], None]:
         return lambda section: section.update(changes)
@@ -82,6 +86,10 @@ def test_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:
         _set(ci_level=1.0),
         _set(exceedance_grid=[0.0, 1.0]),
         _set(min_sessions=5),
+        _drop("lock_in"),
+        _set(lock_in=1),
+        _set(lock_exit_cost_bps=-1.0),
+        _set(lock_exit_cost_bps=10_000.0),
     ]
     for mutate in bad_mutations:
         with pytest.raises(ConfigError):
@@ -254,3 +262,91 @@ def test_causal_invariance_of_prefix() -> None:
 def test_json_safe() -> None:
     net, costs = _series(120, 0.002, 0.02, 21)
     json.dumps(report_to_dict(_report(net, costs)), allow_nan=False)
+
+
+def test_json_has_hold_fields() -> None:
+    net, costs = _series(120, 0.002, 0.02, 22)
+    exc = report_to_dict(_report(net, costs))["exceedance"]
+    assert {"p_strategy_hold", "p_twin_hold", "lock_in"} <= set(exc)
+
+
+def test_lock_in_no_cross_unchanged() -> None:
+    paths = np.array([[0.9, 0.95, 0.97, 0.99, 1.0, 1.02]])
+    assert np.array_equal(lock_in_multiples(paths, 1.1, 0.001), paths[:, -1])
+
+
+def test_lock_in_exit_next_session_with_cost() -> None:
+    paths = np.array([[1.0, 1.1, 1.2, 1.25, 1.1, 1.05]])
+    result = lock_in_multiples(paths, 1.2, 0.001)
+    assert result[0] == pytest.approx(paths[0, 3] * 0.999)
+
+
+def test_lock_in_late_cross_no_cost() -> None:
+    paths = np.array([[1.0, 1.0, 1.0, 1.2, 1.3], [1.0, 1.0, 1.0, 1.0, 1.3]])
+    paths[0, 3] = 1.2
+    result = lock_in_multiples(paths, 1.2, 0.5)
+    assert np.array_equal(result, paths[:, -1])
+
+
+def test_lock_in_rejects_bad_args() -> None:
+    paths = np.ones((2, 4))
+    with pytest.raises(ValueError, match="2-D"):
+        lock_in_multiples(np.ones(4), 1.1, 0.0)
+    with pytest.raises(ValueError, match="threshold must be > 0"):
+        lock_in_multiples(paths, 0.0, 0.0)
+    with pytest.raises(ValueError, match="exit_cost must be in"):
+        lock_in_multiples(paths, 1.1, 1.0)
+    with pytest.raises(ValueError, match="exit_cost must be in"):
+        lock_in_multiples(paths, 1.1, -0.1)
+
+
+def test_lock_in_does_not_mutate() -> None:
+    paths = np.array([[1.0, 1.2, 1.3, 1.1], [0.9, 0.95, 1.0, 1.05]])
+    before = paths.copy()
+    lock_in_multiples(paths, 1.2, 0.001)
+    assert np.array_equal(paths, before)
+
+
+def _lock_draws() -> tuple[FloatArray, FloatArray, npt.NDArray[np.int64], npt.NDArray[np.int8]]:
+    n = 200
+    net, costs = _series(n, 0.002, 0.03, 23)
+    idx = stationary_bootstrap_indices(n, CFG.horizon_sessions, 10, CFG.bootstrap_draws, np.random.default_rng(24))
+    signs = np.random.default_rng(25).choice(np.array([-1, 1], dtype=np.int8), size=idx.shape)
+    return net, costs, idx, signs
+
+
+def test_exceedance_lock_off_matches_hold() -> None:
+    net, costs, idx, signs = _lock_draws()
+    ex = exceedance(net, costs, idx, signs, CFG)
+    assert ex.lock_in is False
+    assert ex.p_strategy == ex.p_strategy_hold
+    assert ex.p_twin == ex.p_twin_hold
+
+
+def test_exceedance_lock_on_probabilities_and_lift() -> None:
+    net, costs, idx, signs = _lock_draws()
+    cfg = replace(CFG, lock_in=True, lock_exit_cost_bps=3.0)
+    ex = exceedance(net, costs, idx, signs, cfg)
+    assert ex.lock_in is True
+    assert all(0.0 <= p <= 1.0 for p in ex.p_strategy + ex.p_twin)
+    assert ex.lift == tuple(s - t for s, t in zip(ex.p_strategy, ex.p_twin, strict=True))
+    assert ex.p_strategy_hold == exceedance(net, costs, idx, signs, CFG).p_strategy
+
+
+def test_exceedance_lock_on_certain_for_monotone_growth() -> None:
+    n = 60
+    net = np.full(n, 0.02)
+    costs = np.zeros(n)
+    idx = np.zeros((4, CFG.horizon_sessions), dtype=np.int64)
+    signs = np.ones((4, CFG.horizon_sessions), dtype=np.int8)
+    ex = exceedance(net, costs, idx, signs, replace(CFG, lock_in=True, lock_exit_cost_bps=0.0))
+    reached = [k for k, w in enumerate(ex.thresholds) if w <= 1.02**5]
+    assert reached
+    assert all(ex.p_strategy[k] == 1.0 for k in reached)
+
+
+def test_exceedance_lock_quantiles_unchanged() -> None:
+    net, costs, idx, signs = _lock_draws()
+    off = exceedance(net, costs, idx, signs, CFG)
+    on = exceedance(net, costs, idx, signs, replace(CFG, lock_in=True, lock_exit_cost_bps=3.0))
+    assert (off.q05, off.q50, off.q95, off.twin_q50) == (on.q05, on.q50, on.q95, on.twin_q50)
