@@ -78,3 +78,6 @@ proxy:                                   # research-only synthetic pre-listing h
     "0193W0": {underlying: "005930", multiple: 2.0}
     "0197X0": {underlying: "000660", multiple: -2.0}
     "0193L0": {underlying: "005930", multiple: -2.0}
+segment:                                 # open + close executions per session (intraday book / overnight book)
+  cost_bps_per_side: 6.5                 # 1.5 bp commission + 1 tick (5 KRW at ~10,000 KRW single-stock 2x); contest fees unpublished
+  stress_cost_bps: 19.5                  # 3x base (crypto-pilot STRESS_COST_MULTIPLIER practice)

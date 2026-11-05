@@ -389,3 +389,33 @@ def splice_proxy(
     if spliced.select("date", "ticker").is_duplicated().any():
         raise ProxyError("duplicate (date, ticker) rows after splicing the proxy")
     return spliced, tuple(calibrations)
+
+
+def _implied_factor(stock_rows: pl.DataFrame, product: ProxyProduct, cfg: ProxyConfig) -> pl.DataFrame:
+    traded = underlying_returns(stock_rows, product.underlying, cfg).filter(pl.col("traded")).select("date")
+    prices = stock_rows.filter(pl.col("ticker") == product.underlying).select("date", "open", "close")
+    implied = traded.join(prices, on="date", how="inner").select(
+        "date", factor=1.0 + product.multiple * (pl.col("close") / pl.col("open") - 1.0)
+    )
+    bad = implied.filter(pl.col("factor") <= 0.0)
+    if bad.height:
+        raise ProxyError(f"{product.etf} implied intraday factor is not positive on {bad['date'][0]}")
+    return implied
+
+
+def imply_open(rows: pl.DataFrame, stock_rows: pl.DataFrame, cfg: ProxyConfig) -> pl.DataFrame:
+    """Set each proxied ETF's open to its multiple-implied intraday price on traded underlying sessions; raises ProxyError."""
+    out = rows
+    for product in cfg.products:
+        factor = _implied_factor(stock_rows, product, cfg)
+        implied = (
+            out.filter(pl.col("ticker") == product.etf)
+            .join(factor, on="date", how="inner")
+            .select("date", "ticker", implied_open=pl.col("close") / pl.col("factor"))
+        )
+        out = (
+            out.join(implied, on=["date", "ticker"], how="left")
+            .with_columns(open=pl.coalesce(pl.col("implied_open"), pl.col("open")))
+            .drop("implied_open")
+        )
+    return out

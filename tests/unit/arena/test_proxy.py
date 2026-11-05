@@ -17,6 +17,7 @@ from src.arena.proxy import (
     ProxyError,
     ProxyProduct,
     calibrate,
+    imply_open,
     load_proxy_config,
     load_stock_silver,
     proxy_rows,
@@ -478,3 +479,39 @@ def test_missing_silver_raises_panel_source_error(tmp_path: Path) -> None:
     assert loaded.columns == list(STOCK_SCHEMA)
     assert loaded["ticker"].unique().to_list() == [UNDER]
     assert loaded.height == 2
+
+
+def test_imply_open_sets_intraday_to_multiple() -> None:
+    r_cc, r_on = _returns()
+    closes, opens = _prices(r_cc, r_on)
+    stock = _stock(closes, opens, zero_volume=(60,))
+    table = _table(PRODUCT, r_cc, r_on)
+    spliced, _ = splice_proxy(table, stock, CFG)
+    implied = imply_open(spliced, stock, CFG)
+
+    before = build_panel(spliced, {PRODUCT.etf, FILLER}, DAYS[0], DAYS[-1], PANEL_CFG).frame
+    after = build_panel(implied, {PRODUCT.etf, FILLER}, DAYS[0], DAYS[-1], PANEL_CFG).frame
+    etf_after = after.filter(pl.col("ticker") == PRODUCT.etf).sort("date")
+    etf_before = before.filter(pl.col("ticker") == PRODUCT.etf).sort("date")
+    traded = etf_after.filter(pl.col("traded") & (pl.col("date") != DAYS[60]))
+    traded_days = [DAYS.index(d) for d in traded["date"].to_list()]
+    expected = PRODUCT.multiple * (closes / opens - 1.0)
+    np.testing.assert_allclose(traded["r_id"].to_numpy(), expected[traded_days], rtol=1e-12, atol=0.0)
+    np.testing.assert_array_equal(etf_after["r_cc"].to_numpy()[1:], etf_before["r_cc"].to_numpy()[1:])
+    kept = etf_after.filter(pl.col("date") == DAYS[60])["open"][0]
+    assert kept == etf_before.filter(pl.col("date") == DAYS[60])["open"][0]
+
+    other_before = spliced.filter(pl.col("ticker") == FILLER).sort("date")
+    other_after = implied.filter(pl.col("ticker") == FILLER).sort("date")
+    assert other_before.equals(other_after)
+
+
+def test_imply_open_fails_closed_on_nonpositive_factor() -> None:
+    r_cc, r_on = _returns()
+    closes, opens = _prices(r_cc, r_on)
+    opens = opens.copy()
+    opens[10] = closes[10] / 0.4
+    stock = _stock(closes, opens)
+    table = _table(PRODUCT, r_cc, r_on)
+    with pytest.raises(ProxyError, match="not positive"):
+        imply_open(table, stock, CFG)
