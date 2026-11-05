@@ -617,8 +617,10 @@ def test_segment_fade_is_causal_under_future_perturbation() -> None:
     perturbed[25:] = [value * 3.0 for value in perturbed[25:]]
     other = _panel({"0193T0": perturbed, "0197X0": _closes(base)})
     observed = strategy.targets(other)
-    assert targets.filter(pl.col("decision_date") <= cut).sort(["decision_date", "leg", "ticker"]).equals(
-        observed.filter(pl.col("decision_date") <= cut).sort(["decision_date", "leg", "ticker"])
+    assert (
+        targets.filter(pl.col("decision_date") <= cut)
+        .sort(["decision_date", "leg", "ticker"])
+        .equals(observed.filter(pl.col("decision_date") <= cut).sort(["decision_date", "leg", "ticker"]))
     )
 
 

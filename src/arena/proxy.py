@@ -171,12 +171,7 @@ def load_stock_silver(paths: DataPaths, cfg: PanelConfig, tickers: Collection[st
         missing = [column for column in _STOCK_COLUMNS if column not in present]
         if missing:
             raise PanelSourceError(f"silver table {source} lacks columns {missing}")
-        return (
-            pl.scan_parquet(source)
-            .select(list(_STOCK_COLUMNS))
-            .filter(pl.col("ticker").is_in(wanted))
-            .collect()
-        )
+        return pl.scan_parquet(source).select(list(_STOCK_COLUMNS)).filter(pl.col("ticker").is_in(wanted)).collect()
 
 
 def underlying_returns(stock_rows: pl.DataFrame, ticker: str, cfg: ProxyConfig) -> pl.DataFrame:
@@ -250,7 +245,9 @@ def calibrate(
             etf_r_on=pl.col("open") / pl.col("prev_close") - 1.0,
         )
     )
-    stock = underlying_returns(stock_rows, product.underlying, cfg).filter(pl.col("traded")).select("date", "r_cc", "r_on")
+    stock = (
+        underlying_returns(stock_rows, product.underlying, cfg).filter(pl.col("traded")).select("date", "r_cc", "r_on")
+    )
     joined = etf_returns.join(stock, on="date", how="inner")
     overlap = joined.height
     if overlap < cfg.min_overlap_sessions:
@@ -295,7 +292,9 @@ def calibrate(
     )
 
 
-def proxy_rows(etf_rows: pl.DataFrame, stock_rows: pl.DataFrame, product: ProxyProduct, cfg: ProxyConfig) -> pl.DataFrame:
+def proxy_rows(
+    etf_rows: pl.DataFrame, stock_rows: pl.DataFrame, product: ProxyProduct, cfg: ProxyConfig
+) -> pl.DataFrame:
     """Synthetic SOURCE_COLUMNS rows of `product.etf` on ETF-calendar dates before its first listed row; raises ProxyError."""
     rows = _etf_rows(etf_rows, product.etf)
     listing = rows.row(0, named=True)
@@ -303,9 +302,8 @@ def proxy_rows(etf_rows: pl.DataFrame, stock_rows: pl.DataFrame, product: ProxyP
     stock = underlying_returns(stock_rows, product.underlying, cfg)
     calendar: list[date] = etf_rows.select(pl.col("date").unique().sort())["date"].to_list()
     pre_dates = [day for day in calendar if stock["date"][0] <= day < listed_first]
-    grid = (
-        pl.DataFrame({"date": [*pre_dates, listed_first]}, schema={"date": pl.Date})
-        .join(stock, on="date", how="left")
+    grid = pl.DataFrame({"date": [*pre_dates, listed_first]}, schema={"date": pl.Date}).join(
+        stock, on="date", how="left"
     )
     if grid["traded"].is_null().any():
         missing = grid.filter(pl.col("traded").is_null())["date"][0]

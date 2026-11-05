@@ -88,7 +88,9 @@ def _prices(r_cc: np.ndarray, r_on: np.ndarray) -> tuple[np.ndarray, np.ndarray]
     return closes, prev * (1.0 + r_on)
 
 
-def _stock(closes: np.ndarray, opens: np.ndarray, *, volume: int = 1000, zero_volume: tuple[int, ...] = ()) -> pl.DataFrame:
+def _stock(
+    closes: np.ndarray, opens: np.ndarray, *, volume: int = 1000, zero_volume: tuple[int, ...] = ()
+) -> pl.DataFrame:
     volumes = np.full(N, volume, dtype=np.int64)
     volumes[np.array(zero_volume, dtype=np.int64)] = 0
     prev = np.concatenate([closes[:1], closes[:-1]])
@@ -118,7 +120,9 @@ def _raw(
 ) -> pl.DataFrame:
     n = len(closes)
     vols = [1000] * n if volume is None else volume
-    tvs: list[int | None] = [round(c * v) for c, v in zip(closes, vols, strict=True)] if trading_value is None else trading_value
+    tvs: list[int | None] = (
+        [round(c * v) for c, v in zip(closes, vols, strict=True)] if trading_value is None else trading_value
+    )
     return pl.DataFrame(
         {
             "date": DAYS[:n],
