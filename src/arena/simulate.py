@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -31,6 +32,7 @@ _SIM_KEYS: Final = (
     "adv_window",
     "weight_levels",
     "weight_tolerance",
+    "capacity_equity_max",
 )
 _BPS_PER_UNIT: Final = 10_000.0
 _MAX_LOSS: Final = -1.0
@@ -62,6 +64,7 @@ class SimConfig:
     adv_window: int
     weight_levels: tuple[float, ...]
     weight_tolerance: float
+    capacity_equity_max: float = math.inf
 
 
 @dataclass(frozen=True)
@@ -147,6 +150,9 @@ def load_sim_config(name: str = "arena") -> SimConfig:
     tolerance = _number(section["weight_tolerance"], "weight_tolerance")
     if tolerance <= 0.0:
         raise ConfigError("simulate.weight_tolerance must be > 0")
+    capacity = _number(section["capacity_equity_max"], "capacity_equity_max")
+    if capacity < 1.0:
+        raise ConfigError("simulate.capacity_equity_max must be >= 1")
     return SimConfig(
         execution=_execution(section["execution"]),
         cost_bps_per_side=cost,
@@ -154,6 +160,7 @@ def load_sim_config(name: str = "arena") -> SimConfig:
         adv_window=window,
         weight_levels=_levels(section["weight_levels"]),
         weight_tolerance=tolerance,
+        capacity_equity_max=capacity,
     )
 
 
@@ -392,7 +399,8 @@ def simulate(
         target = np.where(legs.has_decision[j], legs.targets[j], h)
         delta = target - h
         mag = np.abs(delta)
-        cap = cfg.participation_max * legs.adv[j] / (pre_equity * capital_krw)
+        # Evaluation windows restart at the contest capital; long-history compounding must not shrink capacity.
+        cap = cfg.participation_max * legs.adv[j] / (min(pre_equity, cfg.capacity_equity_max) * capital_krw)
         over_cap = legs.tradable[j] & (mag > cap)
         allowed = np.where(legs.tradable[j], np.minimum(mag, cap), 0.0)
         signed = np.sign(delta) * allowed

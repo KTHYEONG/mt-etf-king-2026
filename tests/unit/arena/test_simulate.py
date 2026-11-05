@@ -1,4 +1,5 @@
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from datetime import date, timedelta
 from typing import Any
 
@@ -119,7 +120,7 @@ def _load_with(monkeypatch: pytest.MonkeyPatch, mutate: Callable[[dict[str, Any]
 
 
 def test_sim_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert load_sim_config() == SimConfig("open", 3.0, 0.05, 20, LEVELS, 1e-9)
+    assert load_sim_config() == SimConfig("open", 3.0, 0.05, 20, LEVELS, 1e-9, 3.0)
 
     def _set(**changes: Any) -> Callable[[dict[str, Any]], None]:
         return lambda section: section.update(changes)
@@ -137,6 +138,8 @@ def test_sim_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None
         _set(weight_levels=[]),
         _set(weight_levels="abc"),
         _set(cost_bps_per_side=-1.0),
+        _set(capacity_equity_max=0.5),
+        _set(capacity_equity_max=True),
         _set(cost_bps_per_side=True),
         _set(participation_max=0.0),
         _set(participation_max=1.5),
@@ -414,3 +417,15 @@ def test_drift_segments_demean_each_window() -> None:
     assert float(whole.gross_returns[late].mean()) > 1e-3
     with pytest.raises(ValueError, match="strictly increasing"):
         simulate(panel, _targets([(days[0], "A", 1.0)]), cfg, capital_krw=CAPITAL, drift_segments=(split, split))
+
+
+def test_capacity_does_not_shrink_with_compounded_equity() -> None:
+    closes = [100.0, 100.0, 200.0, 400.0, 400.0, 400.0, 400.0, 400.0]
+    panel = _panel(_rows("A", closes) + _rows("B", [100.0] * len(closes)))
+    entries = [(D1, "A", 1.0), (DAYS[3], "A", 0.0), (DAYS[3], "B", 1.0)]
+    capped = _run(panel, entries, replace(SIM, participation_max=0.004, capacity_equity_max=1.0), capital=100_000)
+    free = _run(panel, entries, replace(SIM, participation_max=0.004), capital=100_000)
+    entry = DAYS[4]
+    # equity is ~4x after A quadruples; the capped config sizes the B entry on the contest capital only
+    assert _weight(capped, entry, "B") > _weight(free, entry, "B")
+    assert _blocked(free, entry) and ("B", "adv_cap") in _blocked(free, entry)

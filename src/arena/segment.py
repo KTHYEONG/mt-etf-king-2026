@@ -186,7 +186,7 @@ def _execute(
 ) -> _Fill:
     delta = target - holdings
     mag = np.abs(delta)
-    cap = cfg.participation_max * adv / (pre_equity * capital_krw)
+    cap = cfg.participation_max * adv / (min(pre_equity, cfg.capacity_equity_max) * capital_krw)
     over_cap = tradable & (mag > cap)
     allowed = np.where(tradable, np.minimum(mag, cap), 0.0)
     signed = np.sign(delta) * allowed
