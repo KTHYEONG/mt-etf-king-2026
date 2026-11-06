@@ -22,6 +22,7 @@ from src.arena.evaluation import (
     pre_auction_quotes,
     report_to_dict,
     stationary_bootstrap_indices,
+    uncertain_hit_rate,
 )
 from src.core.config import ConfigError, load_config
 
@@ -64,7 +65,8 @@ def _load_with(monkeypatch: pytest.MonkeyPatch, mutate: Callable[[dict[str, Any]
 
 def test_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:
     assert load_eval_config() == EvalConfig(
-        36, 10, 5000, 20261104, 0.95, (1.1, 1.3, 1.5, 2.0, 2.3, 3.0), 252, True, 3.0, 0.01, 0.0093, 4.0
+        36, 10, 5000, 20261104, 0.95, (1.1, 1.3, 1.5, 2.0, 2.3, 3.0), 252, True, 3.0, 0.01, 0.0093, 4.0,
+        1.4, (0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5),
     )
 
     def _set(**changes: Any) -> Callable[[dict[str, Any]], None]:
@@ -98,6 +100,12 @@ def test_config_loads_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:
         _set(lock_noise_sd=0.5),
         _set(lock_noise_sd=-0.1),
         _set(lock_noise_df=2.0),
+        _drop("lock_level_scale"),
+        _set(lock_level_scale=0.0),
+        _drop("line_uncertainty"),
+        _set(line_uncertainty=[]),
+        _set(line_uncertainty=[1.0, 0.9]),
+        _set(line_uncertainty=[0.0, 1.0]),
     ]
     for mutate in bad_mutations:
         with pytest.raises(ConfigError):
@@ -447,6 +455,27 @@ def test_exceedance_lock_on_certain_for_monotone_growth() -> None:
     reached = [k for k, w in enumerate(ex.thresholds) if w <= 1.02**5]
     assert reached
     assert all(ex.p_strategy[k] == 1.0 for k in reached)
+
+
+def test_uncertain_hit_rate_averages_over_line_powers() -> None:
+    terminal = np.array([1.0, 2.0, 4.0])
+    assert uncertain_hit_rate(terminal, 2.0, (0.5, 1.0, 2.0)) == pytest.approx((2 / 3 + 2 / 3 + 1 / 3) / 3)
+    assert uncertain_hit_rate(terminal, 2.0, (1.0,)) == pytest.approx(2 / 3)
+
+
+def test_exceedance_lock_below_unknown_line_forfeits_it() -> None:
+    horizon = CFG.horizon_sessions
+    net = np.full(60, 4.2 ** (1.0 / horizon) - 1.0)
+    costs = np.zeros(60)
+    idx = np.zeros((4, horizon), dtype=np.int64)
+    signs = np.ones((4, horizon), dtype=np.int8)
+    base = replace(CFG, exceedance_grid=(2.0,), lock_in=True, line_uncertainty=(1.0, 2.0))
+    low = exceedance(net, costs, idx, signs, replace(base, lock_level_scale=1.0), np.random.default_rng(1))
+    high = exceedance(net, costs, idx, signs, replace(base, lock_level_scale=2.0), np.random.default_rng(1))
+    assert low.p_strategy == (0.5,)
+    assert high.p_strategy == (1.0,)
+    assert low.p_strategy_hold == high.p_strategy_hold == (1.0,)
+    assert high.lock_level_scale == 2.0 and high.line_uncertainty == (1.0, 2.0)
 
 
 def test_exceedance_lock_quantiles_unchanged() -> None:

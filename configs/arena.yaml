@@ -6,11 +6,13 @@ evaluation:
   ci_level: 0.95
   exceedance_grid: [1.1, 1.3, 1.5, 2.0, 2.3, 3.0]
   min_sessions: 252
-  lock_in: true                 # default policy: flatten once own multiple closes >= W (Part 5g)
+  lock_in: true                 # default policy: flatten once own multiple reaches the lock level (Part 5g)
   lock_exit_cost_bps: 3.0       # one side, same as simulate cost
   lock_trigger_buffer: 0.01     # margin over W on the 15:19 check
   lock_noise_sd: 0.0093         # Hynix 15:19->close sd at 2x, minute bars n=214
   lock_noise_df: 4.0
+  lock_level_scale: 1.4         # lock at W**1.4 (k x 1.4): the line is unknown ex ante and a lock below it is irreversible (scratch/20261106-weakness)
+  line_uncertainty: [0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]  # true line = W**u, equal weight; implied k 0.74-1.34 over 2024-26
 panel:
   lock_timeout_s: 900.0          # same wait as the pipeline lock (configs/base.yaml:21)
   nav_divergence_max: 0.10       # |r_cc - r_nav| above this flags a print far from NAV
@@ -101,7 +103,7 @@ prize_line_vol:                          # descriptive vol-scaled prize line on 
 card:                                    # single morning card (src/arena/card.py); one-line strategy switch
   strategy_id: "segment_fade:skhynix:vote3:long"
   edition: 2026
-  lock_k: 1.0                            # W = exp(k * sigma_pre * sqrt(H)) (prize_line_vol reference)
+  line_k: 1.0                            # central prize-line estimate W = exp(k * sigma_pre * sqrt(H)); lock fires at W**evaluation.lock_level_scale
   w_fixed: null                          # number overrides lock_k
   open_window: "09:05~09:15"
   close_window: "15:10~15:19"

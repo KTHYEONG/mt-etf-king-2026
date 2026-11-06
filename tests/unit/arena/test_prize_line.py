@@ -215,3 +215,14 @@ def test_window_stats_twin_deterministic() -> None:
     assert first == second
     assert first is not None
     assert all(0.0 <= p <= 1.0 for p in first.p_twin_lock)
+
+
+def test_window_stats_lock_level_scale_moves_the_lock_and_scores_over_uncertainty() -> None:
+    net = np.array([0.05, 0.0, -0.1, 0.0])
+    unknown = _eval(line_uncertainty=(1.0, 3.0))
+    at_line = window_stats("holdout", net, np.zeros(4), np.full(4, 0.01), unknown, _prize())
+    above = window_stats("holdout", net, np.zeros(4), np.full(4, 0.01), replace(unknown, lock_level_scale=3.0), _prize())
+    assert at_line is not None and above is not None
+    assert at_line.p_lock == (0.5,)
+    assert above.p_lock == (0.0,)
+    assert at_line.p_hold == above.p_hold == (0.0,)

@@ -13,7 +13,7 @@ import polars as pl
 from numpy import typing as npt
 from numpy.lib.stride_tricks import sliding_window_view
 
-from src.arena.evaluation import EvalConfig, lock_in_multiples, pre_auction_quotes
+from src.arena.evaluation import EvalConfig, line_power, lock_in_multiples, pre_auction_quotes, uncertain_hit_rate
 from src.arena.panel import Panel
 from src.core.config import ConfigError, load_config
 
@@ -115,7 +115,7 @@ def window_stats(
     eval_cfg: EvalConfig,
     cfg: PrizeLineConfig,
 ) -> VolWindowStats | None:
-    """Return descriptive prize-line statistics over the valid windows of one period, or None when no start is valid."""
+    """Return descriptive statistics over one period's valid windows (k = central line estimate, scored over the line uncertainty), or None."""
     horizon = eval_cfg.horizon_sessions
     if not net.shape == costs.shape == sigma.shape or net.ndim != 1:
         raise ValueError("net, costs and sigma must be aligned 1-D arrays")
@@ -132,6 +132,7 @@ def window_stats(
     exit_cost = eval_cfg.lock_exit_cost_bps / _BPS_PER_UNIT
     buffer = eval_cfg.lock_trigger_buffer
     noise = (eval_cfg.lock_noise_sd, eval_cfg.lock_noise_df)
+    scale, unc = eval_cfg.lock_level_scale, eval_cfg.line_uncertainty
 
     quote_seed, sign_seed = np.random.SeedSequence(cfg.seed).spawn(2)
     quote_rng = np.random.default_rng(quote_seed)
@@ -141,10 +142,10 @@ def window_stats(
     def terminal(path: FloatArray, quote: FloatArray, line: FloatArray) -> FloatArray:
         if not lock_on:
             return path[:, -1]
-        return lock_in_multiples(path, quote, line, exit_cost, buffer)
+        return lock_in_multiples(path, quote, line_power(line, scale), exit_cost, buffer)
 
-    p_hold = tuple(float(np.mean(paths[:, -1] >= line)) for line in lines)
-    p_lock = tuple(float(np.mean(terminal(paths, quotes, line) >= line)) for line in lines)
+    p_hold = tuple(uncertain_hit_rate(paths[:, -1], line, unc) for line in lines)
+    p_lock = tuple(uncertain_hit_rate(terminal(paths, quotes, line), line, unc) for line in lines)
 
     sign_rng = np.random.default_rng(sign_seed)
     signs = sign_rng.choice(np.array([-1, 1], dtype=np.int8), size=(cfg.twin_draws, starts.size, horizon))
@@ -154,7 +155,7 @@ def window_stats(
         twin_paths = np.cumprod(1.0 + r0, axis=1)
         twin_quotes = pre_auction_quotes(twin_paths, *noise, quote_rng) if lock_on else twin_paths
         for j, line in enumerate(lines):
-            twin_lock[j] += float(np.mean(terminal(twin_paths, twin_quotes, line) >= line))
+            twin_lock[j] += uncertain_hit_rate(terminal(twin_paths, twin_quotes, line), line, unc)
     twin_lock /= cfg.twin_draws
 
     return VolWindowStats(

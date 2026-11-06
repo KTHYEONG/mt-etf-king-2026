@@ -23,7 +23,7 @@ from src.arena.card import (
     write_card,
 )
 from src.arena.contest import load_edition
-from src.arena.evaluation import load_eval_config
+from src.arena.evaluation import EvalConfig, load_eval_config
 from src.arena.panel import load_panel_config
 from src.arena.prize_line import PrizeLineConfig, load_prize_line_config
 from src.arena.segment import load_segment_config
@@ -137,6 +137,7 @@ def _card(
     equity: int | None = None,
     locked: bool = False,
     prize_cfg: PrizeLineConfig = PRIZE,
+    eval_cfg: EvalConfig = EVAL,
 ) -> Card:
     return build_card(
         rows,
@@ -145,7 +146,7 @@ def _card(
         strategies_cfg=STRATEGIES,
         sim_cfg=SIM,
         segment_cfg=SEGMENT,
-        eval_cfg=EVAL,
+        eval_cfg=eval_cfg,
         prize_cfg=prize_cfg,
         panel_cfg=PANEL,
         edition=EDITION,
@@ -169,8 +170,8 @@ def test_shipped_config_loads_and_validates() -> None:
     "section",
     [
         {**BASE_SECTION, "extra": 1},
-        {key: value for key, value in BASE_SECTION.items() if key != "lock_k"},
-        {**BASE_SECTION, "lock_k": 0.0},
+        {key: value for key, value in BASE_SECTION.items() if key != "line_k"},
+        {**BASE_SECTION, "line_k": 0.0},
         {**BASE_SECTION, "w_fixed": 1.0},
         {**BASE_SECTION, "output_dir": "a/b"},
         {**BASE_SECTION, "output_dir": ".."},
@@ -247,8 +248,19 @@ def test_outside_window_still_shows_actions_with_provisional_line() -> None:
 def test_lock_trigger_formula_with_fixed_line() -> None:
     card = _card(_rows(), cfg=replace(CARD, w_fixed=1.3))
     assert card.line_w == 1.3
-    assert card.lock_trigger_krw == math.floor(1_000_000_000 * 1.3 * (1.0 + EVAL.lock_trigger_buffer))
+    lock_w = 1.3**EVAL.lock_level_scale
+    assert card.lock_w == pytest.approx(lock_w)
+    assert card.lock_trigger_krw == math.floor(1_000_000_000 * lock_w * (1.0 + EVAL.lock_trigger_buffer))
     assert EVAL.lock_trigger_buffer == 0.01
+
+
+def test_lock_level_sits_above_the_central_line() -> None:
+    card = _card(_rows(), cfg=replace(CARD, w_fixed=1.3))
+    flat = _card(_rows(), cfg=replace(CARD, w_fixed=1.3), eval_cfg=replace(EVAL, lock_level_scale=1.0))
+    assert EVAL.lock_level_scale > 1.0
+    assert card.lock_w is not None and card.lock_w > card.line_w
+    assert flat.lock_trigger_krw == math.floor(1_000_000_000 * 1.3 * (1.0 + EVAL.lock_trigger_buffer))
+    assert "잠금 배수" in render_card(card)
 
 
 def test_line_is_frozen_at_edition_start() -> None:
@@ -301,8 +313,8 @@ def test_write_card_overwrites_today_and_appends_history_once(tmp_path: Path) ->
     assert len((out / "history.jsonl").read_text(encoding="utf-8").splitlines()) == 2
 
 
-def test_non_numeric_lock_k_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card_module, "load_config", lambda name: {"card": {**BASE_SECTION, "lock_k": "1.0"}})
+def test_non_numeric_line_k_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card_module, "load_config", lambda name: {"card": {**BASE_SECTION, "line_k": "1.0"}})
     with pytest.raises(ConfigError, match="finite number"):
         load_card_config()
 

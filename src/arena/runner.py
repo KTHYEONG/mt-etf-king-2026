@@ -68,9 +68,10 @@ _NOTE_SEGMENT = (
 )
 _NOTE_LOCK = (
     "P(M>=W) columns apply the lock-in policy: the decision uses a modelled pre-auction (15:19) value, "
-    "close/(1+eta) with fat-tailed noise of sd lock_noise_sd; if it is at or above W*(1+lock_trigger_buffer), "
+    "close/(1+eta) with fat-tailed noise of sd lock_noise_sd; if it is at or above W**lock_level_scale*(1+lock_trigger_buffer), "
     "the position is flattened in that session's closing auction at lock_exit_cost_bps (it may end slightly "
-    "below W); hold-to-end probabilities are in report.json."
+    "below that level). W is a central line estimate: every P(M>=W) averages P(M>=W**u) over line_uncertainty; "
+    "hold-to-end probabilities are in report.json."
 )
 _NOTE_VOL = "W = exp(k * sigma_pre * sqrt(H)), sigma_pre = causal sd of the reference 2x vehicle; descriptive, not registered, not gated."
 _NOTE_PROXY = (

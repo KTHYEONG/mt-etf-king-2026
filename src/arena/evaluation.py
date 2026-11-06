@@ -27,6 +27,8 @@ _EVAL_KEYS: Final = (
     "lock_trigger_buffer",
     "lock_noise_sd",
     "lock_noise_df",
+    "lock_level_scale",
+    "line_uncertainty",
 )
 _SEED_STREAMS: Final = 4
 _EDGE_STREAM: Final = 0
@@ -56,6 +58,8 @@ class EvalConfig:
     lock_trigger_buffer: float = 0.0
     lock_noise_sd: float = 0.0
     lock_noise_df: float = 4.0
+    lock_level_scale: float = 1.0
+    line_uncertainty: tuple[float, ...] = (1.0,)
 
 
 @dataclass(frozen=True)
@@ -86,6 +90,8 @@ class Exceedance:
     lock_in: bool
     p_strategy_hold: tuple[float, ...]
     p_twin_hold: tuple[float, ...]
+    lock_level_scale: float = 1.0
+    line_uncertainty: tuple[float, ...] = (1.0,)
 
 
 @dataclass(frozen=True)
@@ -138,10 +144,10 @@ def _as_bool(value: Any) -> bool:
     return value
 
 
-def _as_grid(value: Any) -> tuple[float, ...]:
+def _as_grid(value: Any, key: str = "exceedance_grid") -> tuple[float, ...]:
     if not isinstance(value, list) or not value:
-        raise ConfigError("evaluation.exceedance_grid must be a non-empty list")
-    return tuple(_as_float(item, "exceedance_grid") for item in value)
+        raise ConfigError(f"evaluation.{key} must be a non-empty list")
+    return tuple(_as_float(item, key) for item in value)
 
 
 def load_eval_config(name: str = "arena") -> EvalConfig:
@@ -164,6 +170,8 @@ def load_eval_config(name: str = "arena") -> EvalConfig:
         lock_trigger_buffer=_as_float(section["lock_trigger_buffer"], "lock_trigger_buffer"),
         lock_noise_sd=_as_float(section["lock_noise_sd"], "lock_noise_sd"),
         lock_noise_df=_as_float(section["lock_noise_df"], "lock_noise_df"),
+        lock_level_scale=_as_float(section["lock_level_scale"], "lock_level_scale"),
+        line_uncertainty=_as_grid(section["line_uncertainty"], "line_uncertainty"),
     )
     _require(cfg.horizon_sessions >= 1, "evaluation.horizon_sessions must be >= 1")
     _require(cfg.bootstrap_mean_block >= 1, "evaluation.bootstrap_mean_block must be >= 1")
@@ -182,6 +190,12 @@ def load_eval_config(name: str = "arena") -> EvalConfig:
     _require(0.0 <= cfg.lock_trigger_buffer < 1.0, "evaluation.lock_trigger_buffer must be in [0, 1)")
     _require(0.0 <= cfg.lock_noise_sd < _NOISE_SD_MAX, "evaluation.lock_noise_sd must be in [0, 0.5)")
     _require(cfg.lock_noise_df > 2.0, "evaluation.lock_noise_df must be > 2")
+    _require(cfg.lock_level_scale > 0.0, "evaluation.lock_level_scale must be > 0")
+    _require(all(u > 0 for u in cfg.line_uncertainty), "evaluation.line_uncertainty must be > 0")
+    _require(
+        all(b > a for a, b in pairwise(cfg.line_uncertainty)),
+        "evaluation.line_uncertainty must be strictly increasing",
+    )
     return cfg
 
 
@@ -274,8 +288,16 @@ def pre_auction_quotes(
     return paths / (1.0 + eta)
 
 
-def _hit_rates(terminal: npt.NDArray[np.float64], thresholds: npt.NDArray[np.float64]) -> tuple[float, ...]:
-    return tuple(float(p) for p in (terminal[:, None] >= thresholds[None, :]).mean(axis=0))
+def line_power(line: float | npt.NDArray[np.float64], exponent: float) -> npt.NDArray[np.float64]:
+    """Return `line ** exponent`, i.e. the vol-scaled line with k multiplied by `exponent` (log-multiple scaling)."""
+    return np.power(np.asarray(line, dtype=np.float64), exponent)
+
+
+def uncertain_hit_rate(
+    terminal: npt.NDArray[np.float64], line: float | npt.NDArray[np.float64], uncertainty: Sequence[float]
+) -> float:
+    """Return P(terminal >= line ** u) averaged with equal weight over `uncertainty`; `line` is the central estimate."""
+    return float(np.mean([np.mean(terminal >= line_power(line, u)) for u in uncertainty]))
 
 
 def exceedance(
@@ -286,14 +308,14 @@ def exceedance(
     cfg: EvalConfig,
     rng: np.random.Generator | None = None,
 ) -> Exceedance:
-    """Compare strategy and zero-edge twin multiples over the grid; `p_*` follow lock-in when enabled, quantiles stay hold-to-end."""
+    """Compare strategy and zero-edge twin multiples over the grid of central line estimates; `p_*` average over the line uncertainty and follow lock-in when enabled, quantiles stay hold-to-end."""
     r = np.maximum(net[idx], _MAX_LOSS)
     r0 = np.maximum(signs * np.abs(net + costs)[idx] - costs[idx], _MAX_LOSS)
     m = np.prod(1.0 + r, axis=1)
     m0 = np.prod(1.0 + r0, axis=1)
-    thresholds = np.asarray(cfg.exceedance_grid, dtype=np.float64)
-    p_strategy_hold = _hit_rates(m, thresholds)
-    p_twin_hold = _hit_rates(m0, thresholds)
+    unc = cfg.line_uncertainty
+    p_strategy_hold = tuple(uncertain_hit_rate(m, w, unc) for w in cfg.exceedance_grid)
+    p_twin_hold = tuple(uncertain_hit_rate(m0, w, unc) for w in cfg.exceedance_grid)
     if cfg.lock_in:
         if rng is None:
             raise ValueError("lock-in needs an rng for the pre-auction quotes")
@@ -303,13 +325,14 @@ def exceedance(
         quotes = pre_auction_quotes(cp, cfg.lock_noise_sd, cfg.lock_noise_df, rng)
         quotes0 = pre_auction_quotes(cp0, cfg.lock_noise_sd, cfg.lock_noise_df, rng)
         buffer = cfg.lock_trigger_buffer
-        p_strategy = tuple(
-            float(np.mean(lock_in_multiples(cp, quotes, float(w), exit_cost, buffer) >= w)) for w in cfg.exceedance_grid
-        )
-        p_twin = tuple(
-            float(np.mean(lock_in_multiples(cp0, quotes0, float(w), exit_cost, buffer) >= w))
-            for w in cfg.exceedance_grid
-        )
+        scale = cfg.lock_level_scale
+
+        def locked(paths: npt.NDArray[np.float64], q: npt.NDArray[np.float64], w: float) -> float:
+            level = float(line_power(w, scale))
+            return uncertain_hit_rate(lock_in_multiples(paths, q, level, exit_cost, buffer), w, unc)
+
+        p_strategy = tuple(locked(cp, quotes, w) for w in cfg.exceedance_grid)
+        p_twin = tuple(locked(cp0, quotes0, w) for w in cfg.exceedance_grid)
     else:
         p_strategy, p_twin = p_strategy_hold, p_twin_hold
     q_low, q_median, q_high = np.quantile(m, [_Q_LOW, _Q_MEDIAN, _Q_HIGH])
@@ -327,6 +350,8 @@ def exceedance(
         lock_in=cfg.lock_in,
         p_strategy_hold=p_strategy_hold,
         p_twin_hold=p_twin_hold,
+        lock_level_scale=cfg.lock_level_scale,
+        line_uncertainty=cfg.line_uncertainty,
     )
 
 

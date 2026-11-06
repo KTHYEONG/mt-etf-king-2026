@@ -13,7 +13,7 @@ from typing import Any, Final, Literal, Protocol
 import polars as pl
 
 from src.arena.contest import EditionSpec
-from src.arena.evaluation import EvalConfig
+from src.arena.evaluation import EvalConfig, line_power
 from src.arena.panel import Panel, PanelConfig, build_panel
 from src.arena.prize_line import PrizeLineConfig, reference_sigma, vol_scaled_line
 from src.arena.research import Strategy, contest_window_multiple
@@ -27,7 +27,7 @@ Status = Literal["TRADE", "NO_TRADE", "LOCKED", "CLOSED", "OUT_OF_WINDOW"]
 EquitySource = Literal["input", "model", "none"]
 
 _CARD_KEYS: Final = frozenset(
-    {"strategy_id", "edition", "lock_k", "w_fixed", "open_window", "close_window", "output_dir"}
+    {"strategy_id", "edition", "line_k", "w_fixed", "open_window", "close_window", "output_dir"}
 )
 _PANEL_LOOKBACK_DAYS: Final = 400
 _TODAY_FILE: Final = "today.md"
@@ -42,7 +42,7 @@ _HOLD_MESSAGE: Final = "보유 확인 불가: 잠금 전 계좌에서 직접 확
 class CardConfig:
     strategy_id: str
     edition: int
-    lock_k: float
+    line_k: float
     w_fixed: float | None
     open_window: str
     close_window: str
@@ -74,6 +74,7 @@ class Card:
     names: Mapping[str, str]
     capital_krw: int
     line_basis: str | None
+    lock_w: float | None = None
 
 
 class CalendarLike(Protocol):
@@ -106,9 +107,9 @@ def load_card_config(name: str = "arena") -> CardConfig:
     edition = section["edition"]
     if type(edition) is not int:
         raise ConfigError("card.edition must be an integer")
-    lock_k = _number(section["lock_k"], "card.lock_k")
-    if not lock_k > 0.0:
-        raise ConfigError("card.lock_k must be > 0")
+    line_k = _number(section["line_k"], "card.line_k")
+    if not line_k > 0.0:
+        raise ConfigError("card.line_k must be > 0")
     w_fixed: float | None = None
     if section["w_fixed"] is not None:
         w_fixed = _number(section["w_fixed"], "card.w_fixed")
@@ -120,7 +121,7 @@ def load_card_config(name: str = "arena") -> CardConfig:
     return CardConfig(
         strategy_id=_text(section["strategy_id"], "card.strategy_id"),
         edition=edition,
-        lock_k=lock_k,
+        line_k=line_k,
         w_fixed=w_fixed,
         open_window=_text(section["open_window"], "card.open_window"),
         close_window=_text(section["close_window"], "card.close_window"),
@@ -152,7 +153,7 @@ def prize_line_multiple(
         return cfg.w_fixed
     sigmas = reference_sigma(panel, prize_cfg)
     index = panel.sessions.index(edition.start) if _line_frozen(panel, edition) else len(panel.sessions) - 1
-    return vol_scaled_line(float(sigmas[index]), horizon, cfg.lock_k)
+    return vol_scaled_line(float(sigmas[index]), horizon, cfg.line_k)
 
 
 def _line_frozen(panel: Panel, edition: EditionSpec) -> bool:
@@ -235,10 +236,10 @@ def _decision(
     return _daily_plan(targets, expected, cfg)
 
 
-def _lock_trigger(capital_krw: int, line_w: float | None, buffer: float) -> int | None:
-    if line_w is None:
+def _lock_trigger(capital_krw: int, lock_w: float | None, buffer: float) -> int | None:
+    if lock_w is None:
         return None
-    return math.floor(capital_krw * line_w * (1.0 + buffer))
+    return math.floor(capital_krw * lock_w * (1.0 + buffer))
 
 
 def build_card(
@@ -302,10 +303,11 @@ def build_card(
             line_basis = f"고정 {cfg.w_fixed:.2f}"
         elif line_w is not None:
             provisional = not _line_frozen(panel, edition)
-            line_basis = f"k={cfg.lock_k:g}" + (" 임시" if provisional else "")
+            line_basis = f"k={cfg.line_k:g}" + (" 임시" if provisional else "")
             if provisional:
                 warnings.append(_PROVISIONAL_MESSAGE)
-    lock_trigger = _lock_trigger(capital, line_w, eval_cfg.lock_trigger_buffer)
+    lock_w = None if line_w is None else float(line_power(line_w, eval_cfg.lock_level_scale))
+    lock_trigger = _lock_trigger(capital, lock_w, eval_cfg.lock_trigger_buffer)
 
     session_index = calendar.session_count(edition.start, run_date) if in_window else None
     session_total = horizon if in_window else None
@@ -365,6 +367,7 @@ def build_card(
         names=names,
         capital_krw=capital,
         line_basis=line_basis,
+        lock_w=lock_w,
     )
 
 
@@ -398,7 +401,7 @@ def _todo_lines(card: Card) -> list[str]:
         trigger = "W 미정" if card.lock_trigger_krw is None else f"{card.lock_trigger_krw:,}원"
         close_text = _action_text(close, card.names) if close.sell or close.buy else "할 일 없음 (계좌 확인만)"
         lines.append(
-            f"2. {close.window} 계좌 확인: {trigger} 이상이면 → 전량 매도, 대회 끝까지 현금 (목표 도달). "
+            f"2. {close.window} 계좌 확인: {trigger} 이상이면 → 전량 매도, 대회 끝까지 현금 (잠금 배수 도달). "
             f"아니면 → {close_text}"
         )
     return lines
@@ -415,10 +418,12 @@ def _status_lines(card: Card) -> list[str]:
     lines = [account]
     if card.line_w is not None:
         basis = f" ({card.line_basis})" if card.line_basis else ""
-        lines.append(f"- 상금 라인 W: {card.line_w:.3f}{basis}")
+        lines.append(f"- 상금 라인 W (예상 중앙값): {card.line_w:.3f}{basis}")
+    if card.lock_w is not None:
+        lines.append(f"- 잠금 배수: {card.lock_w:.3f}")
         if card.equity_krw is not None:
-            gap = card.line_w - card.equity_krw / capital
-            lines.append(f"- W까지: {gap:.3f}배" if gap > 0.0 else "- W 도달: 계좌 확인 필요")
+            gap = card.lock_w - card.equity_krw / capital
+            lines.append(f"- 잠금까지: {gap:.3f}배" if gap > 0.0 else "- 잠금 배수 도달: 계좌 확인 필요")
     if card.lock_trigger_krw is not None:
         lines.append(f"- 잠금 기준: {card.lock_trigger_krw:,}원")
     lines.append(f"- 상태: {card.status}")
@@ -455,6 +460,7 @@ def history_row(card: Card) -> dict[str, Any]:
         "equity_source": card.equity_source,
         "lock_trigger_krw": card.lock_trigger_krw,
         "line_w": card.line_w,
+        "lock_w": card.lock_w,
     }
 
 
